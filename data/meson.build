@@ -14,6 +14,7 @@ install_data(
 		'icon_ivi_smoke.png',
 		'icon_terminal.png',
 		'icon_window.png',
+		'linux.png',
 		'panel.png',
 		'pattern.png',
 		'random.png',

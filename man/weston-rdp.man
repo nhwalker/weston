@@ -44,6 +44,26 @@ to ship a file containing a certificate.
 The file containing the certificate for doing TLS security. To have TLS security you also need
 to ship a key file.
 
+.SS Section rdprail
+.TP
+\fBuse\-applist\fR=\fIfalse\fR
+Specifies whether the RDP APPLIST module is used. This is used for integration with Windows' start menu.
+Note that the mstsc rdpapplist plugin from Microsoft is required for this feature to work.
+.TP
+\fBuse-shared-memory\fR=\fIfalse\fR
+Specifies whether VAIL is used instead of RAIL. VAIL uses shared memory to exchange the frame buffers instead of copying them, and is intended for Host/VM integration.
+.TP
+\fBhi-dpi-scaling\fR=\fItrue\fR
+Specifies whether HI-DPI scaling is used. This is the default.
+.TP
+\fBsnap-arrange\fR=\fItrue\fR
+Specifies whether windows can be snapped into fullscreen mode.
+.TP
+\fBappend-distroname-title\fR=\fItrue\fR
+Append the distribution name to the titles of Windows.
+.TP
+\fBenable-copy-warning-title\fR=\fItrue\fR
+When using VAIL instead of RAIL, a warning is displayed to point out that frames are copied. This increases latency. This warning can be turned off by setting this to false.
 
 .\" ***************************************************************
 .SH OPTIONS
@@ -86,6 +106,10 @@ Specifies a file descriptor inherited from the process that launched weston
 to be listened on for client connections. Only local (such as AF_VSOCK)
 sockets should be used, as this will be considered to be a local connection
 by the RDP backend, and TLS and RDP security will be bypassed.
+.TP
+\fB\-\-disable\-security
+RDP security is disabled and no encryption is used. This should only be used
+locally or for debugging purposes.
 
 
 .\" ***************************************************************

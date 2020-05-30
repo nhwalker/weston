@@ -773,6 +773,7 @@ usage(int error_code)
 		"Options for rdp:\n\n"
 		"  --width=WIDTH\t\tWidth of desktop\n"
 		"  --height=HEIGHT\tHeight of desktop\n"
+		"  --scale=SCALE\t\tScale factor of output\n"
 		"  --env-socket\t\tUse socket defined in RDP_FD env variable as peer connection\n"
 		"  --external-listener-fd=FD\tUse socket as listener connection\n"
 		"  --address=ADDR\tThe address to bind\n"
@@ -781,6 +782,7 @@ usage(int error_code)
 		"  --rdp4-key=FILE\tThe file containing the key for RDP4 encryption\n"
 		"  --rdp-tls-cert=FILE\tThe file containing the certificate for TLS encryption\n"
 		"  --rdp-tls-key=FILE\tThe file containing the private key for TLS encryption\n"
+		"  --disable-security\t\tDisable RDP Security (not recommended)\n"
 		"\n");
 #endif
 
@@ -988,6 +990,8 @@ wet_load_shell(struct weston_compositor *compositor,
 	else
 		str_printf(&name, "%s-shell.so", _name);
 	assert(name);
+	/* We save the shell module name to differentiate desktop-shell from rdprail-shell */
+	compositor->shell_module_name = strdup(name);
 
 	shell_init = weston_load_module(name, "wet_shell_init", MODULEDIR);
 	free(name);
@@ -3721,6 +3725,18 @@ weston_rdp_backend_config_init(struct weston_rdp_backend_config *config)
 	config->force_no_compression = 0;
 	config->remotefx_codec = true;
 	config->refresh_rate = RDP_DEFAULT_FREQ;
+	config->rail_config.use_rdpapplist = false;
+	config->rail_config.use_shared_memory = false;
+	config->rail_config.enable_hi_dpi_support = false;
+	config->rail_config.enable_fractional_hi_dpi_support = false;
+	config->rail_config.enable_fractional_hi_dpi_roundup = false;
+	config->rail_config.debug_desktop_scaling_factor = 0;
+	config->rail_config.enable_window_zorder_sync = false;
+	config->rail_config.enable_window_snap_arrange = false;
+	config->rail_config.enable_window_shadow_remoting = false;
+	config->rail_config.enable_distro_name_title = false;
+	config->rail_config.enable_copy_warning_title = false;
+	config->rail_config.enable_display_power_by_screenupdate = false;
 }
 
 static int
@@ -3751,7 +3767,7 @@ rdp_backend_output_configure(struct weston_output *output)
 
 	width = config.width;
 	height = config.height;
-	scale = config.desktop_scale / 100;
+	scale = config.attributes.desktopScaleFactor / 100;
 
 	/* If these are invalid, the backend is expecting
 	 * us to provide defaults.
@@ -3814,13 +3830,17 @@ load_rdp_backend(struct weston_compositor *c,
 		{ WESTON_OPTION_INTEGER, "scale", 0, &parsed_options->scale },
 		{ WESTON_OPTION_BOOLEAN, "force-no-compression", 0, &config.force_no_compression },
 		{ WESTON_OPTION_BOOLEAN, "no-remotefx-codec", 0, &no_remotefx_codec },
+		{ WESTON_OPTION_BOOLEAN, "disable-security", 0, &config.disable_security },
 	};
 
 	parse_options(rdp_options, ARRAY_LENGTH(rdp_options), argc, argv);
 	config.remotefx_codec = !no_remotefx_codec;
 	config.resizeable = !no_resizeable;
 	config.renderer = renderer;
+	config.enable_audio_playback = true;
+	config.enable_audio_capture = true;
 
+    // 'rdp' section
 	section = weston_config_get_section(wc, "rdp", NULL, NULL);
 	weston_config_section_get_int(section, "refresh-rate",
 				      &config.refresh_rate,
@@ -3830,6 +3850,52 @@ load_rdp_backend(struct weston_compositor *c,
 					 config.server_cert);
 	weston_config_section_get_string(section, "tls-key",
 					 &config.server_key, config.server_key);
+
+	// 'rdprail' section
+	section = weston_config_get_section(wc, "rdprail", NULL, NULL);
+	weston_config_section_get_bool(section, "use-applist",
+					 &config.rail_config.use_rdpapplist, false);
+	weston_config_section_get_bool(section, "use-shared-memory",
+					 &config.rail_config.use_shared_memory, false);
+	weston_config_section_get_bool(section, "hi-dpi-scaling",
+					 &config.rail_config.enable_hi_dpi_support, true);
+
+	// The following scaling settings are experimental. We don't document them.
+	weston_config_section_get_bool(section, "fractional-hi-dpi-scaling",
+					 &config.rail_config.enable_fractional_hi_dpi_support, false);
+	if (config.rail_config.enable_fractional_hi_dpi_support) {
+		/* if fractional support is enabled, no round up */
+		config.rail_config.enable_fractional_hi_dpi_roundup = false;
+	} else {
+		weston_config_section_get_bool(section, "fractional-hi-dpi-scaling-roundup",
+				&config.rail_config.enable_fractional_hi_dpi_roundup, false);
+	}
+	weston_config_section_get_int(section, "debug-scaling-factor",
+			 &config.rail_config.debug_desktop_scaling_factor, 0);
+	if (config.rail_config.debug_desktop_scaling_factor != 0) {
+		if (config.rail_config.debug_desktop_scaling_factor < 100 ||
+			config.rail_config.debug_desktop_scaling_factor > 500) {
+				weston_log("RDP RAIL backend: the scaling factor must be in range 100-500. Got %d\n",
+						config.rail_config.debug_desktop_scaling_factor);
+				return -1;
+		}
+	}
+
+    // Some advanced RAIL settings.
+    weston_config_section_get_bool(section, "snap-arrange",
+                     &config.rail_config.enable_window_snap_arrange, true);
+    weston_config_section_get_bool(section, "append-distroname-title",
+                     &config.rail_config.enable_distro_name_title, true);
+    weston_config_section_get_bool(section, "enable-copy-warning-title",
+                     &config.rail_config.enable_copy_warning_title, true);
+
+    // Some VERY advanced RAIL settings. We don't document them.
+    weston_config_section_get_bool(section, "window-zorder-sync",
+                     &config.rail_config.enable_window_zorder_sync, true);
+    weston_config_section_get_bool(section, "shadow-remoting",
+                     &config.rail_config.enable_window_shadow_remoting, true);
+    weston_config_section_get_bool(section, "display-power-by-screenupdate",
+                     &config.rail_config.enable_display_power_by_screenupdate, false);
 
 	wb = wet_compositor_load_backend(c, WESTON_BACKEND_RDP, &config.base,
 					 simple_heads_changed,
@@ -4825,7 +4891,8 @@ wet_main(int argc, char *argv[], const struct weston_testsuite_data *test_data)
 			goto out;
 	}
 
-	weston_compositor_wake(wet.compositor);
+	/* Until RDP connection is established, keep compositor sleep state */
+	weston_compositor_sleep(wet.compositor);
 
 	if (argc > 1) {
 		if (execute_command(&wet, argc, argv) < 0)
