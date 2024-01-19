@@ -158,10 +158,9 @@ void backlight_destroy(struct backlight *backlight)
 	free(backlight);
 }
 
-struct backlight *backlight_init(struct udev_device *drm_device,
+struct backlight *backlight_init(const char *syspath,
 				 uint32_t connector_type)
 {
-	const char *syspath = NULL;
 	char *pci_name = NULL;
 	char *chosen_path = NULL;
 	char *path = NULL;
@@ -172,10 +171,6 @@ struct backlight *backlight_init(struct udev_device *drm_device,
 	struct backlight *backlight = NULL;
 	int ret;
 
-	if (!drm_device)
-		return NULL;
-
-	syspath = udev_device_get_syspath(drm_device);
 	if (!syspath)
 		return NULL;
 

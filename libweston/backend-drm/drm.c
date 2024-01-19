@@ -3176,7 +3176,8 @@ drm_head_create(struct drm_device *device, drmModeConnector *conn,
 	if (ret < 0)
 		goto err_update;
 
-	head->backlight = backlight_init(drm_device, conn->connector_type);
+	head->backlight = backlight_init(device->drm.syspath,
+					 conn->connector_type);
 	if (head->backlight && head->backlight->max_brightness == 0) {
 		weston_log("Failed to retreive a valid value for max_brightness"
 			   " from connector %d. Backlight disabled\n",
@@ -4015,6 +4016,7 @@ drm_destroy(struct weston_backend *backend)
 	hash_table_destroy(device->gem_handle_refcnt);
 
 	free(device->drm.filename);
+	free(device->drm.syspath);
 	free(device);
 	free(b);
 }
@@ -4092,6 +4094,7 @@ drm_device_is_kms(struct drm_backend *b, struct drm_device *device,
 	struct weston_compositor *compositor = b->compositor;
 	const char *filename = udev_device_get_devnode(udev_device);
 	const char *sysnum = udev_device_get_sysnum(udev_device);
+	const char *syspath = udev_device_get_syspath(udev_device);
 	dev_t devnum = udev_device_get_devnum(udev_device);
 	drmModeRes *res;
 	int id = -1, fd;
@@ -4123,10 +4126,12 @@ drm_device_is_kms(struct drm_backend *b, struct drm_device *device,
 	if (device->drm.fd >= 0)
 		weston_launcher_close(compositor->launcher, device->drm.fd);
 	free(device->drm.filename);
+	free(device->drm.syspath);
 
 	device->drm.fd = fd;
 	device->drm.id = id;
 	device->drm.filename = strdup(filename);
+	device->drm.syspath = syspath ? strdup(syspath) : NULL;
 	device->drm.devnum = devnum;
 
 	drmModeFreeResources(res);
