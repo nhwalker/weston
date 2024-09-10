@@ -2009,7 +2009,7 @@ drm_output_set_content_type(struct weston_output *base,
 }
 
 static int
-drm_output_init_gamma_size(struct drm_output *output)
+drm_output_init_legacy_gamma_size(struct drm_output *output)
 {
 	struct drm_device *device = output->device;
 	drmModeCrtc *crtc;
@@ -2020,7 +2020,7 @@ drm_output_init_gamma_size(struct drm_output *output)
 	if (!crtc)
 		return -1;
 
-	output->base.gamma_size = crtc->gamma_size;
+	output->legacy_gamma_size = crtc->gamma_size;
 
 	drmModeFreeCrtc(crtc);
 
@@ -2471,7 +2471,7 @@ drm_output_enable(struct weston_output *base)
 	if (ret < 0)
 		goto err_crtc;
 
-	if (drm_output_init_gamma_size(output) < 0)
+	if (drm_output_init_legacy_gamma_size(output) < 0)
 		goto err_planes;
 
 	if (b->pageflip_timeout)
@@ -2495,7 +2495,6 @@ drm_output_enable(struct weston_output *base)
 	output->base.assign_planes = drm_assign_planes;
 	output->base.set_dpms = drm_set_dpms;
 	output->base.switch_mode = drm_output_switch_mode;
-	output->base.set_gamma = drm_output_set_gamma;
 
 	if (device->atomic_modeset)
 		weston_output_update_capture_info(base, WESTON_OUTPUT_CAPTURE_SOURCE_WRITEBACK,
