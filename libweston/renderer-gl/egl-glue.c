@@ -75,6 +75,7 @@ static const struct gl_extension_table display_table[] = {
 	EXT("EGL_EXT_buffer_age", EXTENSION_EXT_BUFFER_AGE),
 	EXT("EGL_EXT_image_dma_buf_import", EXTENSION_EXT_IMAGE_DMA_BUF_IMPORT),
 	EXT("EGL_EXT_image_dma_buf_import_modifiers", EXTENSION_EXT_IMAGE_DMA_BUF_IMPORT_MODIFIERS),
+	EXT("EGL_EXT_pixel_format_float", EXTENSION_EXT_PIXEL_FORMAT_FLOAT),
 	EXT("EGL_EXT_swap_buffers_with_damage", EXTENSION_EXT_SWAP_BUFFERS_WITH_DAMAGE),
 	EXT("EGL_IMG_context_priority", EXTENSION_IMG_CONTEXT_PRIORITY),
 	EXT("EGL_KHR_fence_sync", EXTENSION_KHR_FENCE_SYNC),
@@ -440,6 +441,9 @@ gl_renderer_get_egl_config(struct gl_renderer *gr,
 	EGLConfig egl_config;
 	unsigned i;
 	char *what;
+	bool contains_float_point_format = false;
+	bool contains_fixed_point_format = false;
+	int ret = -1;
 	EGLint config_attribs[] = {
 		EGL_SURFACE_TYPE,    egl_surface_type,
 		EGL_RED_SIZE,        1,
@@ -448,16 +452,38 @@ gl_renderer_get_egl_config(struct gl_renderer *gr,
 		EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
 		EGL_NONE
 	};
+	EGLint config_attribs_float[] = {
+		EGL_SURFACE_TYPE,    egl_surface_type,
+		EGL_RED_SIZE,        1,
+		EGL_GREEN_SIZE,      1,
+		EGL_BLUE_SIZE,       1,
+		EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+		EGL_COLOR_COMPONENT_TYPE_EXT, EGL_COLOR_COMPONENT_TYPE_FLOAT_EXT,
+		EGL_NONE
+	};
 
-	for (i = 0; i < formats_count; i++)
+	for (i = 0; i < formats_count; i++) {
 		assert(formats[i]);
+		if (formats[i]->component_type == PIXEL_COMPONENT_TYPE_FLOAT)
+			contains_float_point_format = true;
+		else if (formats[i]->component_type == PIXEL_COMPONENT_TYPE_FIXED)
+			contains_fixed_point_format = true;
+	}
 
 	if (egl_config_is_compatible(gr, gr->egl_config, egl_surface_type,
 				     formats, formats_count))
 		return gr->egl_config;
 
-	if (egl_choose_config(gr, config_attribs, formats, formats_count,
-			      &egl_config) < 0) {
+	if (contains_float_point_format &&
+	    egl_display_has(gr, EXTENSION_EXT_PIXEL_FORMAT_FLOAT))
+		ret = egl_choose_config(gr, config_attribs_float,
+					formats, formats_count, &egl_config);
+
+	if (ret < 0 && contains_fixed_point_format)
+		ret = egl_choose_config(gr, config_attribs,
+					formats, formats_count, &egl_config);
+
+	if (ret < 0) {
 		what = explain_egl_config_criteria(egl_surface_type,
 						   formats, formats_count);
 		weston_log("No EGLConfig matches %s.\n", what);
