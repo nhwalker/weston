@@ -41,6 +41,7 @@
 #include "pixel-formats.h"
 #include "renderer-gl/gl-renderer.h"
 #include "shared/weston-egl-ext.h"
+#include "shared/weston-assert.h"
 #include "linux-dmabuf.h"
 #include "linux-explicit-synchronization.h"
 
@@ -212,26 +213,161 @@ create_gbm_surface(struct gbm_device *gbm, struct drm_output *output)
 							 output->gbm_bo_flags);
 }
 
+static const struct pixel_format_info *
+find_compatible_format(struct weston_compositor *compositor,
+		       struct wl_array *formats,
+		       int min_bpc, bool alpha_required)
+{
+	const struct pixel_format_info **p;
+	int bpc[3] = {8, 10, 16};
+	int32_t a, r, g, b;
+	unsigned int i;
+
+	/**
+	 * This function works for min bpc 8, 10 and 16; expand it if you need
+	 * it to be more generic.
+	 */
+	if (min_bpc != 8 && min_bpc != 10 && min_bpc != 16)
+		weston_assert_not_reached(compositor,
+					  "only 8, 10 and 16 are valid for min bpc");
+
+	for (i = 0; i < ARRAY_LENGTH(bpc); i++) {
+		if (min_bpc > bpc[i])
+			continue;
+
+		wl_array_for_each(p, formats) {
+			a = (*p)->bits.a;
+			r = (*p)->bits.r;
+			g = (*p)->bits.g;
+			b = (*p)->bits.b;
+
+			if (r != bpc[i] || g != bpc[i] || b != bpc[i])
+				continue;
+			if (alpha_required && a == 0)
+				continue;
+			return *p;
+		}
+	}
+
+	return NULL;
+}
+
+static bool
+drm_output_pick_format_egl(struct drm_output *output)
+{
+	struct drm_device *device = output->device;
+	struct drm_backend *b = device->backend;
+	struct weston_compositor *compositor = b->compositor;
+	const struct weston_renderer *renderer = compositor->renderer;
+	const struct pixel_format_info **renderer_formats;
+	const struct pixel_format_info **f;
+	unsigned int renderer_formats_count;
+	struct wl_array supported_formats;
+	unsigned int i;
+	bool ret = true;
+	bool found;
+
+	wl_array_init(&supported_formats);
+
+	/**
+	 * This computes the intersection between renderer formats supported by
+	 * EGL and the output->scanout_plane supported formats. We need that as
+	 * we want to select a format supported by both.
+	 */
+	renderer_formats =
+		renderer->gl->get_supported_rendering_formats(b->compositor,
+							      &renderer_formats_count);
+	for (i = 0; i < renderer_formats_count; i++) {
+		if (!weston_drm_format_array_find_format(&output->scanout_plane->formats,
+							 renderer_formats[i]->format))
+			continue;
+
+		f = wl_array_add(&supported_formats, sizeof(*f));
+		*f = renderer_formats[i];
+	}
+
+	if (output->base.eotf_mode != WESTON_EOTF_MODE_SDR) {
+		if (b->has_underlay) {
+			output->format =
+				find_compatible_format(compositor, &supported_formats,
+						       10, /* min bpc */
+						       true /* alpha required */);
+			if (output->format) {
+				goto done;
+			} else {
+				weston_log("Disabling underlay planes: EOTF mode %s requires 10BPC formats, and underlay\n" \
+					   "requires format with alpha channel. Couldn't find any 10BPC format with alpha.\n",
+					   weston_eotf_mode_to_str(output->base.eotf_mode));
+				b->has_underlay = false;
+			}
+		}
+
+		output->format =
+			find_compatible_format(compositor, &supported_formats,
+					       10, /* min bpc */
+					       false /* alpha required */);
+		if (output->format) {
+			goto done;
+		} else {
+			weston_log("Error: EOTF mode %s requires 10bpc formats. Couldn't find any.\n",
+				   weston_eotf_mode_to_str(output->base.eotf_mode));
+			ret = false;
+			goto done;
+		}
+	}
+
+	found = false;
+	wl_array_for_each(f, &supported_formats) {
+		if ((*f)->format == b->format->format) {
+			found = true;
+			break;
+		}
+	}
+	if (!found) {
+		weston_log("Error, b->format %s unsupported by EGL and output->scanout_plane.\n",
+			   b->format->drm_format_name);
+		ret = false;
+		goto done;
+	}
+
+	if (b->has_underlay && (b->format->bits.a == 0)) {
+		weston_log("Disabling underlay planes: b->format %s does not have alpha channel,\n"
+			   "which is required to support underlay planes.\n",
+			   b->format->drm_format_name);
+		b->has_underlay = false;
+	}
+
+	output->format = b->format;
+
+done:
+	wl_array_release(&supported_formats);
+	return ret;
+}
+
 /* Init output state that depends on gl or gbm */
 int
 drm_output_init_egl(struct drm_output *output, struct drm_backend *b)
 {
 	const struct weston_renderer *renderer = b->compositor->renderer;
 	const struct weston_mode *mode = output->base.current_mode;
-	const struct pixel_format_info *format[2] = {
-		output->format,
-		fallback_format_for(output->format),
-	};
-	struct gl_renderer_output_options options = {
-		.formats = format,
-		.formats_count = 1,
-		.area.x = 0,
-		.area.y = 0,
-		.area.width = mode->width,
-		.area.height = mode->height,
-		.fb_size.width = mode->width,
-		.fb_size.height = mode->height,
-	};
+	const struct pixel_format_info *format[2];
+	struct gl_renderer_output_options options;
+
+	if (!output->format && !drm_output_pick_format_egl(output))
+		return -1;
+
+	format[0] = output->format;
+	if (!b->has_underlay)
+		format[1] = fallback_format_for(output->format);
+
+	options.formats = format;
+	options.formats_count = format[1] ? 2 : 1;
+	options.area.x = 0;
+	options.area.y = 0;
+	options.area.width = mode->width;
+	options.area.height = mode->height;
+	options.fb_size.width = mode->width;
+	options.fb_size.height = mode->height;
 
 	assert(output->gbm_surface == NULL);
 	create_gbm_surface(b->gbm, output);
