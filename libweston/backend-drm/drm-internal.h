@@ -518,6 +518,17 @@ struct drm_writeback {
 	struct weston_drm_format_array formats;
 };
 
+struct drm_crtc_color_transform {
+	/* drm_crtc::cached_color_xform_list */
+	struct wl_list link;
+	struct drm_crtc *crtc;
+
+	struct weston_color_transform *xform;
+	struct wl_listener destroy_listener;
+
+	uint32_t blob_id;
+};
+
 struct drm_head {
 	struct weston_head base;
 	struct drm_connector connector;
@@ -545,6 +556,9 @@ struct drm_crtc {
 
 	uint32_t crtc_id; /* object ID to pass to DRM functions */
 	int pipe; /* index of CRTC in resource array / bitmasks */
+
+	/* struct drm_crtc_color_transform::link  */
+	struct wl_list cached_color_xform_list;
 
 	/* Holds the properties for the CRTC */
 	struct drm_property_info props_crtc[WDRM_CRTC__COUNT];
@@ -586,6 +600,7 @@ struct drm_output {
 
 	bool legacy_gamma_not_supported;
 	uint16_t legacy_gamma_size;
+	struct drm_crtc_color_transform *blend_to_output_xform;
 
 	/* Plane being displayed directly on the CRTC */
 	struct drm_plane *scanout_plane;

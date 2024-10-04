@@ -1326,6 +1326,8 @@ struct weston_compositor {
 	struct weston_idalloc *color_profile_id_generator;
 	struct weston_idalloc *color_transform_id_generator;
 
+	bool offload_blend_to_output;
+
 	struct weston_renderer *renderer;
 	const struct pixel_format_info *read_format;
 

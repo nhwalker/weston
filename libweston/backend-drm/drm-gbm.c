@@ -286,6 +286,36 @@ drm_output_pick_format_egl(struct drm_output *output)
 		*f = renderer_formats[i];
 	}
 
+	if (output->base.from_blend_to_output_by_backend) {
+		if (b->has_underlay) {
+			output->format =
+				find_compatible_format(compositor, &supported_formats,
+						       16, /* min bpc */
+						       true /* alpha required */);
+			if (output->format) {
+				goto done;
+			} else {
+				weston_log("Disabling underlay planes: offloading blend-to-output color transformation\n" \
+					   "requires 16BPC formats, and underlay requires format with alpha channel.\n" \
+					   "Couldn't find any 16BPC format with alpha.\n");
+				b->has_underlay = false;
+			}
+		}
+
+		output->format =
+			find_compatible_format(compositor, &supported_formats,
+					       16, /* min bpc */
+					       false /* alpha required */);
+		if (output->format) {
+			goto done;
+		} else {
+			weston_log("Error: offloading blend-to-output color transformation, that requires\n" \
+				   "16bpc formats.\n");
+			ret = false;
+			goto done;
+		}
+	}
+
 	if (output->base.eotf_mode != WESTON_EOTF_MODE_SDR) {
 		if (b->has_underlay) {
 			output->format =
