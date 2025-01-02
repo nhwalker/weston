@@ -36,6 +36,7 @@
 #include <string.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <limits.h>
 #include <linux/input.h>
 #include <linux/vt.h>
 #include <assert.h>
@@ -2702,6 +2703,42 @@ drm_writeback_update_info(struct drm_writeback *writeback, drmModeConnector *con
 	return ret;
 }
 
+/** Get connector alias name
+ * @param device DRM device structure
+ * @param drm_device udev device pointer
+ * @param conn_name drm connector name
+ * @returns connector alias name, NULL on failure,  Must be free() after use
+*/
+static char *
+drm_connector_get_alias_name(struct drm_device *device, struct udev_device *drm_device, const char* conn_name)
+{
+	struct drm_backend *backend = device->backend;
+	struct udev_device *connector_device;
+	const char* syspath;
+	const char* connector_alais_name;
+	char connector_syspath[PATH_MAX];
+	char* alias_name;
+
+	syspath = udev_device_get_syspath(drm_device);
+	if (!syspath)
+		return NULL;
+
+	sprintf(connector_syspath, "%s/card%d-%s", syspath, device->drm.id, conn_name);
+	connector_device = udev_device_new_from_syspath(backend->udev, connector_syspath);
+	if (!connector_device)
+		return NULL;
+
+	connector_alais_name = udev_device_get_property_value(connector_device, "WL_OUTPUT_ALIAS_NAME");
+	if (!connector_alais_name) {
+		udev_device_unref(connector_device);
+		return NULL;
+	}
+
+	alias_name = strdup(connector_alais_name);
+	udev_device_unref(connector_device);
+	return alias_name;
+}
+
 /**
  * Create a Weston head for a connector
  *
@@ -2721,7 +2758,9 @@ drm_head_create(struct drm_device *device, drmModeConnector *conn,
 {
 	struct drm_backend *backend = device->backend;
 	struct drm_head *head;
+	struct weston_head *base;
 	char *name;
+	char* alias_name;
 	int ret;
 
 	head = zalloc(sizeof *head);
@@ -2733,6 +2772,20 @@ drm_head_create(struct drm_device *device, drmModeConnector *conn,
 	name = make_connector_name(conn);
 	if (!name)
 		goto err;
+
+	alias_name = drm_connector_get_alias_name(device, drm_device, name);
+	if (alias_name) {
+		// Use connector alais name as output name
+		free(name);
+		name = alias_name;
+	}
+
+	base = weston_compositor_find_head(backend->compositor, name);
+	if (base) {
+		weston_log("drm connector name (%s) is conflict with a previous head\n", name);
+		free(name);
+		return -1;
+	}
 
 	weston_head_init(&head->base, name);
 	free(name);
