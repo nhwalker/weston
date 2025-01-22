@@ -971,6 +971,11 @@ move_grab_button(struct weston_pointer_grab *grab,
 		shell_grab_end(shell_grab);
 		free(grab);
 
+#ifdef WM_DEBUG
+	   weston_log("%s: grab released. %i\n",
+				  __func__, shsurf->maximized.grab_maximize_when_released);
+#endif
+
 		/* If grab_maximize_when_released is true, maximize */
 		if (shsurf->maximized.grab_maximize_when_released) {
 			grab_maximize_motion(shsurf);
