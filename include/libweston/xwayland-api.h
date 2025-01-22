@@ -161,6 +161,15 @@ struct weston_xwayland_surface_api {
 	 */
 	const char *
 	(*get_xwayland_window_name)(struct weston_surface *surface, enum window_atom_type atype);
+
+	/** Get the saved geometry of the window (when not maximized / minimized)
+	 *
+	 * \param surface The Xwayland surface.
+	 * \param saved_height
+	 * \param saved_width
+	 */
+	void
+	(*get_saved_geometry)(struct weston_surface *surface, int32_t *saved_height, int32_t *saved_width);
 };
 
 /** Retrieve the API object for the libweston Xwayland surface.
