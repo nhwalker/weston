@@ -172,9 +172,9 @@ test_assert_fail(const char *fmt, ...)
 #define test_assert_enum(a, b)          test_assert_u64_eq(a, b)
 
 /* Explicitly abort when reached. */
-#define test_assert_not_reached(reason) \
+#define test_assert_not_reached(...) \
 do { \
-	weston_assert_not_reached(reason); \
+	weston_assert_not_reached(__VA_ARGS__); \
 	abort(); \
 } while (0)
 

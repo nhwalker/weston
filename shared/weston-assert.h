@@ -71,10 +71,6 @@ weston_assert_fail_(const char *fmt, ...)
 	cond;									\
 })
 
-#define weston_assert_not_reached(reason) \
-	custom_assert_fail_("%s:%u: Assertion failed! This should not be reached: %s\n",	\
-			    __FILE__, __LINE__, reason)
-
 #define weston_assert_true(a) \
 	weston_assert_(a, true, bool, "%d", ==)
 
@@ -151,3 +147,29 @@ weston_assert_fail_(const char *fmt, ...)
 				    __FILE__, __LINE__, #value, v_, ill, #mask, m_); \
 	cond;									\
 })
+
+#define weston_assert_has_arg____(a, b, c, ...) c
+#define weston_assert_has_arg___(...) \
+	weston_assert_has_arg____(__VA_ARGS__, 0, 1)
+#define weston_assert_has_arg__(...) \
+	weston_assert_has_arg___(_, ## __VA_ARGS__)
+#define weston_assert_has_arg_(...) weston_assert_has_arg__(__VA_ARGS__)
+#define weston_assert_concat__(a, b) a ## b
+#define weston_assert_concat_(a, b) weston_assert_concat__(a, b)
+#define weston_assert_if_0(a, b) a
+#define weston_assert_if_1(a, b) b
+#define weston_assert_if_(cond, a, b) \
+	weston_assert_concat_(weston_assert_if_, cond)(a, b)
+
+#define weston_assert_not_reached_str_(str) \
+	custom_assert_fail_("%s:%u: Assertion failed! Not reached: %s\n", \
+			    __FILE__, __LINE__, str)
+
+#define weston_assert_not_reached_no_str_() \
+	custom_assert_fail_("%s:%u: Assertion failed! Not reached.\n", \
+			    __FILE__, __LINE__)
+
+#define weston_assert_not_reached(...) \
+	weston_assert_if_(weston_assert_has_arg_(__VA_ARGS__), \
+			  weston_assert_not_reached_str_(__VA_ARGS__), \
+			  weston_assert_not_reached_no_str_())

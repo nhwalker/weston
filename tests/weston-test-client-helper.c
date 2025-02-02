@@ -527,7 +527,7 @@ create_shm_buffer(struct client *client, int width, int height,
 	data = mmap(NULL, buf->len, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 	if (data == MAP_FAILED) {
 		close(fd);
-		test_assert_not_reached("Unreachable");
+		test_assert_not_reached();
 	}
 
 	pool = wl_shm_create_pool(shm, fd, buf->len);

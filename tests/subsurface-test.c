@@ -721,7 +721,7 @@ create_subsurface_tree(struct client *client, struct wl_surface **surfs,
 
 	switch (n) {
 	default:
-		test_assert_not_reached("Unreachable");
+		test_assert_not_reached();
 		break;
 
 #define SUB_LINK(s,p) \
