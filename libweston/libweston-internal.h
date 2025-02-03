@@ -253,6 +253,9 @@ weston_binding_list_destroy_all(struct wl_list *list);
 
 /* weston_compositor */
 
+struct weston_compositor *
+weston_compositor_get_instance(void);
+
 void
 touch_calibrator_mode_changed(struct weston_compositor *compositor);
 

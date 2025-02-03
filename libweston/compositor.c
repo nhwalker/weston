@@ -99,6 +99,8 @@
 
 #define DEFAULT_REPAINT_WINDOW 7 /* milliseconds */
 
+static struct weston_compositor *compositor_instance = NULL;
+
 static void
 weston_output_transform_scale_init(struct weston_output *output,
 				   uint32_t transform, uint32_t scale);
@@ -9629,7 +9631,8 @@ weston_compositor_get_test_data(struct weston_compositor *ec)
 
 /** Create the compositor.
  *
- * This functions creates and initializes a compositor instance.
+ * This functions creates and initializes a compositor instance. Only one
+ * instance can be created.
  *
  * \param display The Wayland display to be used.
  * \param user_data A pointer to an object that can later be retrieved
@@ -9648,7 +9651,7 @@ weston_compositor_create(struct wl_display *display,
 	struct weston_compositor *ec;
 	struct wl_event_loop *loop;
 
-	if (!log_ctx)
+	if (compositor_instance || !log_ctx)
 		return NULL;
 
 	ec = zalloc(sizeof *ec);
@@ -9787,11 +9790,20 @@ weston_compositor_create(struct wl_display *display,
 		weston_compositor_add_log_scope(ec, "libseat-debug",
 						"libseat debug messages\n",
 						NULL, NULL, NULL);
+
+	compositor_instance = ec;
+
 	return ec;
 
 fail:
 	free(ec);
 	return NULL;
+}
+
+WL_EXPORT struct weston_compositor *
+weston_compositor_get_instance(void)
+{
+	return compositor_instance;
 }
 
 /** weston_compositor_shutdown
@@ -10270,6 +10282,8 @@ weston_compositor_destroy(struct weston_compositor *compositor)
 	}
 
 	free(compositor);
+
+	compositor_instance = NULL;
 }
 
 /** Instruct the compositor to exit.
