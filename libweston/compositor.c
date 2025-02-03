@@ -1332,7 +1332,6 @@ weston_surface_set_color_profile(struct weston_surface *surface,
 				 struct weston_color_profile *cprof,
 				 const struct weston_render_intent_info *render_intent)
 {
-	struct weston_color_manager *cm = surface->compositor->color_manager;
 	struct weston_paint_node *pnode;
 
 	/* Nothing to do. */
@@ -1341,8 +1340,7 @@ weston_surface_set_color_profile(struct weston_surface *surface,
 		return;
 
 	if (!!cprof ^ !!render_intent)
-		weston_assert_not_reached(cm->compositor,
-					  "received valid cprof and NULL render intent, " \
+		weston_assert_not_reached("received valid cprof and NULL render intent, " \
 					  "or vice versa; invalid for this function");
 
 	/* Remove outdated cached color transformations */
@@ -7089,8 +7087,7 @@ WL_EXPORT void
 weston_head_set_supported_eotf_mask(struct weston_head *head,
 				    uint32_t eotf_mask)
 {
-	weston_assert_legal_bits(head->compositor,
-				 eotf_mask, WESTON_EOTF_MODE_ALL_MASK);
+	weston_assert_legal_bits(eotf_mask, WESTON_EOTF_MODE_ALL_MASK);
 
 	if (head->supported_eotf_mask == eotf_mask)
 		return;
@@ -7115,8 +7112,8 @@ WL_EXPORT void
 weston_head_set_supported_colorimetry_mask(struct weston_head *head,
 					   uint32_t colorimetry_mask)
 {
-	weston_assert_legal_bits(head->compositor,
-				 colorimetry_mask, WESTON_COLORIMETRY_MODE_ALL_MASK);
+	weston_assert_legal_bits(colorimetry_mask,
+				 WESTON_COLORIMETRY_MODE_ALL_MASK);
 
 	if (head->supported_colorimetry_mask == colorimetry_mask)
 		return;
@@ -7130,8 +7127,7 @@ WL_EXPORT void
 weston_head_set_supported_vrr_modes_mask(struct weston_head *head,
                                          uint32_t vrr_mode_mask)
 {
-	weston_assert_legal_bits(head->compositor,
-				 vrr_mode_mask,
+	weston_assert_legal_bits(vrr_mode_mask,
 				 WESTON_VRR_MODE_ALL_MASK);
 
 	if (head->supported_vrr_mode_mask == vrr_mode_mask)
@@ -8004,7 +8000,7 @@ WL_EXPORT void
 weston_output_set_eotf_mode(struct weston_output *output,
 			    enum weston_eotf_mode eotf_mode)
 {
-	weston_assert_false(output->compositor, output->enabled);
+	weston_assert_false(output->enabled);
 
 	output->eotf_mode = eotf_mode;
 }
@@ -8054,7 +8050,7 @@ WL_EXPORT void
 weston_output_set_colorimetry_mode(struct weston_output *output,
 				   enum weston_colorimetry_mode colorimetry_mode)
 {
-	weston_assert_false(output->compositor, output->enabled);
+	weston_assert_false(output->enabled);
 
 	output->colorimetry_mode = colorimetry_mode;
 }

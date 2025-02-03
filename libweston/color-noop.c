@@ -158,17 +158,16 @@ cmnoop_get_surface_color_transform(struct weston_color_manager *cm_base,
 				   struct weston_output *output,
 				   struct weston_surface_color_transform *surf_xform)
 {
-	struct weston_compositor *compositor = output->compositor;
 	struct weston_color_manager_noop *cmnoop = to_cmnoop(cm_base);
 
 	/* If surface has a cprof, it has to be the stock one. */
 	if (surface->color_profile)
-		weston_assert_ptr_eq(compositor, to_cmnoop_cprof(surface->color_profile),
+		weston_assert_ptr_eq(to_cmnoop_cprof(surface->color_profile),
 				     cmnoop->stock_cprof);
 
 	/* The output must have a cprof, and it has to be the stock one. */
-	weston_assert_ptr_not_null(compositor, output->color_profile);
-	weston_assert_ptr_eq(compositor, to_cmnoop_cprof(output->color_profile),
+	weston_assert_ptr_not_null(output->color_profile);
+	weston_assert_ptr_eq(to_cmnoop_cprof(output->color_profile),
 			     cmnoop->stock_cprof);
 
 	if (!check_output_eotf_mode(output))
@@ -185,12 +184,11 @@ static struct weston_output_color_outcome *
 cmnoop_create_output_color_outcome(struct weston_color_manager *cm_base,
 				   struct weston_output *output)
 {
-	struct weston_compositor *compositor = cm_base->compositor;
 	struct weston_color_manager_noop *cmnoop = to_cmnoop(cm_base);
 	struct weston_output_color_outcome *co;
 
-	weston_assert_ptr_not_null(compositor, output->color_profile);
-	weston_assert_ptr_eq(compositor, to_cmnoop_cprof(output->color_profile),
+	weston_assert_ptr_not_null(output->color_profile);
+	weston_assert_ptr_eq(to_cmnoop_cprof(output->color_profile),
 			     cmnoop->stock_cprof);
 
 	if (!check_output_eotf_mode(output))
@@ -245,8 +243,7 @@ cmnoop_destroy(struct weston_color_manager *cm_base)
 	 * Currently we have a bug in which we leak surfaces when shutting down
 	 * Weston with client surfaces alive, and these surfaces may have a
 	 * reference to the stock sRGB profile. */
-	weston_assert_uint32_gt_or_eq(cm_base->compositor,
-				      cmnoop->stock_cprof->base.ref_count, 1);
+	weston_assert_uint32_gt_or_eq(cmnoop->stock_cprof->base.ref_count, 1);
 	unref_cprof(cmnoop->stock_cprof);
 
 	free(cmnoop);

@@ -32,11 +32,9 @@
 #include <stdbool.h>
 #include <inttypes.h>
 
-struct weston_compositor;
-
-__attribute__((noreturn, format(printf, 2, 3)))
+__attribute__((noreturn, format(printf, 1, 2)))
 static inline void
-weston_assert_fail_(const struct weston_compositor *compositor, const char *fmt, ...)
+weston_assert_fail_(const char *fmt, ...)
 {
 	va_list ap;
 
@@ -51,111 +49,103 @@ weston_assert_fail_(const struct weston_compositor *compositor, const char *fmt,
 #define custom_assert_fail_ weston_assert_fail_
 #endif
 
-#define weston_assert_(compositor, a, b, val_type, val_fmt, cmp)		\
+#define weston_assert_(a, b, val_type, val_fmt, cmp)				\
 ({										\
-	struct weston_compositor *ec = compositor;				\
 	val_type a_ = (a);							\
 	val_type b_ = (b);							\
 	bool cond = a_ cmp b_;							\
 	if (!cond)								\
-		custom_assert_fail_(ec, "%s:%u: Assertion %s %s %s (" val_fmt " %s " val_fmt ") failed!\n",	\
+		custom_assert_fail_("%s:%u: Assertion %s %s %s (" val_fmt " %s " val_fmt ") failed!\n",	\
 				    __FILE__, __LINE__, #a, #cmp, #b, a_, #cmp, b_);				\
 	cond;									\
 })
 
-#define weston_assert_fn_(compositor, fn, a, b, val_type, val_fmt, cmp)		\
+#define weston_assert_fn_(fn, a, b, val_type, val_fmt, cmp)			\
 ({										\
-	struct weston_compositor *ec = compositor;				\
 	val_type a_ = (a);							\
 	val_type b_ = (b);							\
 	bool cond = fn(a_, b_) cmp 0;						\
 	if (!cond)								\
-		custom_assert_fail_(ec, "%s:%u: Assertion %s %s %s (" val_fmt " %s " val_fmt ") failed!\n",	\
+		custom_assert_fail_("%s:%u: Assertion %s %s %s (" val_fmt " %s " val_fmt ") failed!\n",	\
 				    __FILE__, __LINE__, #a, #cmp, #b, a_, #cmp, b_);				\
 	cond;									\
 })
 
-#define weston_assert_not_reached(compositor, reason)				\
-do {										\
-	struct weston_compositor *ec = compositor;				\
-	custom_assert_fail_(ec, "%s:%u: Assertion failed! This should not be reached: %s\n",	\
-			    __FILE__, __LINE__, reason);					\
-} while (0)
+#define weston_assert_not_reached(reason) \
+	custom_assert_fail_("%s:%u: Assertion failed! This should not be reached: %s\n",	\
+			    __FILE__, __LINE__, reason)
 
-#define weston_assert_true(compositor, a) \
-	weston_assert_(compositor, a, true, bool, "%d", ==)
+#define weston_assert_true(a) \
+	weston_assert_(a, true, bool, "%d", ==)
 
-#define weston_assert_false(compositor, a) \
-	weston_assert_(compositor, a, false, bool, "%d", ==)
+#define weston_assert_false(a) \
+	weston_assert_(a, false, bool, "%d", ==)
 
-#define weston_assert_ptr_not_null(compositor, a) \
-	weston_assert_(compositor, a, NULL, const void *, "%p", !=)
+#define weston_assert_ptr_not_null(a) \
+	weston_assert_(a, NULL, const void *, "%p", !=)
 
-#define weston_assert_ptr_null(compositor, a) \
-	weston_assert_(compositor, a, NULL, const void *, "%p", ==)
+#define weston_assert_ptr_null(a) \
+	weston_assert_(a, NULL, const void *, "%p", ==)
 
-#define weston_assert_ptr_eq(compositor, a, b) \
-	weston_assert_(compositor, a, b, const void *, "%p", ==)
+#define weston_assert_ptr_eq(a, b) \
+	weston_assert_(a, b, const void *, "%p", ==)
 
-#define weston_assert_double_eq(compositor, a, b) \
-	weston_assert_(compositor, a, b, double, "%.10g", ==)
+#define weston_assert_double_eq(a, b) \
+	weston_assert_(a, b, double, "%.10g", ==)
 
-#define weston_assert_uint32_eq(compositor, a, b) \
-	weston_assert_(compositor, a, b, uint32_t, "%u", ==)
+#define weston_assert_uint32_eq(a, b) \
+	weston_assert_(a, b, uint32_t, "%u", ==)
 
-#define weston_assert_uint32_neq(compositor, a, b) \
-	weston_assert_(compositor, a, b, uint32_t, "%u", !=)
+#define weston_assert_uint32_neq(a, b) \
+	weston_assert_(a, b, uint32_t, "%u", !=)
 
-#define weston_assert_uint32_gt(compositor, a, b) \
-	weston_assert_(compositor, a, b, uint32_t, "%u", >)
+#define weston_assert_uint32_gt(a, b) \
+	weston_assert_(a, b, uint32_t, "%u", >)
 
-#define weston_assert_uint32_gt_or_eq(compositor, a, b) \
-	weston_assert_(compositor, a, b, uint32_t, "%u", >=)
+#define weston_assert_uint32_gt_or_eq(a, b) \
+	weston_assert_(a, b, uint32_t, "%u", >=)
 
-#define weston_assert_uint32_lt(compositor, a, b) \
-	weston_assert_(compositor, a, b, uint32_t, "%u", <)
+#define weston_assert_uint32_lt(a, b) \
+	weston_assert_(a, b, uint32_t, "%u", <)
 
-#define weston_assert_uint64_eq(compositor, a, b) \
-	weston_assert_(compositor, a, b, uint64_t, "%" PRIx64, ==)
+#define weston_assert_uint64_eq(a, b) \
+	weston_assert_(a, b, uint64_t, "%" PRIx64, ==)
 
-#define weston_assert_str_eq(compositor, a, b) \
-	weston_assert_fn_(compositor, strcmp, a, b, const char *, "%s", ==)
+#define weston_assert_str_eq(a, b) \
+	weston_assert_fn_(strcmp, a, b, const char *, "%s", ==)
 
-#define weston_assert_bit_is_set(compositor, value, bit)			\
+#define weston_assert_bit_is_set(value, bit)					\
 ({										\
-	struct weston_compositor *ec = compositor;				\
 	uint64_t v = (value);							\
 	uint64_t b = (bit);							\
 	bool cond = (v & b) == b;						\
-	weston_assert_true(compositor, is_pow2_64(bit));			\
+	weston_assert_true(is_pow2_64(bit));					\
 	if (!cond)								\
-		custom_assert_fail_(ec, "%s:%u: Assertion failed! Bit \"%s\" (%" PRIu64 ") of \"%s\" (0x%" PRIx64 ") is not set.\n",	\
+		custom_assert_fail_("%s:%u: Assertion failed! Bit \"%s\" (%" PRIu64 ") of \"%s\" (0x%" PRIx64 ") is not set.\n",	\
 				    __FILE__, __LINE__, #bit, b, #value, v);	\
 	cond;									\
 })
 
-#define weston_assert_bit_is_not_set(compositor, value, bit)			\
+#define weston_assert_bit_is_not_set(value, bit)				\
 ({										\
-	struct weston_compositor *ec = compositor;				\
 	uint64_t v = (value);							\
 	uint64_t b = (bit);							\
 	bool cond = (v & b) == 0;						\
-	weston_assert_true(compositor, is_pow2_64(bit));			\
+	weston_assert_true(is_pow2_64(bit));					\
 	if (!cond)								\
-		custom_assert_fail_(ec, "%s:%u: Assertion failed! Bit \"%s\" (%" PRIu64 ") of \"%s\" (0x%" PRIx64 ") is set.\n",	\
+		custom_assert_fail_("%s:%u: Assertion failed! Bit \"%s\" (%" PRIu64 ") of \"%s\" (0x%" PRIx64 ") is set.\n",	\
 				    __FILE__, __LINE__, #bit, b, #value, v);	\
 	cond;									\
 })
 
-#define weston_assert_legal_bits(compositor, value, mask)			\
+#define weston_assert_legal_bits(value, mask)					\
 ({										\
-	struct weston_compositor *ec = compositor;				\
 	uint64_t v_ = (value);							\
 	uint64_t m_ = (mask);							\
-	uint64_t ill = v_ & ~m_;							\
+	uint64_t ill = v_ & ~m_;						\
 	bool cond = ill == 0;							\
 	if (!cond)								\
-		custom_assert_fail_(ec, "%s:%u: Assertion failed! "		\
+		custom_assert_fail_("%s:%u: Assertion failed! "		\
 				    "Value %s (0x%" PRIx64 ") contains illegal bits 0x%" PRIx64 ". " \
 				    "Legal mask is %s (0x%" PRIx64 ").\n",	\
 				    __FILE__, __LINE__, #value, v_, ill, #mask, m_); \

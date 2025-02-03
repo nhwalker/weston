@@ -57,84 +57,82 @@ my_type_cmp(const struct my_type *a, const struct my_type *b)
 	return 0;
 }
 
-#define weston_assert_my_type_lt(compositor, a, b) \
-	weston_assert_fn_(compositor, my_type_cmp, a, b, const struct my_type *, "my_type %p", <)
+#define weston_assert_my_type_lt(a, b) \
+	weston_assert_fn_(my_type_cmp, a, b, const struct my_type *, "my_type %p", <)
 
 TEST(asserts)
 {
-	/* Unused by the macros for now, so let's just use NULL. */
-	struct weston_compositor *compositor = NULL;
 	bool ret;
 
-	ret = weston_assert_true(compositor, false);
+	ret = weston_assert_true(false);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_true(compositor, true);
+	ret = weston_assert_true(true);
 	abort_if_not(ret);
 
-	ret = weston_assert_false(compositor, true);
+	ret = weston_assert_false(true);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_false(compositor, false);
+	ret = weston_assert_false(false);
 	abort_if_not(ret);
 
-	ret = weston_assert_true(compositor, true && false);
+	ret = weston_assert_true(true && false);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_ptr_not_null(compositor, &ret);
+	ret = weston_assert_ptr_not_null(&ret);
 	abort_if_not(ret);
 
-	ret = weston_assert_ptr_not_null(compositor, NULL);
+	ret = weston_assert_ptr_not_null(NULL);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_ptr_null(compositor, NULL);
+	ret = weston_assert_ptr_null(NULL);
 	abort_if_not(ret);
 
-	ret = weston_assert_ptr_null(compositor, &ret);
+	ret = weston_assert_ptr_null(&ret);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_ptr_eq(compositor, &ret, &ret);
+	ret = weston_assert_ptr_eq(&ret, &ret);
 	abort_if_not(ret);
 
-	ret = weston_assert_ptr_eq(compositor, &ret, &ret + 1);
+	ret = weston_assert_ptr_eq(&ret, &ret + 1);
 	abort_if_not(ret == false);
 
 	double fifteen = 15.0;
-	ret = weston_assert_double_eq(compositor, fifteen, 15.000001);
+	ret = weston_assert_double_eq(fifteen, 15.000001);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_double_eq(compositor, fifteen, 15);
+	ret = weston_assert_double_eq(fifteen, 15);
 	abort_if_not(ret);
 
 	const char *nom = "bar";
-	ret = weston_assert_str_eq(compositor, nom, "bar");
+	ret = weston_assert_str_eq(nom, "bar");
 	abort_if_not(ret);
-	ret = weston_assert_str_eq(compositor, nom, "baz");
+	ret = weston_assert_str_eq(nom, "baz");
 	abort_if_not(ret == false);
 
 	struct my_type a = { 1, 2.0 };
 	struct my_type b = { 0, 2.0 };
-	ret = weston_assert_my_type_lt(compositor, &b, &a);
+	ret = weston_assert_my_type_lt(&b, &a);
 	abort_if_not(ret);
-	ret = weston_assert_my_type_lt(compositor, &a, &b);
+	ret = weston_assert_my_type_lt(&a, &b);
 	abort_if_not(ret == false);
 
 	uint32_t bitfield = 0xffff;
-	ret = weston_assert_bit_is_set(compositor, bitfield, 1ull << 2);
+	ret = weston_assert_bit_is_set(bitfield, 1ull << 2);
 	abort_if_not(ret);
-	ret = weston_assert_bit_is_set(compositor, bitfield, 1ull << 57);
+	ret = weston_assert_bit_is_set(bitfield, 1ull << 57);
 	abort_if_not(ret == false);
 
 	uint64_t max_uint64 = UINT64_MAX;
-	ret = weston_assert_uint64_eq(compositor, max_uint64, 0);
+	ret = weston_assert_uint64_eq(max_uint64, 0);
 	abort_if_not(ret == false);
 
 	uint64_t val = 0x200010001000ffff;
 	uint64_t msk = 0x00000000fffffff3;
-	ret = weston_assert_legal_bits(compositor, val, msk);
+	ret = weston_assert_legal_bits(val, msk);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_legal_bits(compositor, val, UINT64_MAX);
+	ret = weston_assert_legal_bits(val, UINT64_MAX);
 	abort_if_not(ret);
 
 	/* If we reach that point, it's a success so reset the assert counter
