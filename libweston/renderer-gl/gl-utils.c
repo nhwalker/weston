@@ -830,7 +830,8 @@ gl_texture_is_format_supported(struct gl_renderer *gr,
 		return gr->gl_version >= gl_version(3, 0);
 
 	default:
-		unreachable("Unsupported sized internal format!");
+		WESTON_DASSERT_NOT_REACHED("Unsupported sized internal "
+					   "format!");
 		return false;
 	}
 }
@@ -1036,7 +1037,8 @@ texture_init(struct gl_renderer *gr,
 			break;
 
 		default:
-			unreachable("Missing conversion to external format!");
+			WESTON_DASSERT_NOT_REACHED("Missing conversion to "
+						   "external format!");
 			return;
 		}
 
@@ -1492,7 +1494,8 @@ gl_fbo_is_format_supported(struct gl_renderer *gr,
 		return false;
 
 	default:
-		unreachable("Unsupported sized internal format!");
+		WESTON_DASSERT_NOT_REACHED("Unsupported sized internal "
+					   "format!");
 		return false;
 	}
 }

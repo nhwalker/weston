@@ -87,7 +87,7 @@ add_project_arguments(global_cpp_args, language: 'cpp')
 
 optional_libc_funcs = [
 	'mkostemp', 'strchrnul', 'initgroups', 'posix_fallocate',
-	'memfd_create', 'unreachable',
+	'memfd_create',
 ]
 foreach func : optional_libc_funcs
 	if cc.has_function(func)

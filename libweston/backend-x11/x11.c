@@ -929,7 +929,7 @@ x11_output_disable(struct weston_output *base)
 		renderer->gl->output_destroy(&output->base);
 		break;
 	default:
-		unreachable("invalid renderer");
+		WESTON_DASSERT_NOT_REACHED("invalid renderer");
 	}
 
 	xcb_destroy_window(backend->conn, output->window);
@@ -1110,7 +1110,7 @@ x11_output_enable(struct weston_output *base)
 		break;
 	}
 	default:
-		unreachable("invalid renderer");
+		WESTON_DASSERT_NOT_REACHED("Invalid renderer");
 	}
 
 	output->base.start_repaint_loop = x11_output_start_repaint_loop;

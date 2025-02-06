@@ -246,7 +246,7 @@ get_output_work_area(struct desktop_shell *shell,
 		area->width -= sh_output->panel_surface->width;
 		break;
 	default:
-		unreachable("unknown panel position");
+		WESTON_DASSERT_NOT_REACHED("unknown panel position");
 	}
 }
 
@@ -2748,7 +2748,7 @@ panel_committed(struct weston_surface *es,
 			weston_coord(output->width - es->width, 0);
 		break;
 	default:
-		unreachable("unknown panel position");
+		WESTON_DASSERT_NOT_REACHED("unknown panel position");
 		break;
 	}
 

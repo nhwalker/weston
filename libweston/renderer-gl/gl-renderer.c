@@ -1689,7 +1689,7 @@ set_debug_mode(struct gl_renderer *gr,
 		break;
 
 	default:
-		unreachable("Invalid debug mode");
+		WESTON_DASSERT_NOT_REACHED("Invalid debug mode");
 	}
 }
 

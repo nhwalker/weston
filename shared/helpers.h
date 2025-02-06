@@ -223,19 +223,11 @@ u64_from_u32s(uint32_t hi, uint32_t lo)
 #endif
 
 #if defined(HAVE_UNREACHABLE) || __has_builtin(__builtin_unreachable)
-#define unreachable(str)    \
-do {                        \
-   assert(!str);            \
-   __builtin_unreachable(); \
-} while (0)
+#define UNREACHABLE() __builtin_unreachable()
 #elif defined (_MSC_VER)
-#define unreachable(str)    \
-do {                        \
-   assert(!str);            \
-   __assume(0);             \
-} while (0)
+#define UNREACHABLE() __assume(0)
 #else
-#define unreachable(str) assert(!str)
+#define UNREACHABLE()
 #endif
 
 #if __has_attribute(fallthrough)

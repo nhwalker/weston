@@ -712,7 +712,7 @@ wayland_output_disable(struct weston_output *base)
 		break;
 #endif
 	default:
-		unreachable("invalid renderer");
+		WESTON_DASSERT_NOT_REACHED("invalid renderer");
 	}
 
 	wayland_backend_destroy_output_surface(output);
@@ -1046,7 +1046,7 @@ wayland_output_switch_mode_finish(struct wayland_output *output)
 		break;
 #endif
 	default:
-		unreachable("invalid renderer");
+		WESTON_DASSERT_NOT_REACHED("invalid renderer");
 	}
 
 	weston_output_schedule_repaint(&output->base);
@@ -1306,7 +1306,7 @@ wayland_output_enable(struct weston_output *base)
 		break;
 #endif
 	default:
-		unreachable("invalid renderer");
+		WESTON_DASSERT_NOT_REACHED("invalid renderer");
 	}
 
 	output->base.start_repaint_loop = wayland_output_start_repaint_loop;

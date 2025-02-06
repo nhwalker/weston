@@ -474,7 +474,7 @@ rdp_renderer_output_destroy(struct weston_output *base)
 		rdr->gl->output_destroy(base);
 		break;
 	default:
-		unreachable("cannot have auto renderer at runtime");
+		WESTON_DASSERT_NOT_REACHED("invalid renderer");
 	}
 }
 
@@ -522,7 +522,7 @@ rdp_output_enable(struct weston_output *base)
 		break;
 	}
 	default:
-		unreachable("cannot have auto renderer at runtime");
+		WESTON_DASSERT_NOT_REACHED("invalid renderer");
 	}
 
 	output->buffer = rdp_buffer_create(output);

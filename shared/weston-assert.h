@@ -33,6 +33,8 @@
 #include <inttypes.h>
 #include <errno.h>
 
+#include "helpers.h"
+
 __attribute__((noreturn, format(printf, 1, 2)))
 static inline void
 weston_assert_fail_(const char *fmt, ...)
@@ -438,7 +440,7 @@ do {										\
 #define WESTON_DASSERT_BIT_SET(value, bit)
 #define WESTON_DASSERT_BIT_NOT_SET(value, bit)
 #define WESTON_DASSERT_LEGAL_BITS(value, mask)
-#define WESTON_DASSERT_NOT_REACHED(reason)
+#define WESTON_DASSERT_NOT_REACHED(reason) UNREACHABLE()
 #define WESTON_DASSERT_ERRNO_EQ(a)
 #define WESTON_DASSERT_ERRNO_NE(a)
 #define WESTON_DASSERT_ENUM_EQ(a, b)

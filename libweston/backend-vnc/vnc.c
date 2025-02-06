@@ -844,7 +844,7 @@ vnc_output_enable(struct weston_output *base)
 		break;
 	}
 	default:
-		unreachable("cannot have auto renderer at runtime");
+		WESTON_DASSERT_NOT_REACHED("invalid renderer");
 	}
 
 	loop = wl_display_get_event_loop(backend->compositor->wl_display);
@@ -890,7 +890,7 @@ vnc_output_disable(struct weston_output *base)
 		renderer->gl->output_destroy(&output->base);
 		break;
 	default:
-		unreachable("cannot have auto renderer at runtime");
+		WESTON_DASSERT_NOT_REACHED("invalid renderer");
 	}
 
 	wl_event_source_remove(output->finish_frame_timer);

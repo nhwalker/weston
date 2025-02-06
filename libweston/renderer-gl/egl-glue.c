@@ -635,7 +635,7 @@ gl_renderer_setup_egl_client_extensions(struct gl_renderer *gr)
 		platform = "surfaceless";
 		break;
 	default:
-		unreachable("bad EGL platform enum");
+		WESTON_DASSERT_NOT_REACHED("bad EGL platform enum");
 		return -1;
 	}
 

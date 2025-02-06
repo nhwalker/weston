@@ -4266,7 +4266,8 @@ load_backend(struct weston_compositor *compositor, const char *name,
 		return load_x11_backend(compositor, argc, argv, config,
 					renderer);
 	default:
-		unreachable("unknown backend type in load_backend()");
+		WESTON_DASSERT_NOT_REACHED("unknown backend type in "
+					   "load_backend()");
 	}
 }
 

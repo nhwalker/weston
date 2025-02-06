@@ -375,7 +375,7 @@ pipewire_output_enable(struct weston_output *base)
 		ret = pipewire_output_enable_gl(output);
 		break;
 	default:
-		unreachable("Valid renderer should have been selected");
+		WESTON_DASSERT_NOT_REACHED("invalid renderer");
 	}
 
 	if (ret < 0)
@@ -400,7 +400,7 @@ err:
 		pipewire_output_disable_gl(output);
 		break;
 	default:
-		unreachable("Valid renderer should have been selected");
+		WESTON_DASSERT_NOT_REACHED("invalid renderer");
 	}
 
 
@@ -428,7 +428,7 @@ pipewire_output_disable(struct weston_output *base)
 		pipewire_output_disable_gl(output);
 		break;
 	default:
-		unreachable("Valid renderer should have been selected");
+		WESTON_DASSERT_NOT_REACHED("invalid renderer");
 	}
 
 	wl_event_source_remove(output->finish_frame_timer);
