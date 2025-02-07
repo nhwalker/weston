@@ -37,7 +37,6 @@
 #include <sys/mman.h>
 #include <pixman.h>
 #include <cairo.h>
-#include <assert.h>
 
 #include <wayland-client.h>
 #include "weston-output-capture-client-protocol.h"
@@ -45,6 +44,7 @@
 #include "shared/xalloc.h"
 #include "shared/file-util.h"
 #include "pixel-formats.h"
+#include "weston-client-assert.h"
 
 struct screenshooter_app {
 	struct wl_registry *registry;
@@ -98,10 +98,10 @@ screenshot_create_shm_buffer(struct screenshooter_app *app,
 	size_t bytes_pp;
 	size_t stride;
 
-	assert(width > 0);
-	assert(height > 0);
-	assert(fmt && fmt->bpp > 0);
-	assert(fmt->pixman_format);
+	WESTON_DASSERT_U64_GT(width, 0);
+	WESTON_DASSERT_U64_GT(height, 0);
+	WESTON_DASSERT_TRUE(fmt && fmt->bpp > 0);
+	WESTON_DASSERT_U32_NE(fmt->pixman_format, 0);
 
 	buffer = xzalloc(sizeof *buffer);
 
@@ -109,8 +109,8 @@ screenshot_create_shm_buffer(struct screenshooter_app *app,
 	stride = width * bytes_pp;
 	buffer->len = stride * height;
 
-	assert(width == stride / bytes_pp);
-	assert(height == buffer->len / stride);
+	WESTON_DASSERT_U64_EQ(width, stride / bytes_pp);
+	WESTON_DASSERT_U64_EQ(height, buffer->len / stride);
 
 	fd = os_create_anonymous_file(buffer->len);
 	if (fd < 0) {
@@ -163,7 +163,7 @@ capture_source_handle_format(void *data,
 {
 	struct screenshooter_output *output = data;
 
-	assert(output->source == proxy);
+	WESTON_DASSERT_PTR_EQ(output->source, proxy);
 
 	output->fmt = pixel_format_get_info(drm_format);
 }
@@ -175,8 +175,8 @@ capture_source_handle_size(void *data,
 {
 	struct screenshooter_output *output = data;
 
-	assert(width > 0);
-	assert(height > 0);
+	WESTON_DASSERT_S32_GT(width, 0);
+	WESTON_DASSERT_S32_GT(height, 0);
 
 	output->buffer_width = width;
 	output->buffer_height = height;
@@ -427,7 +427,7 @@ main(int argc, char *argv[])
 		while (app.waitcount > 0 && !app.failed) {
 			if (wl_display_dispatch(display) < 0)
 				app.failed = true;
-			assert(app.waitcount >= 0);
+			WESTON_DASSERT_S32_GE(app.waitcount, 0);
 		}
 	} while (app.retry && !app.failed);
 

@@ -30,7 +30,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
-#include <assert.h>
 #include <unistd.h>
 #include <errno.h>
 #include <sys/mman.h>
@@ -40,6 +39,7 @@
 #include "shared/xalloc.h"
 #include "shared/os-compatibility.h"
 
+#include "weston-client-assert.h"
 #include "xdg-shell-client-protocol.h"
 
 struct seat {
@@ -121,7 +121,7 @@ redraw(void *data)
 	struct buffer *buffer = NULL;
 
 	buffer = create_shm_buffer(touch);
-	assert(buffer);
+	CLIENT_ASSERT(buffer, "can't create wl_shm buffer");
 
 	if (touch->buffer)
 		free(touch->buffer);
@@ -273,7 +273,7 @@ add_seat(struct touch *touch, uint32_t name, uint32_t version)
 	struct seat *seat;
 
 	seat = malloc(sizeof *seat);
-	assert(seat);
+	CLIENT_ASSERT(seat, "can't allocate memory");
 
 	seat->touch = touch;
 	seat->wl_touch = NULL;
@@ -402,12 +402,10 @@ touch_create(int width, int height)
 	struct touch *touch;
 
 	touch = malloc(sizeof *touch);
-	if (touch == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(1);
-	}
+	CLIENT_ASSERT(touch, "can't allocate memory");
+
 	touch->display = wl_display_connect(NULL);
-	assert(touch->display);
+	CLIENT_ASSERT(touch->display, "can't connect to Wayland compositor");
 
 	touch->has_argb = false;
 	touch->buffer = NULL;
@@ -416,15 +414,10 @@ touch_create(int width, int height)
 	wl_display_dispatch(touch->display);
 	wl_display_roundtrip(touch->display);
 
-	if (!touch->has_argb) {
-		fprintf(stderr, "WL_SHM_FORMAT_ARGB32 not available\n");
-		exit(1);
-	}
-
-	if (!touch->wm_base) {
-		fprintf(stderr, "xdg-shell required!\n");
-		exit(1);
-	}
+	CLIENT_ASSERT(touch->has_argb,
+		      "WL_SHM_FORMAT_ARGB32 isn't supported by compositor");
+	CLIENT_ASSERT(touch->wm_base,
+		      "XDG shell isn't supported by compositor");
 
 	touch->init_width = width;
 	touch->init_height = height;
@@ -432,12 +425,9 @@ touch_create(int width, int height)
 
 	touch->xdg_surface =
 		xdg_wm_base_get_xdg_surface(touch->wm_base, touch->surface);
-	assert(touch->xdg_surface);
-
 	xdg_surface_add_listener(touch->xdg_surface, &xdg_surface_listener, touch);
 
 	touch->xdg_toplevel = xdg_surface_get_toplevel(touch->xdg_surface);
-	assert(touch->xdg_toplevel);
 	xdg_toplevel_add_listener(touch->xdg_toplevel,
 				  &xdg_toplevel_listener, touch);
 	xdg_toplevel_set_title(touch->xdg_toplevel, "simple-touch");

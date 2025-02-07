@@ -30,13 +30,13 @@
 #include <string.h>
 #include <cairo.h>
 #include <math.h>
-#include <assert.h>
 #include <errno.h>
 
 #include <linux/input.h>
 #include <wayland-client.h>
 
 #include "window.h"
+#include "weston-client-assert.h"
 #include "shared/xalloc.h"
 
 struct spring {
@@ -86,7 +86,7 @@ frame_callback(void *data, struct wl_callback *callback, uint32_t time)
 {
 	struct resizor *resizor = data;
 
-	assert(!callback || callback == resizor->frame_callback);
+	WESTON_DASSERT_TRUE(!callback || callback == resizor->frame_callback);
 
 	if (resizor->frame_callback) {
 		wl_callback_destroy(resizor->frame_callback);

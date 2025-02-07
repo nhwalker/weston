@@ -30,7 +30,6 @@
 #include <stdio.h>
 #include <string.h>
 #include <linux/input.h>
-#include <assert.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <sys/mman.h>

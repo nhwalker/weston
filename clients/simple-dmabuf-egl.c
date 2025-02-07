@@ -27,7 +27,6 @@
 
 #include "config.h"
 
-#include <assert.h>
 #include <fcntl.h>
 #include <getopt.h>
 #include <signal.h>
@@ -51,6 +50,7 @@
 #include "linux-dmabuf-unstable-v1-client-protocol.h"
 #include "weston-direct-display-client-protocol.h"
 #include "linux-explicit-synchronization-unstable-v1-client-protocol.h"
+#include "weston-client-assert.h"
 
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
@@ -289,7 +289,7 @@ create_fbo_for_buffer(struct display *display, struct buffer *buffer)
 
 	attribs[atti] = EGL_NONE;
 
-	assert(atti < ARRAY_LENGTH(attribs));
+	WESTON_DASSERT_UINT_LT(atti, ARRAY_LENGTH(attribs));
 
 	buffer->egl_image = display->egl.create_image(display->egl.display,
 						      EGL_NO_CONTEXT,
@@ -540,7 +540,8 @@ create_shader(const char *source, GLenum shader_type)
 	GLint status;
 
 	shader = glCreateShader(shader_type);
-	assert(shader != 0);
+	if (!shader)
+		return 0;
 
 	glShaderSource(shader, 1, (const char **) &source, NULL);
 	glCompileShader(shader);
@@ -593,7 +594,12 @@ window_set_up_gl(struct window *window)
 					    frag_shader_text,
 		GL_FRAGMENT_SHADER);
 
+	CLIENT_ASSERT(vert, "can't create vertex shader");
+	CLIENT_ASSERT(frag, "can't create fragment shader");
+
 	window->gl.program = create_and_link_program(vert, frag);
+
+	CLIENT_ASSERT(window->gl.program, "can't link program");
 
 	glDeleteShader(vert);
 	glDeleteShader(frag);
@@ -654,39 +660,34 @@ create_window(struct display *display, int width, int height, int opts)
 	window->height = height;
 	window->surface = wl_compositor_create_surface(display->compositor);
 
-	if (display->wm_base) {
-		window->xdg_surface =
-			xdg_wm_base_get_xdg_surface(display->wm_base,
-						    window->surface);
+	CLIENT_ASSERT(display->wm_base,
+		      "XDG shell isn't supported by compositor");
 
-		assert(window->xdg_surface);
+	window->xdg_surface = xdg_wm_base_get_xdg_surface(display->wm_base,
+							  window->surface);
+	CLIENT_ASSERT(window->xdg_surface, "can't get XDG surface");
 
-		xdg_surface_add_listener(window->xdg_surface,
-					 &xdg_surface_listener, window);
+	xdg_surface_add_listener(window->xdg_surface, &xdg_surface_listener,
+				 window);
 
-		window->xdg_toplevel =
-			xdg_surface_get_toplevel(window->xdg_surface);
+	window->xdg_toplevel = xdg_surface_get_toplevel(window->xdg_surface);
+	CLIENT_ASSERT(window->xdg_surface, "can't get XDG toplevel");
 
-		assert(window->xdg_toplevel);
+	xdg_toplevel_add_listener(window->xdg_toplevel, &xdg_toplevel_listener,
+				  window);
 
-		xdg_toplevel_add_listener(window->xdg_toplevel,
-					  &xdg_toplevel_listener, window);
-
-		xdg_toplevel_set_title(window->xdg_toplevel, "simple-dmabuf-egl");
-		xdg_toplevel_set_app_id(window->xdg_toplevel,
+	xdg_toplevel_set_title(window->xdg_toplevel, "simple-dmabuf-egl");
+	xdg_toplevel_set_app_id(window->xdg_toplevel,
 				"org.freedesktop.weston.simple-dmabuf-egl");
 
-		window->wait_for_configure = true;
-		wl_surface_commit(window->surface);
-	} else {
-		assert(0);
-	}
+	window->wait_for_configure = true;
+	wl_surface_commit(window->surface);
 
 	if (display->explicit_sync) {
 		window->surface_sync =
 			zwp_linux_explicit_synchronization_v1_get_synchronization(
 					display->explicit_sync, window->surface);
-		assert(window->surface_sync);
+		CLIENT_ASSERT(window->surface_sync, "can't get surface sync");
 	}
 
 	for (i = 0; i < NUM_BUFFERS; ++i) {
@@ -727,11 +728,14 @@ create_egl_fence_fd(struct window *window)
 					     NULL);
 	int fd;
 
-	assert(sync != EGL_NO_SYNC_KHR);
+	CLIENT_ASSERT(sync != EGL_NO_SYNC_KHR,
+		      "can't create EGL native fence sync");
+
 	/* We need to flush before we can get the fence fd. */
 	glFlush();
 	fd = d->egl.dup_native_fence_fd(d->egl.display, sync);
-	assert(fd >= 0);
+
+	CLIENT_ASSERT(fd >= 0, "invalid EGL native fence sync fd");
 
 	d->egl.destroy_sync(d->egl.display, sync);
 
@@ -901,8 +905,8 @@ buffer_fenced_release(void *data,
 {
 	struct buffer *buffer = data;
 
-	assert(release == buffer->buffer_release);
-	assert(buffer->release_fence_fd == -1);
+	WESTON_DASSERT_PTR_EQ(release, buffer->buffer_release);
+	WESTON_DASSERT_INT_EQ(buffer->release_fence_fd, -1);
 
 	buffer->busy = 0;
 	buffer->release_fence_fd = fence;
@@ -916,8 +920,8 @@ buffer_immediate_release(void *data,
 {
 	struct buffer *buffer = data;
 
-	assert(release == buffer->buffer_release);
-	assert(buffer->release_fence_fd == -1);
+	WESTON_DASSERT_PTR_EQ(release, buffer->buffer_release);
+	WESTON_DASSERT_INT_EQ(buffer->release_fence_fd, -1);
 
 	buffer->busy = 0;
 	zwp_linux_buffer_release_v1_destroy(buffer->buffer_release);
@@ -942,7 +946,7 @@ wait_for_buffer_release_fence(struct buffer *buffer)
 					     attrib_list);
 	int ret;
 
-	assert(sync);
+	CLIENT_ASSERT(sync, "can't create EGL native fence sync");
 
 	/* EGLSyncKHR takes ownership of the fence fd. */
 	buffer->release_fence_fd = -1;
@@ -952,10 +956,12 @@ wait_for_buffer_release_fence(struct buffer *buffer)
 	else
 		ret = d->egl.client_wait_sync(d->egl.display, sync, 0,
 					      EGL_FOREVER_KHR);
-	assert(ret == EGL_TRUE);
+	CLIENT_ASSERT(ret == EGL_TRUE,
+		      "waiting on EGL native fence sync failed");
 
 	ret = d->egl.destroy_sync(d->egl.display, sync);
-	assert(ret == EGL_TRUE);
+	CLIENT_ASSERT(ret == EGL_TRUE,
+		      "can't destroy EGL native fence sync");
 }
 
 static void
@@ -1170,7 +1176,7 @@ display_set_up_egl(struct display *display)
 	}
 
 	egl_extensions = eglQueryString(display->egl.display, EGL_EXTENSIONS);
-	assert(egl_extensions != NULL);
+	CLIENT_ASSERT(egl_extensions != NULL, "can't get EGL extensions");
 
 	if (!weston_check_egl_extension(egl_extensions,
 					"EGL_EXT_image_dma_buf_import")) {
@@ -1196,7 +1202,7 @@ display_set_up_egl(struct display *display)
 			"Warning: EGL_KHR_no_config_context not supported\n");
 		ret = eglChooseConfig(display->egl.display, config_attribs,
 			      &display->egl.conf, 1, &count);
-		assert(ret && count >= 1);
+		CLIENT_ASSERT(ret && count >= 1, "can't choose EGL config");
 	}
 
 	display->egl.context = eglCreateContext(display->egl.display,
@@ -1212,7 +1218,7 @@ display_set_up_egl(struct display *display)
 		       display->egl.context);
 
 	gl_extensions = (const char *) glGetString(GL_EXTENSIONS);
-	assert(gl_extensions != NULL);
+	CLIENT_ASSERT(gl_extensions != NULL, "can't get GL extensions");
 
 	if (!weston_check_egl_extension(gl_extensions,
 					"GL_OES_EGL_image")) {
@@ -1225,46 +1231,46 @@ display_set_up_egl(struct display *display)
 		display->egl.has_dma_buf_import_modifiers = true;
 		display->egl.query_dma_buf_modifiers =
 			(void *) eglGetProcAddress("eglQueryDmaBufModifiersEXT");
-		assert(display->egl.query_dma_buf_modifiers);
+		CLIENT_ASSERT(display->egl.query_dma_buf_modifiers);
 	}
 
 	display->egl.create_image =
 		(void *) eglGetProcAddress("eglCreateImageKHR");
-	assert(display->egl.create_image);
+	CLIENT_ASSERT(display->egl.create_image);
 
 	display->egl.destroy_image =
 		(void *) eglGetProcAddress("eglDestroyImageKHR");
-	assert(display->egl.destroy_image);
+	CLIENT_ASSERT(display->egl.destroy_image);
 
 	display->egl.image_target_texture_2d =
 		(void *) eglGetProcAddress("glEGLImageTargetTexture2DOES");
-	assert(display->egl.image_target_texture_2d);
+	CLIENT_ASSERT(display->egl.image_target_texture_2d);
 
 	if (weston_check_egl_extension(egl_extensions, "EGL_KHR_fence_sync") &&
 	    weston_check_egl_extension(egl_extensions,
 				       "EGL_ANDROID_native_fence_sync")) {
 		display->egl.create_sync =
 			(void *) eglGetProcAddress("eglCreateSyncKHR");
-		assert(display->egl.create_sync);
+		CLIENT_ASSERT(display->egl.create_sync);
 
 		display->egl.destroy_sync =
 			(void *) eglGetProcAddress("eglDestroySyncKHR");
-		assert(display->egl.destroy_sync);
+		CLIENT_ASSERT(display->egl.destroy_sync);
 
 		display->egl.client_wait_sync =
 			(void *) eglGetProcAddress("eglClientWaitSyncKHR");
-		assert(display->egl.client_wait_sync);
+		CLIENT_ASSERT(display->egl.client_wait_sync);
 
 		display->egl.dup_native_fence_fd =
 			(void *) eglGetProcAddress("eglDupNativeFenceFDANDROID");
-		assert(display->egl.dup_native_fence_fd);
+		CLIENT_ASSERT(display->egl.dup_native_fence_fd);
 	}
 
 	if (weston_check_egl_extension(egl_extensions,
 				       "EGL_KHR_wait_sync")) {
 		display->egl.wait_sync =
 			(void *) eglGetProcAddress("eglWaitSyncKHR");
-		assert(display->egl.wait_sync);
+		CLIENT_ASSERT(display->egl.wait_sync);
 	}
 
 	return true;
@@ -1382,7 +1388,7 @@ create_display(char const *drm_render_node, uint32_t format, int opts)
 	display->gbm.drm_fd = -1;
 
 	display->display = wl_display_connect(NULL);
-	assert(display->display);
+	CLIENT_ASSERT(display->display, "can't connect to Wayland compositor");
 
 	display->format = format;
 	display->req_dmabuf_immediate = opts & OPT_IMMEDIATE;

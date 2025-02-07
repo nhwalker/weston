@@ -27,7 +27,6 @@
 #include <string.h>
 #include <cairo.h>
 #include <math.h>
-#include <assert.h>
 #include <stdbool.h>
 
 #include <linux/input.h>

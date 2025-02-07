@@ -38,7 +38,6 @@
 #include <libgen.h>
 #include <ctype.h>
 #include <time.h>
-#include <assert.h>
 
 #include <wayland-client.h>
 
@@ -52,6 +51,7 @@
 #include "shared/timespec-util.h"
 
 #include "window.h"
+#include "weston-client-assert.h"
 
 #include "tablet-unstable-v2-client-protocol.h"
 #include "weston-desktop-shell-client-protocol.h"
@@ -530,7 +530,7 @@ panel_add_clock(struct panel *panel)
 		clock->refresh_timer = 1;
 		break;
 	case CLOCK_FORMAT_NONE:
-		assert(!"not reached");
+		WESTON_DASSERT_NOT_REACHED();
 	}
 
 	toytimer_init(&clock->timer, CLOCK_MONOTONIC,

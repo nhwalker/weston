@@ -70,6 +70,16 @@ do {										\
 				    __FILE__, __LINE__, #a, #cmp, #b, a_, #cmp, b_);				\
 } while (0)
 
+#define WESTON_ASSERT_STR_(a, b, val_type, val_fmt, cmp, str)			\
+do {										\
+	val_type a_ = (a);							\
+	val_type b_ = (b);							\
+	bool cond = a_ cmp b_;							\
+	if (!cond)								\
+		custom_assert_fail_("%s:%u: Assertion %s %s %s (" val_fmt " %s " val_fmt ") failed: %s.\n",	\
+				    __FILE__, __LINE__, #a, #cmp, #b, a_, #cmp, b_, str);			\
+} while (0)
+
 /* Boolean asserts. */
 
 #define WESTON_ASSERT_TRUE(a)  WESTON_ASSERT_(a, true,  bool, "%d", ==)

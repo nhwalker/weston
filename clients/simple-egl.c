@@ -29,7 +29,6 @@
 #include <string.h>
 #include <stdbool.h>
 #include <math.h>
-#include <assert.h>
 #include <signal.h>
 
 #include <linux/input.h>
@@ -55,6 +54,8 @@
 #include "shared/platform.h"
 #include "shared/weston-egl-ext.h"
 #include "shared/xalloc.h"
+
+#include "weston-client-assert.h"
 
 struct window;
 struct seat;
@@ -226,22 +227,21 @@ init_egl(struct display *display, struct window *window)
 	display->egl.dpy =
 		weston_platform_get_egl_display(EGL_PLATFORM_WAYLAND_KHR,
 						display->display, NULL);
-	assert(display->egl.dpy);
+	CLIENT_ASSERT(display->egl.dpy, "can't get EGL display");
 
 	ret = eglInitialize(display->egl.dpy, &major, &minor);
-	assert(ret == EGL_TRUE);
+	CLIENT_ASSERT(ret == EGL_TRUE, "can't initialize EGL");
 	ret = eglBindAPI(EGL_OPENGL_ES_API);
-	assert(ret == EGL_TRUE);
-
-	if (!eglGetConfigs(display->egl.dpy, NULL, 0, &count) || count < 1)
-		assert(0);
+	CLIENT_ASSERT(ret == EGL_TRUE, "can't bind GL API");
+	ret = eglGetConfigs(display->egl.dpy, NULL, 0, &count);
+	CLIENT_ASSERT(ret && count > 0, "can't get EGL configs");
 
 	configs = calloc(count, sizeof *configs);
-	assert(configs);
+	CLIENT_ASSERT(configs, "can't allocate memory");
 
 	ret = eglChooseConfig(display->egl.dpy, config_attribs,
 			      configs, count, &n);
-	assert(ret && n >= 1);
+	CLIENT_ASSERT(ret && n >= 1, "can't choose EGL config");
 
 	for (i = 0; i < n; i++) {
 		EGLint buffer_bpp, red_size;
@@ -275,7 +275,7 @@ init_egl(struct display *display, struct window *window)
 	display->egl.ctx = eglCreateContext(display->egl.dpy,
 					    display->egl.conf,
 					    EGL_NO_CONTEXT, context_attribs);
-	assert(display->egl.ctx);
+	CLIENT_ASSERT(display->egl.ctx, "can't create GL context");
 
 	display->swap_buffers_with_damage = NULL;
 	extensions = eglQueryString(display->egl.dpy, EGL_EXTENSIONS);
@@ -326,7 +326,8 @@ create_shader(struct window *window, const char *source, GLenum shader_type)
 	GLint status;
 
 	shader = glCreateShader(shader_type);
-	assert(shader != 0);
+	if (!shader)
+		return 0;
 
 	glShaderSource(shader, 1, (const char **) &source, NULL);
 	glCompileShader(shader);
@@ -339,7 +340,7 @@ create_shader(struct window *window, const char *source, GLenum shader_type)
 		fprintf(stderr, "Error: compiling %s: %.*s\n",
 			shader_type == GL_VERTEX_SHADER ? "vertex" : "fragment",
 			len, log);
-		exit(1);
+		return 0;
 	}
 
 	return shader;
@@ -536,12 +537,14 @@ init_gl(struct window *window)
 
 	ret = eglMakeCurrent(window->display->egl.dpy, window->egl_surface,
 			     window->egl_surface, window->display->egl.ctx);
-	assert(ret == EGL_TRUE);
+	CLIENT_ASSERT(ret == EGL_TRUE, "can't make GL context current");
 
 	eglSwapInterval(window->display->egl.dpy, window->interval);
 
 	frag = create_shader(window, frag_shader_text, GL_FRAGMENT_SHADER);
+	CLIENT_ASSERT(frag != 0, "can't create fragment shader");
 	vert = create_shader(window, vert_shader_text, GL_VERTEX_SHADER);
+	CLIENT_ASSERT(vert != 0, "can't create vertex shader");
 
 	program = glCreateProgram();
 	glAttachShader(program, frag);
@@ -1457,7 +1460,7 @@ main(int argc, char **argv)
 	}
 
 	display.display = wl_display_connect(NULL);
-	assert(display.display);
+	CLIENT_ASSERT(display.display, "can't connect to Wayland compositor");
 
 	display.registry = wl_display_get_registry(display.display);
 	wl_registry_add_listener(display.registry,

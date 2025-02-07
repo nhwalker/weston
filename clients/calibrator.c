@@ -30,7 +30,6 @@
 #include <string.h>
 #include <cairo.h>
 #include <math.h>
-#include <assert.h>
 #include <getopt.h>
 #include <errno.h>
 

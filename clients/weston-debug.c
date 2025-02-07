@@ -34,7 +34,6 @@
 #include <string.h>
 #include <unistd.h>
 #include <getopt.h>
-#include <assert.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -43,6 +42,7 @@
 
 #include "shared/helpers.h"
 #include <libweston/zalloc.h>
+#include "weston-client-assert.h"
 #include "weston-debug-client-protocol.h"
 
 struct debug_app {
@@ -118,7 +118,7 @@ stream_find(struct debug_app *app, const char *name, const char *desc)
 
 	wl_list_for_each(stream, &app->stream_list, link) {
 		if (strcmp(stream->name, name) == 0) {
-			assert(stream->desc == NULL);
+			WESTON_DASSERT_PTR_NOT_SET(stream->desc);
 			if (desc)
 				stream->desc = strdup(desc);
 			return stream;
@@ -169,7 +169,7 @@ global_handler(void *data, struct wl_registry *registry, uint32_t id,
 	struct debug_app *app = data;
 	uint32_t myver;
 
-	assert(app->registry == registry);
+	WESTON_DASSERT_PTR_EQ(app->registry, registry);
 
 	if (!strcmp(interface, weston_debug_v1_interface.name)) {
 		if (app->debug_iface)
@@ -199,7 +199,7 @@ handle_stream_complete(void *data, struct weston_debug_stream_v1 *obj)
 {
 	struct debug_stream *stream = data;
 
-	assert(stream->obj == obj);
+	WESTON_DASSERT_PTR_EQ(stream->obj, obj);
 
 	stream_destroy(stream);
 }
@@ -210,7 +210,7 @@ handle_stream_failure(void *data, struct weston_debug_stream_v1 *obj,
 {
 	struct debug_stream *stream = data;
 
-	assert(stream->obj == obj);
+	WESTON_DASSERT_PTR_EQ(stream->obj, obj);
 
 	fprintf(stderr, "Debug stream '%s' aborted: %s\n", stream->name, msg);
 
@@ -267,7 +267,7 @@ setup_out_fd(const char *output, const char *outfd)
 	int fd = -1;
 	int flags;
 
-	assert(!(output && outfd));
+	WESTON_DASSERT_TRUE(!(output && outfd));
 
 	if (output) {
 		if (strcmp(output, "-") == 0) {

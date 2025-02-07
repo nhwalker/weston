@@ -25,7 +25,6 @@
 
 #include "config.h"
 
-#include <assert.h>
 #include <ctype.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -42,6 +41,7 @@
 #include "xdg-shell-client-protocol.h"
 #include "linux-dmabuf-unstable-v1-client-protocol.h"
 #include "presentation-time-client-protocol.h"
+#include "weston-client-assert.h"
 
 #include <xf86drm.h>
 #include <gbm.h>
@@ -218,7 +218,7 @@ drm_format_array_add_format(struct drm_format_array *formats, uint32_t format)
 			return fmt;
 
 	fmt = wl_array_add(&formats->arr, sizeof(*fmt));
-	assert(fmt && "error: could not allocate memory for format");
+	CLIENT_ASSERT(fmt, "can't allocate memory");
 
 	fmt->format = format;
 	wl_array_init(&fmt->modifiers);
@@ -236,7 +236,7 @@ drm_format_add_modifier(struct drm_format *format, uint64_t modifier)
 			return;
 
 	mod = wl_array_add(&format->modifiers, sizeof(uint64_t));
-	assert(mod && "error: could not allocate memory for modifier");
+	CLIENT_ASSERT(mod, "can't allocate memory");
 
 	*mod = modifier;
 }
@@ -300,7 +300,8 @@ create_shader(const char *source, GLenum shader_type)
 	GLint status;
 
 	shader = glCreateShader(shader_type);
-	assert(shader != 0);
+	if (!shader)
+		return 0;
 
 	glShaderSource(shader, 1, (const char **) &source, NULL);
 	glCompileShader(shader);
@@ -410,18 +411,18 @@ create_fbo_for_buffer(struct buffer *buffer)
 
 	attribs[atti] = EGL_NONE;
 
-	assert(atti < ARRAY_LENGTH(attribs));
+	WESTON_DASSERT_UINT_LT(atti, ARRAY_LENGTH(attribs));
 
 	buffer->egl_image = display->egl.create_image(display->egl.display,
 						      EGL_NO_CONTEXT,
 						      EGL_LINUX_DMA_BUF_EXT,
 						      NULL, attribs);
-	assert(buffer->egl_image != EGL_NO_IMAGE_KHR &&
-	       "error: EGLImageKHR creation failed");
+	CLIENT_ASSERT(buffer->egl_image != EGL_NO_IMAGE_KHR,
+		      "can't create EGLImageKHR");
 
-	if (eglMakeCurrent(display->egl.display, EGL_NO_SURFACE,
-			   EGL_NO_SURFACE, display->egl.context) != EGL_TRUE)
-		assert(0 && "error: failed to make context current");
+	CLIENT_ASSERT(eglMakeCurrent(display->egl.display, EGL_NO_SURFACE,
+				     EGL_NO_SURFACE, display->egl.context) ==
+		      EGL_TRUE, "can't make GL context current");
 
 	glGenTextures(1, &buffer->gl_texture);
 	glBindTexture(GL_TEXTURE_2D, buffer->gl_texture);
@@ -437,8 +438,8 @@ create_fbo_for_buffer(struct buffer *buffer)
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
 			       GL_TEXTURE_2D, buffer->gl_texture, 0);
 
-	if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
-		assert(0 && "error: FBO creation failed");
+	CLIENT_ASSERT(glCheckFramebufferStatus(GL_FRAMEBUFFER) ==
+		      GL_FRAMEBUFFER_COMPLETE, "can't create FBO");
 }
 
 static void
@@ -522,7 +523,7 @@ create_failed(void *data, struct zwp_linux_buffer_params_v1 *params)
 	buf->buffer = NULL;
 	zwp_linux_buffer_params_v1_destroy(params);
 
-	assert(0 && "error: zwp_linux_buffer_params.create failed");
+	CLIENT_ASSERT(0, "can't create zwp_linux_buffer_params");
 }
 
 static const struct zwp_linux_buffer_params_v1_listener params_listener = {
@@ -570,7 +571,7 @@ create_dmabuf_buffer(struct window *window, struct buffer *buf, uint32_t width,
 		buf->modifier = DRM_FORMAT_MOD_INVALID;
 	}
 
-	assert(buf->bo && "error: could not create GBM bo for buffer");
+	CLIENT_ASSERT(buf->bo, "can't create GBM bo for buffer");
 
 	buf->num_planes = gbm_bo_get_plane_count(buf->bo);
 
@@ -581,10 +582,10 @@ create_dmabuf_buffer(struct window *window, struct buffer *buf, uint32_t width,
 		buf->dmabuf_fds[i] = gbm_bo_get_fd_for_plane(buf->bo, i);
 		buf->strides[i] = gbm_bo_get_stride_for_plane(buf->bo, i);
 		buf->offsets[i] = gbm_bo_get_offset(buf->bo, i);
-		assert(buf->dmabuf_fds[i] >= 0 &&
-		       "error: could not get fd for GBM bo");
-		assert(buf->strides[i] > 0 &&
-		       "error: could not get stride for GBM bo");
+		CLIENT_ASSERT(buf->dmabuf_fds[i] >= 0,
+			      "can't get fd for GBM bo");
+		CLIENT_ASSERT(buf->strides[i] > 0,
+			      "can't get stride for GBM bo");
 
 		zwp_linux_buffer_params_v1_add(params, buf->dmabuf_fds[i], i,
 					       buf->offsets[i], buf->strides[i],
@@ -679,7 +680,7 @@ redraw(void *data, struct wl_callback *callback, uint32_t time)
 	struct wl_region *region;
 
 	buf = window_next_buffer(window);
-	assert(buf && "error: all buffers are busy");
+	CLIENT_ASSERT(buf, "all buffers are busy");
 
 	render(buf);
 
@@ -812,7 +813,8 @@ xdg_toplevel_handle_configure(void *data, struct xdg_toplevel *toplevel,
 static void
 xdg_toplevel_handle_close(void *data, struct xdg_toplevel *xdg_toplevel)
 {
-	assert(0 && "error: window closed, this should not happen");
+	/* Window closed, this should not happen. */
+	WESTON_DASSERT_NOT_REACHED();
 }
 
 static const struct xdg_toplevel_listener xdg_toplevel_listener = {
@@ -826,7 +828,7 @@ gbm_setup(struct window *window)
 	struct display *display = window->display;
 
 	display->gbm_device = gbm_create_device(window->card_fd);
-	assert(display->gbm_device && "error: could not create GBM device");
+	CLIENT_ASSERT(display->gbm_device, " create GBM device");
 }
 
 static void
@@ -845,42 +847,40 @@ egl_setup(struct window *window)
 
 	egl->display = weston_platform_get_egl_display(EGL_PLATFORM_GBM_KHR,
 						       display->gbm_device, NULL);
-	assert(egl->display && "error: could not create EGL display");
+	CLIENT_ASSERT(egl->display, "can't create EGL display");
 
 	ret = eglInitialize(egl->display, &major, &minor);
-	assert(ret != EGL_FALSE && "error: failed to initialized EGL display");
+	CLIENT_ASSERT(ret != EGL_FALSE, "can't initialize EGL display");
 
 	ret = eglBindAPI(EGL_OPENGL_ES_API);
-	assert(ret != EGL_FALSE && "error: failed to set EGL API");
+	CLIENT_ASSERT(ret != EGL_FALSE, "can't bind GL API");
 
 	egl_extensions = eglQueryString(egl->display, EGL_EXTENSIONS);
-	assert(egl_extensions &&
-	       "error: could not retrieve supported EGL extensions");
+	CLIENT_ASSERT(egl_extensions, "can't retrieve EGL extensions");
 
-	assert(weston_check_egl_extension(egl_extensions,
-					  "EGL_EXT_image_dma_buf_import"));
-	assert(weston_check_egl_extension(egl_extensions,
-					  "EGL_KHR_surfaceless_context"));
-	assert(weston_check_egl_extension(egl_extensions,
-					  "EGL_EXT_image_dma_buf_import_modifiers"));
-	assert(weston_check_egl_extension(egl_extensions,
-					  "EGL_KHR_no_config_context"));
+	CLIENT_ASSERT(weston_check_egl_extension(egl_extensions,
+						 "EGL_EXT_image_dma_buf_import"));
+	CLIENT_ASSERT(weston_check_egl_extension(egl_extensions,
+						 "EGL_KHR_surfaceless_context"));
+	CLIENT_ASSERT(weston_check_egl_extension(egl_extensions,
+						 "EGL_EXT_image_dma_buf_import_modifiers"));
+	CLIENT_ASSERT(weston_check_egl_extension(egl_extensions,
+						 "EGL_KHR_no_config_context"));
 
 	egl->context = eglCreateContext(egl->display, EGL_NO_CONFIG_KHR,
 					EGL_NO_CONTEXT, context_attribs);
-	assert(egl->context != EGL_NO_CONTEXT &&
-	       "error: failed to create EGLContext");
+	CLIENT_ASSERT(egl->context != EGL_NO_CONTEXT,
+		      "can't create GL context");
 
 	ret = eglMakeCurrent(egl->display, EGL_NO_SURFACE, EGL_NO_SURFACE,
 			     egl->context);
-	assert(ret == EGL_TRUE && "error: failed to make context current");
+	CLIENT_ASSERT(ret == EGL_TRUE, "can't make GL context current");
 
 	gl_extensions = (const char *) glGetString(GL_EXTENSIONS);
-	assert(gl_extensions &&
-	       "error: could not retrieve supported GL extensions");
+	CLIENT_ASSERT(gl_extensions, "can't retrieve GL extensions");
 
-	assert(weston_check_egl_extension(gl_extensions,
-					  "GL_OES_EGL_image"));
+	CLIENT_ASSERT(weston_check_egl_extension(gl_extensions,
+						 "GL_OES_EGL_image"));
 
 	egl->query_dmabuf_modifiers =
 		(void *) eglGetProcAddress("eglQueryDmaBufModifiersEXT");
@@ -900,13 +900,12 @@ gl_setup(struct window *window)
 	GLuint frag;
 
 	vert = create_shader(vert_shader_text, GL_VERTEX_SHADER);
-	assert(vert != 0 && "error: failed to compile vertex shader");
+	CLIENT_ASSERT(vert != 0, "can't create vertex shader");
 	frag = create_shader(frag_shader_text, GL_FRAGMENT_SHADER);
-	assert(frag != 0 && "error: failed to compile fragment shader");
+	CLIENT_ASSERT(frag != 0, "can't create fragment shader");
 
 	gl->program = create_and_link_program(vert ,frag);
-	assert(gl->program != 0 &&
-	       "error: failed to attach shaders and create a program");
+	CLIENT_ASSERT(gl->program != 0, "can't link program");
 
 	glDeleteShader(vert);
 	glDeleteShader(frag);
@@ -956,7 +955,7 @@ create_window(struct display *display)
 	struct window *window;
 
 	window = zalloc(sizeof *window);
-	assert(window && "error: failed to allocate memory for window");
+	CLIENT_ASSERT(window, "can't allocate memory");
 
 	window->display = display;
 	window->surface = wl_compositor_create_surface(display->compositor);
@@ -975,22 +974,21 @@ create_window(struct display *display)
 						  window);
 	wl_display_roundtrip(display->display);
 
-	assert(window->format.format == INITIAL_BUFFER_FORMAT &&
-	       "error: could not setup window->format based on dma-buf feedback");
+	CLIENT_ASSERT(window->format.format == INITIAL_BUFFER_FORMAT,
+		      "can't setup format based on dma-buf feedback");
 
 	gbm_setup(window);
 	egl_setup(window);
 	gl_setup(window);
 
-
 	window->xdg_surface = xdg_wm_base_get_xdg_surface(display->wm_base,
 							  window->surface);
-	assert(window->xdg_surface && "error: could not get XDG surface");
+	CLIENT_ASSERT(window->xdg_surface, "can't get XDG surface");
 	xdg_surface_add_listener(window->xdg_surface, &xdg_surface_listener,
 				 window);
 
 	window->xdg_toplevel = xdg_surface_get_toplevel(window->xdg_surface);
-	assert(window->xdg_toplevel && "error: could not get XDG toplevel");
+	CLIENT_ASSERT(window->xdg_toplevel, "can't get XDG toplevel");
 	xdg_toplevel_add_listener(window->xdg_toplevel, &xdg_toplevel_listener,
 				  window);
 
@@ -1004,8 +1002,8 @@ create_window(struct display *display)
 
 	wl_display_roundtrip(display->display);
 
-	assert(!window->wait_for_configure &&
-	       "error: could not configure XDG surface");
+	CLIENT_ASSERT(!window->wait_for_configure,
+		      "can't configure XDG surface");
 
 	return window;
 }
@@ -1020,13 +1018,13 @@ get_most_appropriate_node(const char *drm_node, bool is_scanout_device)
 	int i, j;
 
 	num_devices = drmGetDevices2(0, NULL, 0);
-	assert(num_devices > 0 && "error: no drm devices available");
+	CLIENT_ASSERT(num_devices > 0, "no drm devices available");
 
 	devices = zalloc(num_devices * sizeof(*devices));
-	assert(devices && "error: failed to allocate memory for drm devices");
+	CLIENT_ASSERT(devices, "can't allocate memory");
 
 	num_devices = drmGetDevices2(0, devices, num_devices);
-	assert(num_devices > 0 && "error: no drm devices available");
+	CLIENT_ASSERT(num_devices > 0, "no drm devices available");
 
 	for (i = 0; i < num_devices && match == NULL; i++) {
 		for (j = 0; j < DRM_NODE_MAX && match == NULL; j++) {
@@ -1036,8 +1034,8 @@ get_most_appropriate_node(const char *drm_node, bool is_scanout_device)
 				match = devices[i];
 		}
 	}
-	assert(match != NULL && "error: could not find device on the list");
-	assert(match->available_nodes & (1 << DRM_NODE_PRIMARY));
+	CLIENT_ASSERT(match != NULL, "can't find device on the list");
+	WESTON_ASSERT_BIT_SET(match->available_nodes, 1ull << DRM_NODE_PRIMARY);
 
 	if (is_scanout_device) {
 		appropriate_node = strdup(match->nodes[DRM_NODE_PRIMARY]);
@@ -1047,7 +1045,7 @@ get_most_appropriate_node(const char *drm_node, bool is_scanout_device)
 		else
 			appropriate_node = strdup(match->nodes[DRM_NODE_PRIMARY]);
 	}
-	assert(appropriate_node && "error: could not get drm node");
+	CLIENT_ASSERT(appropriate_node, "can't get drm node");
 
 	for (i = 0; i < num_devices; i++)
 		drmFreeDevice(&devices[i]);
@@ -1064,13 +1062,13 @@ get_drm_node(dev_t device, bool is_scanout_device)
 	const char *drm_node;
 
 	udev = udev_new();
-	assert(udev && "error: failed to create udev context object");
+	CLIENT_ASSERT(udev, "can't create udev context object");
 
 	udev_dev = udev_device_new_from_devnum(udev, 'c', device);
-	assert(udev_dev && "error: failed to create udev device");
+	CLIENT_ASSERT(udev_dev, "can't create udev device");
 
 	drm_node = udev_device_get_devnode(udev_dev);
-	assert(drm_node && "error: failed to retrieve drm node");
+	CLIENT_ASSERT(drm_node, "can't retrieve drm node");
 
 	udev_unref(udev);
 
@@ -1099,18 +1097,18 @@ dmabuf_feedback_main_device(void *data,
 	struct dmabuf_feedback *feedback = &window->pending_dmabuf_feedback;
 	char *drm_node;
 
-	assert(dev->size == sizeof(feedback->main_device) &&
-	       "error: compositor didn't send a dev_t, size is wrong");
+	CLIENT_ASSERT(dev->size == sizeof(feedback->main_device),
+		      "compositor didn't send a dev_t, size is wrong");
 	memcpy(&feedback->main_device, dev->data, sizeof(dev));
 
 	drm_node = get_drm_node(feedback->main_device, false);
-	assert(drm_node && "error: failed to retrieve drm node");
+	CLIENT_ASSERT(drm_node, "can't retrieve drm node");
 
 	fprintf(stderr, "feedback: main device %s\n", drm_node);
 
 	if (!window->card_fd) {
 		window->card_fd = open(drm_node, O_RDWR | O_CLOEXEC);
-		assert(window->card_fd > 0 && "error: could not open card node");
+		CLIENT_ASSERT(window->card_fd > 0, "can't open card node");
 	}
 
 	free(drm_node);
@@ -1124,8 +1122,8 @@ dmabuf_feedback_tranche_target_device(void *data,
 	struct window *window = data;
 	struct dmabuf_feedback *feedback = &window->pending_dmabuf_feedback;
 
-	assert(dev->size == sizeof(feedback->pending_tranche.target_device) &&
-	       "error: compositor didn't send a dev_t, size is wrong");
+	CLIENT_ASSERT(dev->size == sizeof(feedback->pending_tranche.target_device),
+		      "compositor didn't send a dev_t, size is wrong");
 
 	memcpy(&feedback->pending_tranche.target_device, dev->data, sizeof(dev));
 }
@@ -1160,10 +1158,10 @@ dmabuf_feedback_tranche_formats(void *data,
 		feedback->format_table = window->dmabuf_feedback.format_table;
 		dmabuf_feedback_format_table_init(&window->dmabuf_feedback.format_table);
 	}
-	assert(feedback->format_table.data != NULL &&
-	       "error: compositor should advertise format table");
-	assert(feedback->format_table.data != MAP_FAILED &&
-	       "error: we could not map format table advertised by compositor");
+	CLIENT_ASSERT(feedback->format_table.data != NULL,
+		      "compositor should advertise format table");
+	CLIENT_ASSERT(feedback->format_table.data != MAP_FAILED,
+		      "can't map format table advertised by compositor");
 
 	wl_array_for_each(index, indices) {
 		format = feedback->format_table.data[*index].format;
@@ -1191,7 +1189,7 @@ fourcc2str(uint32_t format, char *str, int len)
 {
 	int i;
 
-	assert(len >= 5);
+	WESTON_DASSERT_INT_GE(len, 5);
 
 	for (i = 0; i < 4; i++)
 		str[i] = bits2graph(format, i * 8);
@@ -1217,7 +1215,7 @@ print_tranche_format_modifier(uint32_t format, uint64_t modifier)
 		fourcc2str(format, fourcc_str, sizeof(fourcc_str));
 		len = asprintf(&format_str, "%s (0x%08x)", fourcc_str, format);
 	}
-	assert(len > 0);
+	WESTON_DASSERT_INT_GT(len, 0);
 
 	fprintf(stderr, L_LINE L_VAL " format %s, modifier %s\n",
 		format_str, mod_name);
@@ -1234,7 +1232,7 @@ print_dmabuf_feedback_tranche(struct dmabuf_feedback_tranche *tranche)
 	uint64_t *mod;
 
 	drm_node = get_drm_node(tranche->target_device, tranche->is_scanout_tranche);
-	assert(drm_node && "error: could not retrieve drm node");
+	CLIENT_ASSERT(drm_node, "can't retrieve drm node");
 
 	fprintf(stderr, L_VAL " tranche: target device %s, %s\n",
 		drm_node, tranche->is_scanout_tranche ? "scanout" : "no flags");
@@ -1257,7 +1255,7 @@ dmabuf_feedback_tranche_done(void *data,
 	print_dmabuf_feedback_tranche(&feedback->pending_tranche);
 
 	tranche = wl_array_add(&feedback->tranches, sizeof(*tranche));
-	assert(tranche && "error: could not allocate memory for tranche");
+	CLIENT_ASSERT(tranche, "can't allocate memory");
 
 	memcpy(tranche, &feedback->pending_tranche, sizeof(*tranche));
 
@@ -1346,11 +1344,13 @@ dmabuf_feedback_done(void *data, struct zwp_linux_dmabuf_feedback_v1 *dmabuf_fee
 	}
 
 	if (got_scanout_tranche) {
-		assert(window->format.format != INITIAL_BUFFER_FORMAT &&
-		       "error: no valid pair of format/modifier in the scanout tranches");
+		CLIENT_ASSERT(window->format.format != INITIAL_BUFFER_FORMAT,
+			      "no valid pair of format/modifier in the scanout "
+			      "tranches");
 	} else {
-		assert(window->format.format == INITIAL_BUFFER_FORMAT &&
-		       "error: INITIAL_BUFFER_FORMAT not supported by the hardware");
+		CLIENT_ASSERT(window->format.format == INITIAL_BUFFER_FORMAT,
+			      "INITIAL_BUFFER_FORMAT not supported by the "
+			      "hardware");
 	}
 
 	dmabuf_feedback_fini(&window->dmabuf_feedback);
@@ -1494,22 +1494,26 @@ create_display()
 	struct display *display = NULL;
 
 	display = zalloc(sizeof *display);
-	assert(display && "error: failed to allocate memory for display");
+	CLIENT_ASSERT(display, "can't allocate memory");
 
 	display->display = wl_display_connect(NULL);
-	assert(display->display && "error: could not connect to compositor");
+	CLIENT_ASSERT(display->display, "can't connect to Wayland compositor");
 
 	display->registry = wl_display_get_registry(display->display);
-	assert(display->registry && "error: could not get registry");
-	wl_registry_add_listener(display->registry, &registry_listener, display);
+	CLIENT_ASSERT(display->registry, "can't get registry");
+	wl_registry_add_listener(display->registry, &registry_listener,
+				 display);
 
 	wl_display_roundtrip(display->display);
-	assert(display->compositor && "error: could not create compositor interface");
-	assert(display->dmabuf && "error: dma-buf feedback is not supported by compositor");
+	CLIENT_ASSERT(display->compositor, "can't create compositor interface");
+	CLIENT_ASSERT(display->dmabuf,
+		      "dma-buf feedback isn't supported by compositor");
 
 	wl_display_roundtrip(display->display);
-	assert(display->wm_base && "error: xdg shell is not supported by compositor");
-	assert(display->output.initialized && "error: output not initialized");
+	CLIENT_ASSERT(display->wm_base,
+		      "XDG shell isn't supported by compositor");
+
+	WESTON_DASSERT_TRUE(display->output.initialized);
 
 	return display;
 }

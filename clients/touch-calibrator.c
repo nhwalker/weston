@@ -32,7 +32,6 @@
 #include <string.h>
 #include <cairo.h>
 #include <math.h>
-#include <assert.h>
 #include <getopt.h>
 #include <errno.h>
 
@@ -42,6 +41,7 @@
 #include "shared/helpers.h"
 #include <libweston/matrix.h>
 
+#include "weston-client-assert.h"
 #include "weston-touch-calibration-client-protocol.h"
 
 enum exit_code {
@@ -182,7 +182,8 @@ sample_start(struct calibrator *cal, int i)
 {
 	struct sample *s = &cal->samples[i];
 
-	assert(i >= 0 && i < NR_SAMPLES);
+	WESTON_DASSERT_INT_GE(i, 0);
+	WESTON_DASSERT_INT_LT(i, NR_SAMPLES);
 
 	s->ind = i;
 	s->drawn.x = round(test_ratios[i].x_ratio * cal->width);
@@ -257,7 +258,8 @@ sample_finish(struct calibrator *cal)
 
 	pr_dbg("Finish[%d]\n", s->ind);
 
-	assert(!s->pending && !s->conv_done);
+	WESTON_DASSERT_FALSE(s->pending);
+	WESTON_DASSERT_FALSE(s->conv_done);
 
 	s->pending = weston_touch_calibrator_convert(cal->calibrator,
 						     (int32_t)s->drawn.x,
@@ -320,7 +322,7 @@ compute_calibration(struct calibrator *cal, float *result)
 	struct weston_vector y_calib;
 	int i;
 
-	assert(NR_SAMPLES >= 3);
+	WESTON_DASSERT_INT_GE(NR_SAMPLES, 3);
 
 	/*
 	 * x1 y1  1  0
@@ -491,7 +493,8 @@ try_enter_state_idle(struct calibrator *cal)
 static void
 enter_state_wait(struct calibrator *cal)
 {
-	assert(cal->timer_pending);
+	WESTON_DASSERT_TRUE(cal->timer_pending);
+
 	cal->state = STATE_WAIT;
 }
 
@@ -500,7 +503,8 @@ wait_timer_done(struct toytimer *tt)
 {
 	struct calibrator *cal = container_of(tt, struct calibrator, wait_timer);
 
-	assert(cal->state == STATE_WAIT);
+	WESTON_DASSERT_ENUM_EQ(cal->state, STATE_WAIT);
+
 	cal->timer_pending = false;
 	try_enter_state_idle(cal);
 }
@@ -515,8 +519,8 @@ redraw_handler(struct widget *widget, void *data)
 	cairo_t *cr;
 
 	widget_get_allocation(cal->widget, &allocation);
-	assert(allocation.width == cal->width);
-	assert(allocation.height == cal->height);
+	WESTON_DASSERT_S32_EQ(allocation.width, cal->width);
+	WESTON_DASSERT_S32_EQ(allocation.height, cal->height);
 
 	surface = window_get_surface(cal->window);
 	cr = cairo_create(surface);

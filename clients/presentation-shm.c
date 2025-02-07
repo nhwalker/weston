@@ -30,7 +30,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
-#include <assert.h>
 #include <unistd.h>
 #include <sys/mman.h>
 #include <signal.h>
@@ -42,6 +41,7 @@
 #include <libweston/zalloc.h>
 #include "shared/timespec-util.h"
 #include "shared/os-compatibility.h"
+#include "weston-client-assert.h"
 #include "presentation-time-client-protocol.h"
 #include "xdg-shell-client-protocol.h"
 
@@ -161,13 +161,13 @@ create_shm_buffers(struct display *display, struct buffer **buffers,
 	offset = 0;
 
 	bufs = calloc(num_buffers, sizeof(*bufs));
-	assert(bufs);
+	CLIENT_ASSERT(bufs, "can't allocate memory");
 
 	for (i = 0; i < num_buffers; i++) {
 		bufs[i].buffer = wl_shm_pool_create_buffer(pool, offset,
 							   width, height,
 							   stride, format);
-		assert(bufs[i].buffer);
+		CLIENT_ASSERT(bufs[i].buffer, "can't create wl_shm buffer");
 		wl_buffer_add_listener(bufs[i].buffer,
 				       &buffer_listener, &bufs[i]);
 
@@ -284,7 +284,7 @@ create_window(struct display *display, int width, int height,
 				 &window->buffers, window->num_buffers,
 				 window->width, window->height,
 				 WL_SHM_FORMAT_XRGB8888);
-	assert(ret == 0);
+	CLIENT_ASSERT(ret == 0, "can't create SHM buffers");
 
 	return window;
 }
@@ -558,7 +558,7 @@ window_commit_next(struct window *window)
 	struct buffer *buffer;
 
 	buffer = window_next_buffer(window);
-	assert(buffer);
+	WESTON_DASSERT_PTR_SET(buffer);
 
 	if (window->configure_serial) {
 		xdg_surface_ack_configure(window->xdg_surface,
@@ -637,7 +637,7 @@ feedkick_presented(void *data,
 		break;
 	case RUN_MODE_FEEDBACK:
 	case RUN_MODE_FEEDBACK_IDLE:
-		assert(0 && "bad mode");
+		WESTON_DASSERT_NOT_REACHED("bad mode");
 	}
 }
 
@@ -658,7 +658,7 @@ feedkick_discarded(void *data,
 		break;
 	case RUN_MODE_FEEDBACK:
 	case RUN_MODE_FEEDBACK_IDLE:
-		assert(0 && "bad mode");
+		WESTON_DASSERT_NOT_REACHED("bad mode");
 	}
 }
 
@@ -679,7 +679,7 @@ firstdraw_mode_burst(struct window *window)
 		break;
 	case RUN_MODE_FEEDBACK:
 	case RUN_MODE_FEEDBACK_IDLE:
-		assert(0 && "bad mode");
+		WESTON_DASSERT_NOT_REACHED("bad mode");
 	}
 
 	window_feedkick(window);
@@ -719,7 +719,7 @@ display_add_output(struct display *d, uint32_t name, uint32_t version)
 	struct output *o;
 
 	o = zalloc(sizeof(*o));
-	assert(o);
+	CLIENT_ASSERT(o, "can't allocate memory");
 
 	o->output = wl_registry_bind(d->registry, name,
 				     &wl_output_interface, 1);
@@ -807,12 +807,11 @@ create_display(void)
 	struct display *display;
 
 	display = malloc(sizeof *display);
-	if (display == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(1);
-	}
+	CLIENT_ASSERT(display, "can't allocate memory");
+
 	display->display = wl_display_connect(NULL);
-	assert(display->display);
+	CLIENT_ASSERT(display->display,
+		      "can't connect to Wayland compositor");
 
 	display->formats = 0;
 	display->clk_id = -1;
@@ -820,18 +819,13 @@ create_display(void)
 	display->registry = wl_display_get_registry(display->display);
 	wl_registry_add_listener(display->registry,
 				 &registry_listener, display);
-	wl_display_roundtrip(display->display);
-	if (display->shm == NULL) {
-		fprintf(stderr, "No wl_shm global\n");
-		exit(1);
-	}
 
 	wl_display_roundtrip(display->display);
+	CLIENT_ASSERT(display->shm, "wl_shm isn't supported by compositor");
 
-	if (!(display->formats & (1 << WL_SHM_FORMAT_XRGB8888))) {
-		fprintf(stderr, "WL_SHM_FORMAT_XRGB32 not available\n");
-		exit(1);
-	}
+	wl_display_roundtrip(display->display);
+	CLIENT_ASSERT(display->formats & (1 << WL_SHM_FORMAT_XRGB8888),
+		      "WL_SHM_FORMAT_XRGB32 isn't supported by compositor");
 
 	wl_display_get_fd(display->display);
 
