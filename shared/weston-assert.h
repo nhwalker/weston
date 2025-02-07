@@ -188,7 +188,7 @@ weston_assert_fail_(const char *fmt, ...)
 	bool cond = (v & b) == b;						\
 	WESTON_ASSERT_TRUE(is_pow2_64(bit));					\
 	if (!cond)								\
-		custom_assert_fail_("%s:%u: Assertion failed! Bit \"%s\" (%" PRIu64 ") of \"%s\" (0x%" PRIx64 ") is not set.\n",	\
+		custom_assert_fail_("%s:%u: Assertion failed! Bit \"%s\" (0x%" PRIx64 ") of \"%s\" (0x%" PRIx64 ") is not set.\n",	\
 				    __FILE__, __LINE__, #bit, b, #value, v);	\
 	cond;									\
 })
@@ -200,7 +200,7 @@ weston_assert_fail_(const char *fmt, ...)
 	bool cond = (v & b) == 0;						\
 	WESTON_ASSERT_TRUE(is_pow2_64(bit));					\
 	if (!cond)								\
-		custom_assert_fail_("%s:%u: Assertion failed! Bit \"%s\" (%" PRIu64 ") of \"%s\" (0x%" PRIx64 ") is set.\n",	\
+		custom_assert_fail_("%s:%u: Assertion failed! Bit \"%s\" (0x%" PRIx64 ") of \"%s\" (0x%" PRIx64 ") is set.\n",	\
 				    __FILE__, __LINE__, #bit, b, #value, v);	\
 	cond;									\
 })
