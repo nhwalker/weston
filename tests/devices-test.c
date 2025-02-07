@@ -61,25 +61,25 @@ DECLARE_FIXTURE_SETUP(fixture_setup);
 TEST(seat_capabilities_test)
 {
 	struct client *cl = create_client_and_test_surface(100, 100, 100, 100);
-	test_assert_enum_eq(cl->input->caps, WL_SEAT_CAPABILITY_ALL);
+	TEST_ASSERT_ENUM_EQ(cl->input->caps, WL_SEAT_CAPABILITY_ALL);
 
-	test_assert_ptr_set(cl->input->pointer);
+	TEST_ASSERT_PTR_SET(cl->input->pointer);
 	weston_test_device_release(cl->test->weston_test, "pointer");
 	client_roundtrip(cl);
-	test_assert_ptr_not_set(cl->input->pointer);
-	test_assert_bit_not_set(cl->input->caps, WL_SEAT_CAPABILITY_POINTER);
+	TEST_ASSERT_PTR_NOT_SET(cl->input->pointer);
+	TEST_ASSERT_BIT_NOT_SET(cl->input->caps, WL_SEAT_CAPABILITY_POINTER);
 
-	test_assert_ptr_set(cl->input->keyboard);
+	TEST_ASSERT_PTR_SET(cl->input->keyboard);
 	weston_test_device_release(cl->test->weston_test, "keyboard");
 	client_roundtrip(cl);
-	test_assert_ptr_not_set(cl->input->keyboard);
-	test_assert_bit_not_set(cl->input->caps, WL_SEAT_CAPABILITY_KEYBOARD);
+	TEST_ASSERT_PTR_NOT_SET(cl->input->keyboard);
+	TEST_ASSERT_BIT_NOT_SET(cl->input->caps, WL_SEAT_CAPABILITY_KEYBOARD);
 
-	test_assert_ptr_set(cl->input->touch);
+	TEST_ASSERT_PTR_SET(cl->input->touch);
 	weston_test_device_release(cl->test->weston_test, "touch");
 	client_roundtrip(cl);
-	test_assert_ptr_not_set(cl->input->touch);
-	test_assert_bit_not_set(cl->input->caps, WL_SEAT_CAPABILITY_TOUCH);
+	TEST_ASSERT_PTR_NOT_SET(cl->input->touch);
+	TEST_ASSERT_BIT_NOT_SET(cl->input->caps, WL_SEAT_CAPABILITY_TOUCH);
 
 	/* restore previous state */
 	weston_test_device_add(cl->test->weston_test, "keyboard");
@@ -87,9 +87,9 @@ TEST(seat_capabilities_test)
 	weston_test_device_add(cl->test->weston_test, "touch");
 	client_roundtrip(cl);
 
-	test_assert_ptr_set(cl->input->pointer);
-	test_assert_ptr_set(cl->input->keyboard);
-	test_assert_ptr_set(cl->input->touch);
+	TEST_ASSERT_PTR_SET(cl->input->pointer);
+	TEST_ASSERT_PTR_SET(cl->input->keyboard);
+	TEST_ASSERT_PTR_SET(cl->input->touch);
 
 	/* add extra devices */
 	weston_test_device_add(cl->test->weston_test, "keyboard");
@@ -105,11 +105,11 @@ TEST(seat_capabilities_test)
 
 	/* we still should have all the capabilities, since the devices
 	 * were doubled */
-	test_assert_enum_eq(cl->input->caps, WL_SEAT_CAPABILITY_ALL);
+	TEST_ASSERT_ENUM_EQ(cl->input->caps, WL_SEAT_CAPABILITY_ALL);
 
-	test_assert_ptr_set(cl->input->pointer);
-	test_assert_ptr_set(cl->input->keyboard);
-	test_assert_ptr_set(cl->input->touch);
+	TEST_ASSERT_PTR_SET(cl->input->pointer);
+	TEST_ASSERT_PTR_SET(cl->input->keyboard);
+	TEST_ASSERT_PTR_SET(cl->input->touch);
 
 	client_destroy(cl);
 }
@@ -129,11 +129,11 @@ TEST(multiple_device_add_and_remove)
 
 	client_roundtrip(cl);
 
-	test_assert_ptr_set(cl->input->pointer);
-	test_assert_ptr_set(cl->input->keyboard);
-	test_assert_ptr_set(cl->input->touch);
+	TEST_ASSERT_PTR_SET(cl->input->pointer);
+	TEST_ASSERT_PTR_SET(cl->input->keyboard);
+	TEST_ASSERT_PTR_SET(cl->input->touch);
 
-	test_assert_enum_eq(cl->input->caps, WL_SEAT_CAPABILITY_ALL);
+	TEST_ASSERT_ENUM_EQ(cl->input->caps, WL_SEAT_CAPABILITY_ALL);
 
 	/* release all new devices */
 	for (i = 0; i < COUNT; ++i) {
@@ -145,11 +145,11 @@ TEST(multiple_device_add_and_remove)
 	client_roundtrip(cl);
 
 	/* there is still one from each device left */
-	test_assert_enum_eq(cl->input->caps, WL_SEAT_CAPABILITY_ALL);
+	TEST_ASSERT_ENUM_EQ(cl->input->caps, WL_SEAT_CAPABILITY_ALL);
 
-	test_assert_ptr_set(cl->input->pointer);
-	test_assert_ptr_set(cl->input->keyboard);
-	test_assert_ptr_set(cl->input->touch);
+	TEST_ASSERT_PTR_SET(cl->input->pointer);
+	TEST_ASSERT_PTR_SET(cl->input->keyboard);
+	TEST_ASSERT_PTR_SET(cl->input->touch);
 
 	client_destroy(cl);
 }
@@ -181,7 +181,7 @@ device_release_before_destroy(void)
 	weston_test_device_release(cl->test->weston_test, "touch");
 	client_roundtrip(cl);
 
-	test_assert_enum_eq(cl->input->caps, 0);
+	TEST_ASSERT_ENUM_EQ(cl->input->caps, 0);
 
 	/* restore previous state */
 	weston_test_device_add(cl->test->weston_test, "pointer");
@@ -189,7 +189,7 @@ device_release_before_destroy(void)
 	weston_test_device_add(cl->test->weston_test, "touch");
 	client_roundtrip(cl);
 
-	test_assert_enum_eq(cl->input->caps, WL_SEAT_CAPABILITY_ALL);
+	TEST_ASSERT_ENUM_EQ(cl->input->caps, WL_SEAT_CAPABILITY_ALL);
 
 	client_destroy(cl);
 }
@@ -230,7 +230,7 @@ device_release_after_destroy(void)
 
 	client_roundtrip(cl);
 
-	test_assert_enum_eq(cl->input->caps, 0);
+	TEST_ASSERT_ENUM_EQ(cl->input->caps, 0);
 
 	/* restore previous state */
 	weston_test_device_add(cl->test->weston_test, "pointer");
@@ -238,7 +238,7 @@ device_release_after_destroy(void)
 	weston_test_device_add(cl->test->weston_test, "touch");
 	client_roundtrip(cl);
 
-	test_assert_enum_eq(cl->input->caps, WL_SEAT_CAPABILITY_ALL);
+	TEST_ASSERT_ENUM_EQ(cl->input->caps, WL_SEAT_CAPABILITY_ALL);
 
 	client_destroy(cl);
 }
@@ -284,7 +284,7 @@ get_device_after_destroy(void)
 	 * exactly simulate our situation */
 	weston_test_device_release(cl->test->weston_test, "pointer");
 	wl_pointer = wl_seat_get_pointer(cl->input->wl_seat);
-	test_assert_ptr_set(wl_pointer);
+	TEST_ASSERT_PTR_SET(wl_pointer);
 
 	/* this should be ignored */
 	wl_pointer_set_cursor(wl_pointer, 0, NULL, 0, 0);
@@ -295,13 +295,13 @@ get_device_after_destroy(void)
 
 	weston_test_device_release(cl->test->weston_test, "keyboard");
 	wl_keyboard = wl_seat_get_keyboard(cl->input->wl_seat);
-	test_assert_ptr_set(wl_keyboard);
+	TEST_ASSERT_PTR_SET(wl_keyboard);
 	wl_keyboard_release(wl_keyboard);
 	client_roundtrip(cl);
 
 	weston_test_device_release(cl->test->weston_test, "touch");
 	wl_touch = wl_seat_get_touch(cl->input->wl_seat);
-	test_assert_ptr_set(wl_touch);
+	TEST_ASSERT_PTR_SET(wl_touch);
 	wl_touch_release(wl_touch);
 	client_roundtrip(cl);
 
@@ -311,7 +311,7 @@ get_device_after_destroy(void)
 	weston_test_device_add(cl->test->weston_test, "touch");
 	client_roundtrip(cl);
 
-	test_assert_enum_eq(cl->input->caps, WL_SEAT_CAPABILITY_ALL);
+	TEST_ASSERT_ENUM_EQ(cl->input->caps, WL_SEAT_CAPABILITY_ALL);
 
 	client_destroy(cl);
 }
@@ -333,7 +333,7 @@ TEST(seats_have_names)
 	struct input *input;
 
 	wl_list_for_each(input, &cl->inputs, link) {
-		test_assert_ptr_set(input->seat_name);
+		TEST_ASSERT_PTR_SET(input->seat_name);
 	}
 
 	client_destroy(cl);
@@ -347,7 +347,7 @@ TEST(seat_destroy_and_recreate)
 	/* Roundtrip to receive and handle the seat global removal event */
 	client_roundtrip(cl);
 
-	test_assert_ptr_not_set(cl->input);
+	TEST_ASSERT_PTR_NOT_SET(cl->input);
 
 	weston_test_device_add(cl->test->weston_test, "seat");
 	/* First roundtrip to send request and receive new seat global */
@@ -355,10 +355,10 @@ TEST(seat_destroy_and_recreate)
 	/* Second roundtrip to handle seat events and set up input devices */
 	client_roundtrip(cl);
 
-	test_assert_ptr_set(cl->input);
-	test_assert_ptr_set(cl->input->pointer);
-	test_assert_ptr_set(cl->input->keyboard);
-	test_assert_ptr_set(cl->input->touch);
+	TEST_ASSERT_PTR_SET(cl->input);
+	TEST_ASSERT_PTR_SET(cl->input->pointer);
+	TEST_ASSERT_PTR_SET(cl->input->keyboard);
+	TEST_ASSERT_PTR_SET(cl->input->touch);
 
 	client_destroy(cl);
 }

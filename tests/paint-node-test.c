@@ -91,7 +91,7 @@ TEST(top_surface_present_in_output_repaint)
 	color_rgb888(&red, 255, 0, 0);
 
 	client = create_client_and_test_surface(100, 50, 100, 100);
-	test_assert_ptr_set(client);
+	TEST_ASSERT_PTR_SET(client);
 
 	/* move the pointer clearly away from our screenshooting area */
 	weston_test_move_pointer(client->test->weston_test, 0, 1, 0, 2, 30);
@@ -111,31 +111,31 @@ TEST(top_surface_present_in_output_repaint)
 		struct weston_surface *surface;
 		struct weston_buffer *buffer;
 
-		test_assert_enum_eq(breakpoint->template_->breakpoint,
+		TEST_ASSERT_ENUM_EQ(breakpoint->template_->breakpoint,
 				    WESTON_TEST_BREAKPOINT_POST_REPAINT);
 		compositor = breakpoint->compositor;
 		head = breakpoint->resource;
 		output = next_output(compositor, NULL);
-		test_assert_ptr_eq(output, head->output);
-		test_assert_str_eq(output->name, "headless");
-		test_assert_ptr_not_set(next_output(compositor, output));
+		TEST_ASSERT_PTR_EQ(output, head->output);
+		TEST_ASSERT_STR_EQ(output->name, "headless");
+		TEST_ASSERT_PTR_NOT_SET(next_output(compositor, output));
 
 		/* check that our surface is top of the paint node list */
 		pnode = next_pnode_from_z(output, NULL);
-		test_assert_ptr_set(pnode);
+		TEST_ASSERT_PTR_SET(pnode);
 		view = pnode->view;
 		surface = view->surface;
 		buffer = surface->buffer_ref.buffer;
-		test_assert_ptr_set(surface->resource);
-		test_assert_ptr_eq(wl_resource_get_client(surface->resource),
+		TEST_ASSERT_PTR_SET(surface->resource);
+		TEST_ASSERT_PTR_EQ(wl_resource_get_client(surface->resource),
 				   suite_data->wl_client);
-		test_assert_true(weston_view_is_mapped(view));
-		test_assert_true(weston_surface_is_mapped(surface));
-		test_assert_s32_eq(surface->width, 100);
-		test_assert_s32_eq(surface->height, 100);
-		test_assert_s32_eq(buffer->width, surface->width);
-		test_assert_s32_eq(buffer->height, surface->height);
-		test_assert_enum_eq(buffer->type, WESTON_BUFFER_SHM);
+		TEST_ASSERT_TRUE(weston_view_is_mapped(view));
+		TEST_ASSERT_TRUE(weston_surface_is_mapped(surface));
+		TEST_ASSERT_S32_EQ(surface->width, 100);
+		TEST_ASSERT_S32_EQ(surface->height, 100);
+		TEST_ASSERT_S32_EQ(buffer->width, surface->width);
+		TEST_ASSERT_S32_EQ(buffer->height, surface->height);
+		TEST_ASSERT_ENUM_EQ(buffer->type, WESTON_BUFFER_SHM);
 	}
 
 	buffer_destroy(buf);
@@ -152,7 +152,7 @@ TEST(test_surface_unmaps_on_null)
 	color_rgb888(&red, 255, 0, 0);
 
 	client = create_client_and_test_surface(100, 50, 100, 100);
-	test_assert_ptr_set(client);
+	TEST_ASSERT_PTR_SET(client);
 
 	/* move the pointer clearly away from our screenshooting area */
 	weston_test_move_pointer(client->test->weston_test, 0, 1, 0, 2, 30);
@@ -172,30 +172,30 @@ TEST(test_surface_unmaps_on_null)
 		struct weston_surface *surface;
 		struct weston_buffer *buffer;
 
-		test_assert_enum_eq(breakpoint->template_->breakpoint,
+		TEST_ASSERT_ENUM_EQ(breakpoint->template_->breakpoint,
 				    WESTON_TEST_BREAKPOINT_POST_REPAINT);
 		compositor = breakpoint->compositor;
 		head = breakpoint->resource;
 		output = next_output(compositor, NULL);
-		test_assert_ptr_eq(output, head->output);
-		test_assert_str_eq(output->name, "headless");
-		test_assert_ptr_not_set(next_output(compositor, output));
+		TEST_ASSERT_PTR_EQ(output, head->output);
+		TEST_ASSERT_STR_EQ(output->name, "headless");
+		TEST_ASSERT_PTR_NOT_SET(next_output(compositor, output));
 
 		/* check that our surface is top of the paint node list */
 		pnode = next_pnode_from_z(output, NULL);
-		test_assert_ptr_set(pnode);
+		TEST_ASSERT_PTR_SET(pnode);
 		view = pnode->view;
 		surface = view->surface;
 		buffer = surface->buffer_ref.buffer;
-		test_assert_ptr_eq(wl_resource_get_client(surface->resource),
+		TEST_ASSERT_PTR_EQ(wl_resource_get_client(surface->resource),
 				   suite_data->wl_client);
-		test_assert_true(weston_view_is_mapped(view));
-		test_assert_true(weston_surface_is_mapped(surface));
-		test_assert_s32_eq(surface->width, 100);
-		test_assert_s32_eq(surface->height, 100);
-		test_assert_s32_eq(buffer->width, surface->width);
-		test_assert_s32_eq(buffer->height, surface->height);
-		test_assert_enum_eq(buffer->type, WESTON_BUFFER_SHM);
+		TEST_ASSERT_TRUE(weston_view_is_mapped(view));
+		TEST_ASSERT_TRUE(weston_surface_is_mapped(surface));
+		TEST_ASSERT_S32_EQ(surface->width, 100);
+		TEST_ASSERT_S32_EQ(surface->height, 100);
+		TEST_ASSERT_S32_EQ(buffer->width, surface->width);
+		TEST_ASSERT_S32_EQ(buffer->height, surface->height);
+		TEST_ASSERT_ENUM_EQ(buffer->type, WESTON_BUFFER_SHM);
 
 		REARM_BREAKPOINT(breakpoint);
 	}
@@ -212,24 +212,24 @@ TEST(test_surface_unmaps_on_null)
 		struct weston_surface *surface;
 		struct weston_buffer *buffer;
 
-		test_assert_enum_eq(breakpoint->template_->breakpoint,
+		TEST_ASSERT_ENUM_EQ(breakpoint->template_->breakpoint,
 				    WESTON_TEST_BREAKPOINT_POST_REPAINT);
 		compositor = breakpoint->compositor;
 		head = breakpoint->resource;
 		output = next_output(compositor, NULL);
-		test_assert_ptr_eq(output, head->output);
-		test_assert_str_eq(output->name, "headless");
-		test_assert_ptr_not_set(next_output(compositor, output));
+		TEST_ASSERT_PTR_EQ(output, head->output);
+		TEST_ASSERT_STR_EQ(output->name, "headless");
+		TEST_ASSERT_PTR_NOT_SET(next_output(compositor, output));
 
 		/* check that our NULL-buffer commit removed the surface from
 		 * view */
 		pnode = next_pnode_from_z(output, NULL);
-		test_assert_ptr_set(pnode);
+		TEST_ASSERT_PTR_SET(pnode);
 		view = pnode->view;
 		surface = view->surface;
 		buffer = surface->buffer_ref.buffer;
-		test_assert_ptr_not_set(surface->resource);
-		test_assert_enum_eq(buffer->type, WESTON_BUFFER_SOLID);
+		TEST_ASSERT_PTR_NOT_SET(surface->resource);
+		TEST_ASSERT_ENUM_EQ(buffer->type, WESTON_BUFFER_SOLID);
 	}
 
 	buffer_destroy(buf);

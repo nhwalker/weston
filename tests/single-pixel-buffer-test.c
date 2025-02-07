@@ -93,7 +93,7 @@ TEST(solid_buffer_argb_u32)
 									  0x8fffffff, /* g */
 									  0x4fffffff, /* b */
 									  0xffffffff /* a */);
-	test_assert_ptr_set(buffer);
+	TEST_ASSERT_PTR_SET(buffer);
 
 	weston_test_move_surface(client->test->weston_test,
 				 client->surface->wl_surface,
@@ -105,7 +105,7 @@ TEST(solid_buffer_argb_u32)
 	frame_callback_wait(client, &done);
 
 	match = verify_screen_content(client, "single-pixel-buffer", 0, NULL, 0, NULL);
-	test_assert_true(match);
+	TEST_ASSERT_TRUE(match);
 
 	wl_buffer_destroy(buffer);
 	wp_viewport_destroy(viewport);

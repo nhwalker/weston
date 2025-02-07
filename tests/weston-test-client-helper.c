@@ -499,12 +499,12 @@ create_shm_buffer(struct client *client, int width, int height,
 	size_t bytes_pp;
 	uint32_t shm_format;
 
-	test_assert_int_gt(width, 0);
-	test_assert_int_gt(height, 0);
+	TEST_ASSERT_INT_GT(width, 0);
+	TEST_ASSERT_INT_GT(height, 0);
 
 	pfmt = pixel_format_get_info(drm_format);
-	test_assert_ptr_set(pfmt);
-	test_assert_uint_eq(pixel_format_get_plane_count(pfmt), 1);
+	TEST_ASSERT_PTR_SET(pfmt);
+	TEST_ASSERT_UINT_EQ(pixel_format_get_plane_count(pfmt), 1);
 	shm_format = pixel_format_get_shm_format(pfmt);
 
 	if (!support_shm_format(client, shm_format))
@@ -516,18 +516,18 @@ create_shm_buffer(struct client *client, int width, int height,
 	stride_bytes = width * bytes_pp;
 	/* round up to multiple of 4 bytes for Pixman */
 	stride_bytes = (stride_bytes + 3) & ~3u;
-	test_assert_u64_ge(stride_bytes / bytes_pp, width);
+	TEST_ASSERT_U64_GE(stride_bytes / bytes_pp, width);
 
 	buf->len = stride_bytes * height;
-	test_assert_u64_eq(buf->len / stride_bytes, height);
+	TEST_ASSERT_U64_EQ(buf->len / stride_bytes, height);
 
 	fd = os_create_anonymous_file(buf->len);
-	test_assert_int_ge(fd, 0);
+	TEST_ASSERT_INT_GE(fd, 0);
 
 	data = mmap(NULL, buf->len, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 	if (data == MAP_FAILED) {
 		close(fd);
-		test_assert_not_reached();
+		TEST_ASSERT_NOT_REACHED();
 	}
 
 	pool = wl_shm_create_pool(shm, fd, buf->len);
@@ -541,8 +541,8 @@ create_shm_buffer(struct client *client, int width, int height,
 					      width, height,
 					      data, stride_bytes);
 
-	test_assert_ptr_set(buf->proxy);
-	test_assert_ptr_set(buf->image);
+	TEST_ASSERT_PTR_SET(buf->proxy);
+	TEST_ASSERT_PTR_SET(buf->image);
 
 	return buf;
 }
@@ -558,13 +558,13 @@ create_pixman_buffer(int width, int height, pixman_format_code_t pixman_format)
 {
 	struct buffer *buf;
 
-	test_assert_int_gt(width, 0);
-	test_assert_int_gt(height, 0);
+	TEST_ASSERT_INT_GT(width, 0);
+	TEST_ASSERT_INT_GT(height, 0);
 
 	buf = xzalloc(sizeof *buf);
 	buf->image = pixman_image_create_bits(pixman_format,
 					      width, height, NULL, 0);
-	test_assert_ptr_set(buf->image);
+	TEST_ASSERT_PTR_SET(buf->image);
 
 	return buf;
 }
@@ -578,10 +578,10 @@ buffer_destroy(struct buffer *buf)
 
 	if (buf->proxy) {
 		wl_buffer_destroy(buf->proxy);
-		test_assert_int_eq(munmap(pixels, buf->len), 0);
+		TEST_ASSERT_INT_EQ(munmap(pixels, buf->len), 0);
 	}
 
-	test_assert_true(pixman_image_unref(buf->image));
+	TEST_ASSERT_TRUE(pixman_image_unref(buf->image));
 
 	free(buf);
 }
@@ -711,12 +711,12 @@ seat_handle_name(void *data, struct wl_seat *seat, const char *name)
 	struct input *input = data;
 
 	input->seat_name = strdup(name);
-	test_assert_ptr_set(input->seat_name);
+	TEST_ASSERT_PTR_SET(input->seat_name);
 
 	/* We only update the devices and set client input for the test seat */
 	if (strcmp(name, "test-seat") == 0) {
 		/* Can't have multiple test seats. */
-		test_assert_ptr_not_set(input->client->input);
+		TEST_ASSERT_PTR_NOT_SET(input->client->input);
 
 		input_update_devices(input);
 		input->client->input = input;
@@ -808,7 +808,7 @@ static const struct wl_output_listener output_listener = {
 static void
 output_destroy(struct output *output)
 {
-	test_assert_u32_ge(wl_proxy_get_version((struct wl_proxy *)output->wl_output), 3);
+	TEST_ASSERT_U32_GE(wl_proxy_get_version((struct wl_proxy *)output->wl_output), 3);
 	wl_output_release(output->wl_output);
 	wl_list_remove(&output->link);
 	free(output->name);
@@ -829,7 +829,7 @@ handle_global(void *data, struct wl_registry *registry,
 	global = xzalloc(sizeof *global);
 	global->name = id;
 	global->interface = strdup(interface);
-	test_assert_ptr_set(interface);
+	TEST_ASSERT_PTR_SET(interface);
 	global->version = version;
 	wl_list_insert(client->global_list.prev, &global->link);
 
@@ -921,7 +921,7 @@ handle_global_remove(void *data, struct wl_registry *registry, uint32_t name)
 	global = client_find_global_with_name(client, name);
 
 	/* Unknown global. */
-	test_assert_ptr_set(global);
+	TEST_ASSERT_PTR_SET(global);
 
 	if (strcmp(global->interface, "wl_seat") == 0) {
 		input = client_find_input_with_name(client, name);
@@ -975,10 +975,10 @@ expect_protocol_error(struct client *client,
 	err = wl_display_get_error(client->wl_display);
 
 	/* Expected protocol error but nothing came. */
-	test_assert_int_ne(err, 0);
+	TEST_ASSERT_INT_NE(err, 0);
 
 	/* Expected protocol error but got local error. */
-	test_assert_enum_eq(err, EPROTO);
+	TEST_ASSERT_ENUM_EQ(err, EPROTO);
 
 	errcode = wl_display_get_protocol_error(client->wl_display,
 						&interface, &id);
@@ -1036,7 +1036,7 @@ create_client(void)
 	/* connect to display */
 	client = xzalloc(sizeof *client);
 	client->wl_display = wl_display_connect(NULL);
-	test_assert_ptr_set(client->wl_display);
+	TEST_ASSERT_PTR_SET(client->wl_display);
 	wl_array_init(&client->shm_formats);
 	wl_list_init(&client->global_list);
 	wl_list_init(&client->inputs);
@@ -1054,20 +1054,20 @@ create_client(void)
 	client_roundtrip(client);
 
 	/* must have WL_SHM_FORMAT_*RGB8888 */
-	test_assert_true(support_shm_format(client, WL_SHM_FORMAT_ARGB8888));
-	test_assert_true(support_shm_format(client, WL_SHM_FORMAT_XRGB8888));
+	TEST_ASSERT_TRUE(support_shm_format(client, WL_SHM_FORMAT_ARGB8888));
+	TEST_ASSERT_TRUE(support_shm_format(client, WL_SHM_FORMAT_XRGB8888));
 
 	/* must have weston_test interface */
-	test_assert_ptr_set(client->test);
+	TEST_ASSERT_PTR_SET(client->test);
 
 	/* must have an output */
-	test_assert_ptr_set(client->output);
+	TEST_ASSERT_PTR_SET(client->output);
 
 	/* the output must be initialized */
-	test_assert_int_eq(client->output->initialized, 1);
+	TEST_ASSERT_INT_EQ(client->output->initialized, 1);
 
 	/* must have seat set */
-	test_assert_ptr_set(client->input);
+	TEST_ASSERT_PTR_SET(client->input);
 
 	return client;
 }
@@ -1082,7 +1082,7 @@ create_test_surface(struct client *client)
 	surface->client = client;
 	surface->wl_surface =
 		wl_compositor_create_surface(client->wl_compositor);
-	test_assert_ptr_set(surface->wl_surface);
+	TEST_ASSERT_PTR_SET(surface->wl_surface);
 
 	wl_surface_add_listener(surface->wl_surface, &surface_listener,
 				surface);
@@ -1186,7 +1186,7 @@ client_destroy(struct client *client)
 
 	if (client->wl_display) {
 		ret = wl_display_roundtrip(client->wl_display);
-		test_assert_true(client->errored_ok || ret >= 0);
+		TEST_ASSERT_TRUE(client->errored_ok || ret >= 0);
 		wl_display_disconnect(client->wl_display);
 	}
 
@@ -1232,7 +1232,7 @@ image_filename(const char *basename)
 	int ret;
 
 	ret = asprintf(&filename, "%s/%s.png", reference_path(), basename);
-	test_assert_int_ge(ret, 0);
+	TEST_ASSERT_INT_GE(ret, 0);
 
 	return filename;
 }
@@ -1251,8 +1251,8 @@ output_filename_for_test_program(const char *test_program, const char *suffix,
 {
 	char *filename;
 
-	test_assert_ptr_set(test_program);
-	test_assert_ptr_set(file_ext);
+	TEST_ASSERT_PTR_SET(test_program);
+	TEST_ASSERT_PTR_SET(file_ext);
 
 	if (suffix)
 		str_printf(&filename, "%s/%s-%s.%s", output_path(), test_program,
@@ -1261,7 +1261,7 @@ output_filename_for_test_program(const char *test_program, const char *suffix,
 		str_printf(&filename, "%s/%s.%s", output_path(), test_program,
 						  file_ext);
 
-	test_assert_ptr_set(filename);
+	TEST_ASSERT_PTR_SET(filename);
 	return filename;
 }
 
@@ -1282,9 +1282,9 @@ output_filename_for_fixture(const char *test_program,
 	int fixture_number;
 	char *filename;
 
-	test_assert_ptr_set(test_program);
-	test_assert_ptr_set(harness);
-	test_assert_ptr_set(file_ext);
+	TEST_ASSERT_PTR_SET(test_program);
+	TEST_ASSERT_PTR_SET(harness);
+	TEST_ASSERT_PTR_SET(file_ext);
 
 	fixture_number = get_test_fixture_number_from_harness(harness);
 
@@ -1295,7 +1295,7 @@ output_filename_for_fixture(const char *test_program,
 		str_printf(&filename, "%s/%s-f%02d.%s", output_path(), test_program,
 							fixture_number, file_ext);
 
-	test_assert_ptr_set(filename);
+	TEST_ASSERT_PTR_SET(filename);
 	return filename;
 }
 
@@ -1317,7 +1317,7 @@ output_filename_for_test_case(const char *suffix, uint32_t seq_number,
 {
 	char *filename;
 
-	test_assert_ptr_set(file_ext);
+	TEST_ASSERT_PTR_SET(file_ext);
 
 	if (suffix)
 		str_printf(&filename, "%s/%s-%s-%02d.%s", output_path(), get_test_name(),
@@ -1326,7 +1326,7 @@ output_filename_for_test_case(const char *suffix, uint32_t seq_number,
 		str_printf(&filename, "%s/%s-%02d.%s", output_path(), get_test_name(),
 						       seq_number, file_ext);
 
-	test_assert_ptr_set(filename);
+	TEST_ASSERT_PTR_SET(filename);
 	return filename;
 }
 
@@ -1381,7 +1381,7 @@ format_cairo2pixman(cairo_format_t fmt)
 		if (format_map[i].cairo == fmt)
 			return format_map[i].pixman;
 
-	test_assert_not_reached("unknown Cairo pixel format");
+	TEST_ASSERT_NOT_REACHED("unknown Cairo pixel format");
 
 	return 0;
 }
@@ -1395,7 +1395,7 @@ format_pixman2cairo(pixman_format_code_t fmt)
 		if (format_map[i].pixman == fmt)
 			return format_map[i].cairo;
 
-	test_assert_not_reached("unknown Pixman pixel format");
+	TEST_ASSERT_NOT_REACHED("unknown Pixman pixel format");
 
 	return 0;
 }
@@ -1414,7 +1414,7 @@ range_get(const struct range *r)
 	if (!r)
 		return (struct range){ 0, 0 };
 
-	test_assert_int_le(r->a, r->b);
+	TEST_ASSERT_INT_LE(r->a, r->b);
 	return *r;
 }
 
@@ -1454,14 +1454,14 @@ image_check_get_roi(const struct image_header *ih_a,
 		box.y2 = max(ih_a->height, ih_b->height);
 	}
 
-	test_assert_s32_ge(box.x1, 0);
-	test_assert_s32_ge(box.y1, 0);
-	test_assert_s32_gt(box.x2, box.x1);
-	test_assert_s32_gt(box.y2, box.y1);
-	test_assert_s32_le(box.x2, ih_a->width);
-	test_assert_s32_le(box.x2, ih_b->width);
-	test_assert_s32_le(box.y2, ih_a->height);
-	test_assert_s32_le(box.y2, ih_b->height);
+	TEST_ASSERT_S32_GE(box.x1, 0);
+	TEST_ASSERT_S32_GE(box.y1, 0);
+	TEST_ASSERT_S32_GT(box.x2, box.x1);
+	TEST_ASSERT_S32_GT(box.y2, box.y1);
+	TEST_ASSERT_S32_LE(box.x2, ih_a->width);
+	TEST_ASSERT_S32_LE(box.x2, ih_b->width);
+	TEST_ASSERT_S32_LE(box.y2, ih_a->height);
+	TEST_ASSERT_S32_LE(box.y2, ih_b->height);
 
 	return box;
 }
@@ -1715,7 +1715,7 @@ image_convert_to_a8r8g8b8(pixman_image_t *image)
 
 	ret = pixman_image_create_bits_no_clear(PIXMAN_a8r8g8b8,
 						ih.width, ih.height, NULL, 0);
-	test_assert_ptr_set(ret);
+	TEST_ASSERT_PTR_SET(ret);
 
 	pixman_image_composite32(PIXMAN_OP_SRC, image, NULL, ret,
 				 0, 0, 0, 0, 0, 0, ih.width, ih.height);
@@ -1776,7 +1776,7 @@ load_image_from_png(const char *fname)
 	/* The Cairo surface will own the data, so we keep it around. */
 	image = pixman_image_create_bits_no_clear(pixman_fmt,
 						  width, height, data, stride);
-	test_assert_ptr_set(image);
+	TEST_ASSERT_PTR_SET(image);
 
 	pixman_image_set_destroy_function(image, destroy_cairo_surface,
 					  reference_cairo_surface);
@@ -1832,7 +1832,7 @@ static void
 output_capturer_handle_retry(void *data,
 			     struct weston_capture_source_v1 *proxy)
 {
-	test_assert_not_reached("output capture retry in tests indicates a race");
+	TEST_ASSERT_NOT_REACHED("output capture retry in tests indicates a race");
 }
 
 static void
@@ -1842,7 +1842,7 @@ output_capturer_handle_failed(void *data,
 {
 	testlog("output capture failed: %s", msg ? msg : "?");
 
-	test_assert_not_reached("output capture failed");
+	TEST_ASSERT_NOT_REACHED("output capture failed");
 }
 
 static const struct weston_capture_source_v1_listener output_capturer_source_handlers = {
@@ -1873,7 +1873,7 @@ client_capture_output(struct client *client,
 
 	client_roundtrip(client);
 
-	test_assert_true(capt.width != 0 &&
+	TEST_ASSERT_TRUE(capt.width != 0 &&
 			 capt.height != 0 &&
 			 capt.drm_format != 0 &&
 			 "capture source not available");
@@ -1883,7 +1883,7 @@ client_capture_output(struct client *client,
 
 	weston_capture_source_v1_capture(capt.source, buf->proxy);
 	while (!capt.complete)
-		test_assert_int_ge(wl_display_dispatch(client->wl_display), 0);
+		TEST_ASSERT_INT_GE(wl_display_dispatch(client->wl_display), 0);
 
 	weston_capture_source_v1_destroy(capt.source);
 	weston_capture_v1_destroy(capt.factory);
@@ -1927,7 +1927,7 @@ capture_screenshot_of_output(struct client *client, const char *output_name)
 			}
 		}
 
-		test_assert_ptr_set(output);
+		TEST_ASSERT_PTR_SET(output);
 	} else {
 		output = client->output;
 	}
@@ -2064,7 +2064,7 @@ verify_screen_content(struct client *client,
 	bool match;
 
 	shot = capture_screenshot_of_output(client, output_name);
-	test_assert_ptr_set(shot);
+	TEST_ASSERT_PTR_SET(shot);
 	match = verify_image(shot->image, ref_image, ref_seq_no, clip, seq_no);
 	buffer_destroy(shot);
 
@@ -2093,12 +2093,12 @@ client_buffer_from_image_file(struct client *client,
 	int buf_w, buf_h;
 	pixman_transform_t scaling;
 
-	test_assert_int_ge(scale, 1);
+	TEST_ASSERT_INT_GE(scale, 1);
 
 	fname = image_filename(basename);
 	img = load_image_from_png(fname);
 	free(fname);
-	test_assert_ptr_set(img);
+	TEST_ASSERT_PTR_SET(img);
 
 	buf_w = scale * pixman_image_get_width(img);
 	buf_h = scale * pixman_image_get_height(img);
@@ -2150,15 +2150,15 @@ bind_to_singleton_global(struct client *client,
 			continue;
 
 		/* Multiple singleton objects. */
-		test_assert_ptr_not_set(g);
+		TEST_ASSERT_PTR_NOT_SET(g);
 		g = tmp;
 	}
 
 	/*  Singleton not found. */
-	test_assert_ptr_set(g);
+	TEST_ASSERT_PTR_SET(g);
 
 	proxy = wl_registry_bind(client->wl_registry, g->name, iface, version);
-	test_assert_ptr_set(proxy);
+	TEST_ASSERT_PTR_SET(proxy);
 
 	return proxy;
 }
@@ -2179,7 +2179,7 @@ client_create_viewport(struct client *client)
 					      &wp_viewporter_interface, 1);
 	viewport = wp_viewporter_get_viewport(viewporter,
 					      client->surface->wl_surface);
-	test_assert_ptr_set(viewport);
+	TEST_ASSERT_PTR_SET(viewport);
 	wp_viewporter_destroy(viewporter);
 
 	return viewport;
@@ -2269,14 +2269,14 @@ client_wait_breakpoint(struct client *client,
 {
 	struct wet_test_active_breakpoint *active_bp;
 
-	test_assert_ptr_set(suite_data);
-	test_assert_false(suite_data->breakpoints.in_client_break);
+	TEST_ASSERT_PTR_SET(suite_data);
+	TEST_ASSERT_FALSE(suite_data->breakpoints.in_client_break);
 
 	wl_display_flush(client->wl_display);
 	wet_test_wait_sem(&suite_data->breakpoints.client_break);
 
 	active_bp = suite_data->breakpoints.active_bp;
-	test_assert_ptr_set(active_bp);
+	TEST_ASSERT_PTR_SET(active_bp);
 	suite_data->breakpoints.in_client_break = true;
 	return active_bp;
 }
@@ -2287,14 +2287,14 @@ get_resource_data_from_proxy(struct wet_testsuite_data *suite_data,
 {
 	struct wl_resource *resource;
 
-	test_assert_true(suite_data->breakpoints.in_client_break);
+	TEST_ASSERT_TRUE(suite_data->breakpoints.in_client_break);
 
 	if (!proxy)
 		return NULL;
 
 	resource = wl_client_get_object(suite_data->wl_client,
 					wl_proxy_get_id(proxy));
-	test_assert_ptr_set(resource);
+	TEST_ASSERT_PTR_SET(resource);
 	return wl_resource_get_user_data(resource);
 }
 
@@ -2319,7 +2319,7 @@ client_insert_breakpoint(struct client *client,
 {
 	struct wet_test_pending_breakpoint *bp;
 
-	test_assert_true(suite_data->breakpoints.in_client_break);
+	TEST_ASSERT_TRUE(suite_data->breakpoints.in_client_break);
 
 	bp = xzalloc(sizeof(*bp));
 	bp->breakpoint = breakpoint;
@@ -2348,7 +2348,7 @@ client_remove_breakpoint(struct client *client,
 	struct wet_test_pending_breakpoint *bp, *tmp;
 	void *resource = get_resource_data_from_proxy(suite_data, proxy);
 
-	test_assert_true(suite_data->breakpoints.in_client_break);
+	TEST_ASSERT_TRUE(suite_data->breakpoints.in_client_break);
 
 	wl_list_for_each_safe(bp, tmp, &suite_data->breakpoints.list,
 			      link) {
@@ -2356,13 +2356,13 @@ client_remove_breakpoint(struct client *client,
 			continue;
 		if (bp->resource != resource)
 			continue;
-		test_assert_ptr_ne(bp, suite_data->breakpoints.active_bp->template_);
+		TEST_ASSERT_PTR_NE(bp, suite_data->breakpoints.active_bp->template_);
 		wl_list_remove(&bp->link);
 		free(bp);
 		return;
 	}
 
-	test_assert_not_reached("couldn't find breakpoint to remove");
+	TEST_ASSERT_NOT_REACHED("couldn't find breakpoint to remove");
 }
 
 /**
@@ -2377,7 +2377,7 @@ client_release_breakpoint(struct client *client,
 			  struct wet_testsuite_data *suite_data,
 			  struct wet_test_active_breakpoint *active_bp)
 {
-	test_assert_ptr_eq(suite_data->breakpoints.active_bp, active_bp);
+	TEST_ASSERT_PTR_EQ(suite_data->breakpoints.active_bp, active_bp);
 
 	if (active_bp->rearm_on_release) {
 		wl_list_insert(&suite_data->breakpoints.list,

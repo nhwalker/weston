@@ -198,10 +198,10 @@ build_output_icc_profile(const struct setup_args *arg, const char *filename)
 	bool saved;
 
 	profile = build_lcms_profile_output(arg);
-	test_assert_ptr_set(profile);
+	TEST_ASSERT_PTR_SET(profile);
 
 	saved = cmsSaveProfileToFile(profile, filename);
-	test_assert_true(saved);
+	TEST_ASSERT_TRUE(saved);
 
 	cmsCloseProfile(profile);
 }
@@ -342,8 +342,8 @@ process_pipeline_comparison(const struct buffer *src_buf,
 	bool ok;
 
 	/* no point to compare different images */
-	test_assert_int_eq(ih_src.width, ih_shot.width);
-	test_assert_int_eq(ih_src.height, ih_shot.height);
+	TEST_ASSERT_INT_EQ(ih_src.width, ih_shot.width);
+	TEST_ASSERT_INT_EQ(ih_src.height, ih_shot.height);
 
 	for (y = 0; y < ih_src.height; y++) {
 		uint32_t *row_ptr = image_header_get_row_u32(&ih_src, y);
@@ -407,7 +407,7 @@ TEST(opaque_pixel_conversion)
 	bool match;
 
 	client = create_client_and_test_surface(0, 0, width, height);
-	test_assert_ptr_set(client);
+	TEST_ASSERT_PTR_SET(client);
 	surface = client->surface->wl_surface;
 
 	buf = create_shm_buffer_a8r8g8b8(client, width, height);
@@ -418,12 +418,12 @@ TEST(opaque_pixel_conversion)
 	wl_surface_commit(surface);
 
 	shot = capture_screenshot_of_output(client, NULL);
-	test_assert_ptr_set(shot);
+	TEST_ASSERT_PTR_SET(shot);
 
 	match = verify_image(shot->image, "shaper_matrix", arg->ref_image_index,
 			     NULL, seq_no);
-	test_assert_true(process_pipeline_comparison(buf, shot, arg));
-	test_assert_true(match);
+	TEST_ASSERT_TRUE(process_pipeline_comparison(buf, shot, arg));
+	TEST_ASSERT_TRUE(match);
 	buffer_destroy(shot);
 	buffer_destroy(buf);
 	client_destroy(client);
@@ -452,7 +452,7 @@ compare_blend(const struct lcms_pipeline *pip,
 	unsigned i;
 
 	/* convert sources to straight alpha */
-	test_assert_f32_eq(bg.a, 1.0f);
+	TEST_ASSERT_F32_EQ(bg.a, 1.0f);
 	fg = color_float_unpremult(fg);
 
 	bg = convert_to_blending_space(pip, bg);
@@ -481,8 +481,8 @@ get_middle_row(struct buffer *buf)
 {
 	struct image_header ih = image_header_from(buf->image);
 
-	test_assert_int_ge(ih.width, BLOCK_WIDTH * ALPHA_STEPS);
-	test_assert_int_ge(ih.height, BLOCK_WIDTH);
+	TEST_ASSERT_INT_GE(ih.width, BLOCK_WIDTH * ALPHA_STEPS);
+	TEST_ASSERT_INT_GE(ih.height, BLOCK_WIDTH);
 
 	return image_header_get_row_u32(&ih, (BLOCK_WIDTH - 1) / 2);
 }
@@ -546,8 +546,8 @@ fill_alpha_pattern(struct buffer *buf)
 	struct image_header ih = image_header_from(buf->image);
 	int y;
 
-	test_assert_enum_eq(ih.pixman_format, PIXMAN_a8r8g8b8);
-	test_assert_int_eq(ih.width, BLOCK_WIDTH * ALPHA_STEPS);
+	TEST_ASSERT_ENUM_EQ(ih.pixman_format, PIXMAN_a8r8g8b8);
+	TEST_ASSERT_INT_EQ(ih.width, BLOCK_WIDTH * ALPHA_STEPS);
 
 	for (y = 0; y < ih.height; y++) {
 		uint32_t *row = image_header_get_row_u32(&ih, y);
@@ -639,11 +639,11 @@ TEST(output_icc_alpha_blend)
 	move_client(client, 0, 0);
 
 	shot = capture_screenshot_of_output(client, NULL);
-	test_assert_ptr_set(shot);
+	TEST_ASSERT_PTR_SET(shot);
 	match = verify_image(shot->image, "output_icc_alpha_blend", arg->ref_image_index,
 			     NULL, seq_no);
-	test_assert_true(check_blend_pattern(bg, fg, shot, arg));
-	test_assert_true(match);
+	TEST_ASSERT_TRUE(check_blend_pattern(bg, fg, shot, arg));
+	TEST_ASSERT_TRUE(match);
 
 	buffer_destroy(shot);
 
@@ -683,7 +683,7 @@ TEST(output_icc_decorations)
 
 	match = verify_image(img, "output-icc-decorations",
 			     arg->ref_image_index, NULL, seq_no);
-	test_assert_true(match);
+	TEST_ASSERT_TRUE(match);
 
 	pixman_image_unref(img);
 	buffer_destroy(shot);

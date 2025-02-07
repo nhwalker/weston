@@ -53,9 +53,9 @@ PLUGIN_TEST(surface_transform)
 	struct weston_coord_global coord_g;
 
 	surface = weston_surface_create(compositor);
-	test_assert_ptr_set(surface);
+	TEST_ASSERT_PTR_SET(surface);
 	view = weston_view_create(surface);
-	test_assert_ptr_set(view);
+	TEST_ASSERT_PTR_SET(view);
 	surface->width = 200;
 	surface->height = 200;
 	coord_g.c = weston_coord(100, 100);
@@ -65,16 +65,16 @@ PLUGIN_TEST(surface_transform)
 	coord_g = weston_coord_surface_to_global(view, coord_s);
 
 	fprintf(stderr, "20,20 maps to %f, %f\n", coord_g.c.x, coord_g.c.y);
-	test_assert_f64_eq(coord_g.c.x, 120);
-	test_assert_f64_eq(coord_g.c.y, 120);
+	TEST_ASSERT_F64_EQ(coord_g.c.x, 120);
+	TEST_ASSERT_F64_EQ(coord_g.c.y, 120);
 
 	coord_g.c = weston_coord(150, 300);
 	weston_view_set_position(view, coord_g);
 	weston_view_update_transform(view);
 	coord_s = weston_coord_surface(50, 40, surface);
 	coord_g = weston_coord_surface_to_global(view, coord_s);
-	test_assert_f64_eq(coord_g.c.x, 200);
-	test_assert_f64_eq(coord_g.c.y, 340);
+	TEST_ASSERT_F64_EQ(coord_g.c.x, 200);
+	TEST_ASSERT_F64_EQ(coord_g.c.y, 340);
 
 	/* Destroys all views too. */
 	weston_surface_unref(surface);

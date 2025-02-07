@@ -66,7 +66,7 @@ draw_stuff(pixman_image_t *image)
 	stride = pixman_image_get_stride(image);
 	pixels = pixman_image_get_data(image);
 
-	test_assert_int_eq(PIXMAN_FORMAT_BPP(fmt), 32);
+	TEST_ASSERT_INT_EQ(PIXMAN_FORMAT_BPP(fmt), 32);
 
 	for (x = 0; x < w; x++)
 		for (y = 0; y < h; y++) {
@@ -94,7 +94,7 @@ TEST(drm_writeback_screenshot) {
 	/* create client */
 	testlog("Creating client for test\n");
 	client = create_client_and_test_surface(100, 100, 100, 100);
-	test_assert_ptr_set(client);
+	TEST_ASSERT_PTR_SET(client);
 	surface = client->surface->wl_surface;
 
 	/* move pointer away from image so it does not interfere with the
@@ -114,7 +114,7 @@ TEST(drm_writeback_screenshot) {
 	testlog("Taking a screenshot\n");
 	screenshot = client_capture_output(client, client->output,
                                            WESTON_CAPTURE_V1_SOURCE_WRITEBACK);
-	test_assert_ptr_set(screenshot);
+	TEST_ASSERT_PTR_SET(screenshot);
 	buffer_destroy(screenshot);
 
 	/* take another screenshot; this is important to ensure the
@@ -122,13 +122,13 @@ TEST(drm_writeback_screenshot) {
 	testlog("Taking another screenshot\n");
 	screenshot = client_capture_output(client, client->output,
                                            WESTON_CAPTURE_V1_SOURCE_WRITEBACK);
-	test_assert_ptr_set(screenshot);
+	TEST_ASSERT_PTR_SET(screenshot);
 
 	/* load reference image */
 	fname = screenshot_reference_filename("drm-writeback-screenshot", 0);
 	testlog("Loading good reference image %s\n", fname);
 	reference = load_image_from_png(fname);
-	test_assert_ptr_set(reference);
+	TEST_ASSERT_PTR_SET(reference);
 	free(fname);
 
 	/* check if they match - only the colored square matters, so the
@@ -152,5 +152,5 @@ TEST(drm_writeback_screenshot) {
 	buffer_destroy(buffer);
 	client_destroy(client);
 
-	test_assert_true(match);
+	TEST_ASSERT_TRUE(match);
 }

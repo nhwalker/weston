@@ -62,12 +62,12 @@ prog_args_init(struct prog_args *p)
 static void
 prog_args_take(struct prog_args *p, char *arg)
 {
-	test_assert_ptr_set(arg);
+	TEST_ASSERT_PTR_SET(arg);
 
 	if (p->argc == p->alloc) {
 		p->alloc += 10;
 		p->argv = realloc(p->argv, sizeof(char *) * p->alloc);
-		test_assert_ptr_set(p->argv);
+		TEST_ASSERT_PTR_SET(p->argv);
 	}
 
 	p->argv[p->argc++] = arg;
@@ -80,10 +80,10 @@ prog_args_take(struct prog_args *p, char *arg)
 static void
 prog_args_save(struct prog_args *p)
 {
-	test_assert_ptr_not_set(p->saved);
+	TEST_ASSERT_PTR_NOT_SET(p->saved);
 
 	p->saved = calloc(p->argc, sizeof(char *));
-	test_assert_true(p->saved);
+	TEST_ASSERT_TRUE(p->saved);
 
 	memcpy(p->saved, p->argv, sizeof(char *) * p->argc);
 }
@@ -216,7 +216,7 @@ backend_to_str(enum weston_compositor_backend b)
 		[WESTON_BACKEND_WAYLAND] = "wayland",
 		[WESTON_BACKEND_X11] = "x11",
 	};
-	test_assert_true(b >= 0 && b < ARRAY_LENGTH(names));
+	TEST_ASSERT_TRUE(b >= 0 && b < ARRAY_LENGTH(names));
 	return names[b];
 }
 
@@ -228,7 +228,7 @@ renderer_to_str(enum weston_renderer_type t)
 		[WESTON_RENDERER_PIXMAN] = "pixman",
 		[WESTON_RENDERER_GL] = "gl",
 	};
-	test_assert_true(t >= 0 && t <= ARRAY_LENGTH(names));
+	TEST_ASSERT_TRUE(t >= 0 && t <= ARRAY_LENGTH(names));
 	return names[t];
 }
 
@@ -242,7 +242,7 @@ shell_to_str(enum shell_type t)
 		[SHELL_IVI] = "ivi",
 		[SHELL_KIOSK] = "kiosk",
 	};
-	test_assert_true(t >= 0 && t < ARRAY_LENGTH(names));
+	TEST_ASSERT_TRUE(t >= 0 && t < ARRAY_LENGTH(names));
 	return names[t];
 }
 
@@ -260,7 +260,7 @@ transform_to_str(enum wl_output_transform t)
 		[WL_OUTPUT_TRANSFORM_FLIPPED_270] = "flipped-rotate-270",
 	};
 
-	test_assert_true(t < ARRAY_LENGTH(names) && names[t]);
+	TEST_ASSERT_TRUE(t < ARRAY_LENGTH(names) && names[t]);
 	return names[t];
 }
 
@@ -436,11 +436,11 @@ write_cfg(va_list entry_list, FILE *weston_ini)
 {
 	char *entry = va_arg(entry_list, char *);
 	int ret;
-	test_assert_ptr_set(entry);
+	TEST_ASSERT_PTR_SET(entry);
 
 	while (entry) {
 		ret = fprintf(weston_ini, "%s\n", entry);
-		test_assert_int_ge(ret, 0);
+		TEST_ASSERT_INT_GE(ret, 0);
 		free(entry);
 		entry = va_arg(entry_list, char *);
 	}
@@ -452,10 +452,10 @@ open_ini_file(struct compositor_setup *setup)
 	char *wd, *tmp_path = NULL;
 	FILE *weston_ini = NULL;
 
-	test_assert_ptr_not_set(setup->config_file);
+	TEST_ASSERT_PTR_NOT_SET(setup->config_file);
 
 	wd = realpath(".", NULL);
-	test_assert_ptr_set(wd);
+	TEST_ASSERT_PTR_SET(wd);
 
 	str_printf(&tmp_path, "%s/%s.ini", wd, setup->testset_name);
 	if (!tmp_path) {
@@ -464,7 +464,7 @@ open_ini_file(struct compositor_setup *setup)
 	}
 
 	weston_ini = fopen(tmp_path, "w");
-	test_assert_ptr_set(weston_ini);
+	TEST_ASSERT_PTR_SET(weston_ini);
 	setup->config_file = tmp_path;
 
 out:
@@ -480,14 +480,14 @@ weston_ini_setup_(struct compositor_setup *setup, ...)
 	va_list entry_list;
 
 	weston_ini = open_ini_file(setup);
-	test_assert_ptr_set(weston_ini);
+	TEST_ASSERT_PTR_SET(weston_ini);
 
 	va_start(entry_list, setup);
 	write_cfg(entry_list, weston_ini);
 	va_end(entry_list);
 
 	ret = fclose(weston_ini);
-	test_assert_int_ne(ret, EOF);
+	TEST_ASSERT_INT_NE(ret, EOF);
 }
 
 char *
@@ -499,7 +499,7 @@ cfgln(const char *fmt, ...)
 
 	va_start(ap, fmt);
 	ret = vasprintf(&str, fmt, ap);
-	test_assert_int_ge(ret, 0);
+	TEST_ASSERT_INT_GE(ret, 0);
 	va_end(ap);
 
 	return str;

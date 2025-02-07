@@ -43,46 +43,46 @@ TEST(strtol_conversions)
 
 	str = ""; val = -1;
 	ret = safe_strtoint(str, &val);
-	test_assert_false(ret);
-	test_assert_s32_eq(val, -1);
+	TEST_ASSERT_FALSE(ret);
+	TEST_ASSERT_S32_EQ(val, -1);
 
 	str = "."; val = -1;
 	ret = safe_strtoint(str, &val);
-	test_assert_false(ret);
-	test_assert_s32_eq(val, -1);
+	TEST_ASSERT_FALSE(ret);
+	TEST_ASSERT_S32_EQ(val, -1);
 
 	str = "42"; val = -1;
 	ret = safe_strtoint(str, &val);
-	test_assert_true(ret);
-	test_assert_s32_eq(val, 42);
+	TEST_ASSERT_TRUE(ret);
+	TEST_ASSERT_S32_EQ(val, 42);
 
 	str = "-42"; val = -1;
 	ret = safe_strtoint(str, &val);
-	test_assert_true(ret);
-	test_assert_s32_eq(val, -42);
+	TEST_ASSERT_TRUE(ret);
+	TEST_ASSERT_S32_EQ(val, -42);
 
 	str = "0042"; val = -1;
 	ret = safe_strtoint(str, &val);
-	test_assert_true(ret);
-	test_assert_s32_eq(val, 42);
+	TEST_ASSERT_TRUE(ret);
+	TEST_ASSERT_S32_EQ(val, 42);
 
 	str = "x42"; val = -1;
 	ret = safe_strtoint(str, &val);
-	test_assert_false(ret);
-	test_assert_s32_eq(val, -1);
+	TEST_ASSERT_FALSE(ret);
+	TEST_ASSERT_S32_EQ(val, -1);
 
 	str = "42x"; val = -1;
 	ret = safe_strtoint(str, &val);
-	test_assert_false(ret);
-	test_assert_s32_eq(val, -1);
+	TEST_ASSERT_FALSE(ret);
+	TEST_ASSERT_S32_EQ(val, -1);
 
 	str = "0x42424242"; val = -1;
 	ret = safe_strtoint(str, &val);
-	test_assert_false(ret);
-	test_assert_s32_eq(val, -1);
+	TEST_ASSERT_FALSE(ret);
+	TEST_ASSERT_S32_EQ(val, -1);
 
 	str = "424748364789L"; val = -1;
 	ret = safe_strtoint(str, &val);
-	test_assert_false(ret);
-	test_assert_s32_eq(val, -1);
+	TEST_ASSERT_FALSE(ret);
+	TEST_ASSERT_S32_EQ(val, -1);
 }

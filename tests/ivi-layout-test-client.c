@@ -83,19 +83,19 @@ client_create_runner(struct client *client)
 			continue;
 
 		if (global_runner)
-			test_assert_not_reached("multiple weston_test_runner objects");
+			TEST_ASSERT_NOT_REACHED("multiple weston_test_runner objects");
 
 		global_runner = g;
 	}
 
-	test_assert_ptr_set(global_runner);
-	test_assert_u32_eq(global_runner->version, 1);
+	TEST_ASSERT_PTR_SET(global_runner);
+	TEST_ASSERT_U32_EQ(global_runner->version, 1);
 
 	runner->test_runner = wl_registry_bind(client->wl_registry,
 					       global_runner->name,
 					       &weston_test_runner_interface,
 					       1);
-	test_assert_ptr_set(runner->test_runner);
+	TEST_ASSERT_PTR_SET(runner->test_runner);
 
 	weston_test_runner_add_listener(runner->test_runner,
 					&test_runner_listener, runner);
@@ -121,7 +121,7 @@ runner_run(struct runner *runner, const char *test_name)
 
 	while (!runner->done) {
 		if (wl_display_dispatch(runner->client->wl_display) < 0)
-			test_assert_not_reached("runner wait");
+			TEST_ASSERT_NOT_REACHED("runner wait");
 	}
 }
 
@@ -137,18 +137,18 @@ get_ivi_application(struct client *client)
 			continue;
 
 		if (global_iviapp)
-			test_assert_not_reached("multiple ivi_application objects");
+			TEST_ASSERT_NOT_REACHED("multiple ivi_application objects");
 
 		global_iviapp = g;
 	}
 
-	test_assert_ptr_set(global_iviapp);
+	TEST_ASSERT_PTR_SET(global_iviapp);
 
-	test_assert_u32_eq(global_iviapp->version, 1);
+	TEST_ASSERT_U32_EQ(global_iviapp->version, 1);
 
 	iviapp = wl_registry_bind(client->wl_registry, global_iviapp->name,
 				  &ivi_application_interface, 1);
-	test_assert_ptr_set(iviapp);
+	TEST_ASSERT_PTR_SET(iviapp);
 
 	return iviapp;
 }

@@ -159,19 +159,19 @@ get_ivi_application(struct client *client)
 			continue;
 
 		if (global_iviapp)
-			test_assert_not_reached("multiple ivi_application objects");
+			TEST_ASSERT_NOT_REACHED("multiple ivi_application objects");
 
 		global_iviapp = g;
 	}
 
 	/* No ivi_application found. */
-	test_assert_ptr_set(global_iviapp);
+	TEST_ASSERT_PTR_SET(global_iviapp);
 
-	test_assert_int_eq(global_iviapp->version, 1);
+	TEST_ASSERT_INT_EQ(global_iviapp->version, 1);
 
 	iviapp = wl_registry_bind(client->wl_registry, global_iviapp->name,
 				  &ivi_application_interface, 1);
-	test_assert_ptr_set(iviapp);
+	TEST_ASSERT_PTR_SET(iviapp);
 
 	return iviapp;
 }
