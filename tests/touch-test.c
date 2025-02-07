@@ -56,7 +56,7 @@ static struct client *
 create_touch_test_client(void)
 {
 	struct client *cl = create_client_and_test_surface(0, 0, 100, 100);
-	test_assert_ptr_not_null(cl);
+	test_assert_ptr_set(cl);
 	return cl;
 }
 

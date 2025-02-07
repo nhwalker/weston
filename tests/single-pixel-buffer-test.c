@@ -93,7 +93,7 @@ TEST(solid_buffer_argb_u32)
 									  0x8fffffff, /* g */
 									  0x4fffffff, /* b */
 									  0xffffffff /* a */);
-	test_assert_ptr_not_null(buffer);
+	test_assert_ptr_set(buffer);
 
 	weston_test_move_surface(client->test->weston_test,
 				 client->surface->wl_surface,

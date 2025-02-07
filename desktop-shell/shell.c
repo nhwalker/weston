@@ -31,7 +31,6 @@
 #include <string.h>
 #include <unistd.h>
 #include <linux/input.h>
-#include <assert.h>
 #include <signal.h>
 #include <math.h>
 #include <sys/types.h>
@@ -221,7 +220,7 @@ get_output_work_area(struct desktop_shell *shell,
 		return;
 
 	sh_output = find_shell_output_from_weston_output(shell, output);
-	assert(sh_output);
+	WESTON_DASSERT_PTR_SET(sh_output);
 
 	area->x = output->pos.c.x;
 	area->y = output->pos.c.y;
@@ -735,12 +734,13 @@ workspace_create(struct desktop_shell *shell)
 		struct weston_output *output =
 			weston_shell_utils_get_default_output(shell->compositor);
 
-		assert(shell->focus_animation_type == ANIMATION_DIM_LAYER);
+		WESTON_DASSERT_ENUM_EQ(shell->focus_animation_type,
+				       ANIMATION_DIM_LAYER);
 
 		ws->fsurf_front = create_focus_surface(shell->compositor, output);
-		assert(ws->fsurf_front);
+		WESTON_DASSERT_PTR_SET(ws->fsurf_front);
 		ws->fsurf_back = create_focus_surface(shell->compositor, output);
-		assert(ws->fsurf_back);
+		WESTON_DASSERT_PTR_SET(ws->fsurf_back);
 	} else {
 		ws->fsurf_front = NULL;
 		ws->fsurf_back = NULL;
@@ -1521,7 +1521,7 @@ shell_surface_update_layer(struct shell_surface *shsurf)
 	struct weston_layer_entry *new_layer_link;
 
 	new_layer_link = shell_surface_calculate_layer_link(shsurf);
-	assert(new_layer_link);
+	WESTON_DASSERT_PTR_SET(new_layer_link);
 
 	weston_view_move_to_layer(shsurf->view, new_layer_link);
 	shell_surface_update_child_surface_layers(shsurf);
@@ -1635,7 +1635,8 @@ set_minimized(struct weston_surface *surface)
 	if (!view)
 		return;
 
-	assert(weston_surface_get_main_surface(view->surface) == view->surface);
+	WESTON_DASSERT_PTR_EQ(weston_surface_get_main_surface(view->surface),
+			      view->surface);
 
 	shsurf = get_shell_surface(surface);
 	current_ws = get_current_workspace(shsurf->shell);
@@ -1722,7 +1723,7 @@ shell_set_view_fullscreen(struct shell_surface *shsurf)
 		.capture_input = true,
 	};
 
-	assert(weston_desktop_surface_get_fullscreen(shsurf->desktop_surface));
+	WESTON_DASSERT_TRUE(weston_desktop_surface_get_fullscreen(shsurf->desktop_surface));
 
 	weston_view_move_to_layer(shsurf->view,
 				  &shsurf->shell->fullscreen_layer.view_list);
@@ -2070,7 +2071,7 @@ set_position_from_xwayland(struct shell_surface *shsurf)
 	struct weston_geometry geometry;
 	struct weston_coord_surface offs;
 
-	assert(shsurf->xwayland.is_set);
+	WESTON_DASSERT_TRUE(shsurf->xwayland.is_set);
 
 	geometry = weston_desktop_surface_get_geometry(shsurf->desktop_surface);
 	offs = weston_coord_surface(-geometry.x, -geometry.y,
@@ -2634,7 +2635,7 @@ background_committed(struct weston_surface *es,
 
 	if (!weston_surface_is_mapped(es)) {
 		weston_surface_map(es);
-		assert(wl_list_empty(&es->views));
+		WESTON_DASSERT_TRUE(wl_list_empty(&es->views));
 		sh_output->background_view = weston_view_create(es);
 	}
 
@@ -2643,7 +2644,7 @@ background_committed(struct weston_surface *es,
 		sh_output->temporary_curtain = NULL;
 	}
 
-	assert(sh_output->background_view);
+	WESTON_DASSERT_PTR_SET(sh_output->background_view);
 	weston_view_set_position(sh_output->background_view,
 				 sh_output->output->pos);
 	weston_view_move_to_layer(sh_output->background_view,
@@ -2756,14 +2757,14 @@ panel_committed(struct weston_surface *es,
 
 	if (!weston_surface_is_mapped(es)) {
 		weston_surface_map(es);
-		assert(wl_list_empty(&es->views));
+		WESTON_DASSERT_TRUE(wl_list_empty(&es->views));
 		sh_output->panel_view = weston_view_create(es);
 
 		weston_view_move_to_layer(sh_output->panel_view,
 					  &shell->panel_layer.view_list);
 	}
 
-	assert(sh_output->panel_view);
+	WESTON_DASSERT_PTR_SET(sh_output->panel_view);
 	pos = weston_coord_global_add(output->pos, sh_output->panel_offset);
 	weston_view_set_position(sh_output->panel_view, pos);
 }
@@ -2847,7 +2848,7 @@ lock_surface_committed(struct weston_surface *surface,
 
 	weston_surface_map(surface);
 
-	assert(!shell->lock_view);
+	WESTON_DASSERT_FALSE(shell->lock_view);
 	shell->lock_view = weston_view_create(surface);
 	weston_shell_utils_center_on_output(shell->lock_view,
 		weston_shell_utils_get_default_output(shell->compositor));
@@ -3475,7 +3476,7 @@ activate(struct desktop_shell *shell, struct weston_view *view,
 
 	main_surface = weston_surface_get_main_surface(es);
 	shsurf = get_shell_surface(main_surface);
-	assert(shsurf);
+	WESTON_DASSERT_PTR_SET(shsurf);
 
 	shsurf_child = get_last_child(shsurf);
 	if (shsurf_child) {
@@ -3495,7 +3496,7 @@ activate(struct desktop_shell *shell, struct weston_view *view,
 	    shseat->focused_surface != main_surface) {
 		struct shell_surface *current_focus =
 			get_shell_surface(shseat->focused_surface);
-		assert(current_focus);
+		WESTON_DASSERT_PTR_SET(current_focus);
 		shell_surface_deactivate(current_focus);
 	}
 
@@ -3520,7 +3521,8 @@ activate(struct desktop_shell *shell, struct weston_view *view,
 	shell_surface_update_layer(shsurf);
 
 	if (shell->focus_animation_type != ANIMATION_NONE) {
-		assert(shell->focus_animation_type == ANIMATION_DIM_LAYER);
+		WESTON_DASSERT_ENUM_EQ(shell->focus_animation_type,
+				       ANIMATION_DIM_LAYER);
 		ws = get_current_workspace(shell);
 		animate_focus_change(shell, ws, get_default_view(old_es), get_default_view(es));
 	}
@@ -3732,7 +3734,7 @@ shell_fade_create_view(struct desktop_shell *shell)
 	curtain_params.width = x2 - x1;
 	curtain_params.height = y2 - y1;
 	curtain = weston_shell_utils_curtain_create(compositor, &curtain_params);
-	assert(curtain);
+	WESTON_DASSERT_PTR_SET(curtain);
 
 	weston_view_move_to_layer(curtain->view, &compositor->fade_layer.view_list);
 
@@ -3781,8 +3783,8 @@ do_shell_fade_startup(void *data)
 {
 	struct desktop_shell *shell = data;
 
-	assert(shell->startup_animation_type == ANIMATION_FADE ||
-	       shell->startup_animation_type == ANIMATION_NONE);
+	WESTON_DASSERT_TRUE(shell->startup_animation_type == ANIMATION_FADE ||
+			    shell->startup_animation_type == ANIMATION_NONE);
 
 	if (shell->startup_animation_type == ANIMATION_FADE)
 		shell_fade(shell, FADE_IN);

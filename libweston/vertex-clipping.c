@@ -22,12 +22,13 @@
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#include <assert.h>
+
 #include <float.h>
 #include <math.h>
 #include <string.h>
 
 #include "shared/helpers.h"
+#include "shared/weston-assert.h"
 #include "vertex-clipping.h"
 
 struct clip_context {
@@ -163,7 +164,7 @@ clip_polygon_leftright(struct clip_context *ctx,
 		/* nothing */
 		break;
 	default:
-		assert(0 && "bad enum path_transition");
+		WESTON_DASSERT_NOT_REACHED("bad enum path_transition");
 	}
 
 	ctx->prev.x = x;
@@ -194,7 +195,7 @@ clip_polygon_topbottom(struct clip_context *ctx,
 		/* nothing */
 		break;
 	default:
-		assert(0 && "bad enum path_transition");
+		WESTON_DASSERT_NOT_REACHED("bad enum path_transition");
 	}
 
 	ctx->prev.x = x;

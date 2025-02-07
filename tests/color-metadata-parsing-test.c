@@ -86,16 +86,18 @@ PLUGIN_TEST(color_characteristics_from_weston_ini)
 		}
 	}
 
-	test_assert_ptr_not_null(output);
+	test_assert_ptr_set(output);
 
 	mode = weston_output_get_eotf_mode(output);
-	test_assert_enum(mode, WESTON_EOTF_MODE_ST2084);
+	test_assert_enum_eq(mode, WESTON_EOTF_MODE_ST2084);
 
 	colorimetry_mode = weston_output_get_colorimetry_mode(output);
-	test_assert_enum(colorimetry_mode, WESTON_COLORIMETRY_MODE_BT2020_RGB);
+	test_assert_enum_eq(colorimetry_mode,
+			    WESTON_COLORIMETRY_MODE_BT2020_RGB);
 
 	cc = weston_output_get_color_characteristics(output);
-	test_assert_enum(cc->group_mask, WESTON_COLOR_CHARACTERISTICS_GROUP_ALL_MASK);
+	test_assert_enum_eq(cc->group_mask,
+			    WESTON_COLOR_CHARACTERISTICS_GROUP_ALL_MASK);
 	test_assert_f32_eq(cc->primary[0].x, 0.9999f);
 	test_assert_f32_eq(cc->primary[0].y, 0.3f);
 	test_assert_f32_eq(cc->primary[1].x, 0.1771f);
@@ -110,7 +112,8 @@ PLUGIN_TEST(color_characteristics_from_weston_ini)
 
 	/* The below is color manager policy. */
 	hdr_meta = weston_output_get_hdr_metadata_type1(output);
-	test_assert_enum(hdr_meta->group_mask, WESTON_HDR_METADATA_TYPE1_GROUP_ALL_MASK);
+	test_assert_enum_eq(hdr_meta->group_mask,
+			    WESTON_HDR_METADATA_TYPE1_GROUP_ALL_MASK);
 	test_assert_f32_eq(hdr_meta->primary[0].x, 0.9999f);
 	test_assert_f32_eq(hdr_meta->primary[0].y, 0.3f);
 	test_assert_f32_eq(hdr_meta->primary[1].x, 0.1771f);

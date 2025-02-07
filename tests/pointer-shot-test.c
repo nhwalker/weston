@@ -94,7 +94,7 @@ surface_commit_color(struct client *client, struct surface *surface,
 	wl_surface_damage(surface->wl_surface, 0, 0, width, height);
 	wl_surface_commit(surface->wl_surface);
 
-	test_assert_ptr_null(surface->buffer);
+	test_assert_ptr_not_set(surface->buffer);
 	surface->buffer = buf;
 
 	return buf;

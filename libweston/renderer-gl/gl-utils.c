@@ -129,7 +129,7 @@ is_valid_format_es3(struct gl_renderer *gr,
 		    GLenum internal_format,
 		    GLenum external_format)
 {
-	assert(gr->gl_version >= gl_version(3, 0));
+	WESTON_DASSERT_U32_GE(gr->gl_version, gl_version(3, 0));
 
 	switch (internal_format) {
 	case GL_R8I:
@@ -245,7 +245,7 @@ is_valid_type_es3(struct gl_renderer *gr,
 		  GLenum internal_format,
 		  GLenum type)
 {
-	assert(gr->gl_version >= gl_version(3, 0));
+	WESTON_DASSERT_U32_GE(gr->gl_version, gl_version(3, 0));
 
 	switch (internal_format) {
 	case GL_R8:
@@ -376,7 +376,7 @@ is_valid_combination_es3(struct gl_renderer *gr,
 			 GLenum external_format,
 			 GLenum type)
 {
-	assert(gr->gl_version >= gl_version(3, 0));
+	WESTON_DASSERT_U32_GE(gr->gl_version, gl_version(3, 0));
 
 	switch (external_format) {
 	case GL_RED:
@@ -485,7 +485,7 @@ is_valid_combination_es2(struct gl_renderer *gr,
 			 GLenum external_format,
 			 GLenum type)
 {
-	assert(gr->gl_version == gl_version(2, 0));
+	WESTON_DASSERT_U32_EQ(gr->gl_version, gl_version(2, 0));
 
 	switch (external_format) {
 	case GL_ALPHA:
@@ -848,11 +848,11 @@ texture_init(struct gl_renderer *gr,
 	bool bgra_fallback;
 	GLuint tex;
 
-	assert(width > 0);
-	assert(height > 0);
-	assert(levels <= ((int) log2(MAX(width, height)) + 1));
-	assert(target == GL_TEXTURE_2D ||
-	       target == GL_TEXTURE_3D);
+	WESTON_DASSERT_INT_GT(width, 0);
+	WESTON_DASSERT_INT_GT(height, 0);
+	WESTON_DASSERT_INT_LE(levels, (int) log2(MAX(width, height)) + 1);
+	WESTON_DASSERT_TRUE(target == GL_TEXTURE_2D ||
+			    target == GL_TEXTURE_3D);
 
 	glGenTextures(1, &tex);
 	glBindTexture(target, tex);
@@ -1165,17 +1165,17 @@ texture_store(struct gl_renderer *gr,
 		type = GL_HALF_FLOAT_OES;
 
 #if !defined(NDEBUG)
-	assert(target == GL_TEXTURE_2D ||
-	       target == GL_TEXTURE_3D);
+	WESTON_DASSERT_TRUE(target == GL_TEXTURE_2D ||
+			    target == GL_TEXTURE_3D);
 	glGetIntegerv(target == GL_TEXTURE_2D ?
 		      GL_TEXTURE_BINDING_2D :
 		      GL_TEXTURE_BINDING_3D, &tex);
-	assert(tex != 0);
+	WESTON_DASSERT_INT_NE(tex, 0);
 
 	if (gr->gl_version == gl_version(2, 0)) {
-		assert(is_valid_combination_es2(gr, format, type));
+		WESTON_DASSERT_TRUE(is_valid_combination_es2(gr, format, type));
 	} else if (gr->gl_version == gl_version(3, 0)) {
-		assert(is_valid_combination_es3(gr, format, type));
+		WESTON_DASSERT_TRUE(is_valid_combination_es3(gr, format, type));
 	} else if (gr->gl_version >= gl_version(3, 1)) {
 		glGetTexLevelParameteriv(target, level,
 					 GL_TEXTURE_WIDTH, &tex_width);
@@ -1187,16 +1187,18 @@ texture_store(struct gl_renderer *gr,
 		glGetTexLevelParameteriv(target, level,
 					 GL_TEXTURE_INTERNAL_FORMAT,
 					 &tex_internal_format);
-		assert(level >= 0);
-		assert(x >= 0);
-		assert(y >= 0);
-		assert(z >= 0);
-		assert(x + width <= tex_width);
-		assert(y + height <= tex_height);
+		WESTON_DASSERT_INT_GE(level, 0);
+		WESTON_DASSERT_INT_GE(x, 0);
+		WESTON_DASSERT_INT_GE(y, 0);
+		WESTON_DASSERT_INT_GE(z, 0);
+		WESTON_DASSERT_INT_LE(x + width, tex_width);
+		WESTON_DASSERT_INT_LE(y + height, tex_height);
 		if (target == GL_TEXTURE_3D)
-			assert(z + depth <= tex_depth);
-		assert(is_valid_format_es3(gr, tex_internal_format, format));
-		assert(is_valid_type_es3(gr, tex_internal_format, type));
+			WESTON_DASSERT_INT_LE(z + depth, tex_depth);
+		WESTON_DASSERT_TRUE(is_valid_format_es3(gr, tex_internal_format,
+							format));
+		WESTON_DASSERT_TRUE(is_valid_type_es3(gr, tex_internal_format,
+						      type));
 	}
 #endif
 

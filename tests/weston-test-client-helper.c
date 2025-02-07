@@ -503,7 +503,7 @@ create_shm_buffer(struct client *client, int width, int height,
 	test_assert_int_gt(height, 0);
 
 	pfmt = pixel_format_get_info(drm_format);
-	test_assert_ptr_not_null(pfmt);
+	test_assert_ptr_set(pfmt);
 	test_assert_uint_eq(pixel_format_get_plane_count(pfmt), 1);
 	shm_format = pixel_format_get_shm_format(pfmt);
 
@@ -541,8 +541,8 @@ create_shm_buffer(struct client *client, int width, int height,
 					      width, height,
 					      data, stride_bytes);
 
-	test_assert_ptr_not_null(buf->proxy);
-	test_assert_ptr_not_null(buf->image);
+	test_assert_ptr_set(buf->proxy);
+	test_assert_ptr_set(buf->image);
 
 	return buf;
 }
@@ -564,7 +564,7 @@ create_pixman_buffer(int width, int height, pixman_format_code_t pixman_format)
 	buf = xzalloc(sizeof *buf);
 	buf->image = pixman_image_create_bits(pixman_format,
 					      width, height, NULL, 0);
-	test_assert_ptr_not_null(buf->image);
+	test_assert_ptr_set(buf->image);
 
 	return buf;
 }
@@ -711,12 +711,12 @@ seat_handle_name(void *data, struct wl_seat *seat, const char *name)
 	struct input *input = data;
 
 	input->seat_name = strdup(name);
-	test_assert_ptr_not_null(input->seat_name);
+	test_assert_ptr_set(input->seat_name);
 
 	/* We only update the devices and set client input for the test seat */
 	if (strcmp(name, "test-seat") == 0) {
 		/* Can't have multiple test seats. */
-		test_assert_ptr_null(input->client->input);
+		test_assert_ptr_not_set(input->client->input);
 
 		input_update_devices(input);
 		input->client->input = input;
@@ -829,7 +829,7 @@ handle_global(void *data, struct wl_registry *registry,
 	global = xzalloc(sizeof *global);
 	global->name = id;
 	global->interface = strdup(interface);
-	test_assert_ptr_not_null(interface);
+	test_assert_ptr_set(interface);
 	global->version = version;
 	wl_list_insert(client->global_list.prev, &global->link);
 
@@ -921,7 +921,7 @@ handle_global_remove(void *data, struct wl_registry *registry, uint32_t name)
 	global = client_find_global_with_name(client, name);
 
 	/* Unknown global. */
-	test_assert_ptr_not_null(global);
+	test_assert_ptr_set(global);
 
 	if (strcmp(global->interface, "wl_seat") == 0) {
 		input = client_find_input_with_name(client, name);
@@ -978,7 +978,7 @@ expect_protocol_error(struct client *client,
 	test_assert_int_ne(err, 0);
 
 	/* Expected protocol error but got local error. */
-	test_assert_enum(err, EPROTO);
+	test_assert_enum_eq(err, EPROTO);
 
 	errcode = wl_display_get_protocol_error(client->wl_display,
 						&interface, &id);
@@ -1036,7 +1036,7 @@ create_client(void)
 	/* connect to display */
 	client = xzalloc(sizeof *client);
 	client->wl_display = wl_display_connect(NULL);
-	test_assert_ptr_not_null(client->wl_display);
+	test_assert_ptr_set(client->wl_display);
 	wl_array_init(&client->shm_formats);
 	wl_list_init(&client->global_list);
 	wl_list_init(&client->inputs);
@@ -1058,16 +1058,16 @@ create_client(void)
 	test_assert_true(support_shm_format(client, WL_SHM_FORMAT_XRGB8888));
 
 	/* must have weston_test interface */
-	test_assert_ptr_not_null(client->test);
+	test_assert_ptr_set(client->test);
 
 	/* must have an output */
-	test_assert_ptr_not_null(client->output);
+	test_assert_ptr_set(client->output);
 
 	/* the output must be initialized */
 	test_assert_int_eq(client->output->initialized, 1);
 
 	/* must have seat set */
-	test_assert_ptr_not_null(client->input);
+	test_assert_ptr_set(client->input);
 
 	return client;
 }
@@ -1082,7 +1082,7 @@ create_test_surface(struct client *client)
 	surface->client = client;
 	surface->wl_surface =
 		wl_compositor_create_surface(client->wl_compositor);
-	test_assert_ptr_not_null(surface->wl_surface);
+	test_assert_ptr_set(surface->wl_surface);
 
 	wl_surface_add_listener(surface->wl_surface, &surface_listener,
 				surface);
@@ -1251,8 +1251,8 @@ output_filename_for_test_program(const char *test_program, const char *suffix,
 {
 	char *filename;
 
-	test_assert_ptr_not_null(test_program);
-	test_assert_ptr_not_null(file_ext);
+	test_assert_ptr_set(test_program);
+	test_assert_ptr_set(file_ext);
 
 	if (suffix)
 		str_printf(&filename, "%s/%s-%s.%s", output_path(), test_program,
@@ -1261,7 +1261,7 @@ output_filename_for_test_program(const char *test_program, const char *suffix,
 		str_printf(&filename, "%s/%s.%s", output_path(), test_program,
 						  file_ext);
 
-	test_assert_ptr_not_null(filename);
+	test_assert_ptr_set(filename);
 	return filename;
 }
 
@@ -1282,9 +1282,9 @@ output_filename_for_fixture(const char *test_program,
 	int fixture_number;
 	char *filename;
 
-	test_assert_ptr_not_null(test_program);
-	test_assert_ptr_not_null(harness);
-	test_assert_ptr_not_null(file_ext);
+	test_assert_ptr_set(test_program);
+	test_assert_ptr_set(harness);
+	test_assert_ptr_set(file_ext);
 
 	fixture_number = get_test_fixture_number_from_harness(harness);
 
@@ -1295,7 +1295,7 @@ output_filename_for_fixture(const char *test_program,
 		str_printf(&filename, "%s/%s-f%02d.%s", output_path(), test_program,
 							fixture_number, file_ext);
 
-	test_assert_ptr_not_null(filename);
+	test_assert_ptr_set(filename);
 	return filename;
 }
 
@@ -1317,7 +1317,7 @@ output_filename_for_test_case(const char *suffix, uint32_t seq_number,
 {
 	char *filename;
 
-	test_assert_ptr_not_null(file_ext);
+	test_assert_ptr_set(file_ext);
 
 	if (suffix)
 		str_printf(&filename, "%s/%s-%s-%02d.%s", output_path(), get_test_name(),
@@ -1326,7 +1326,7 @@ output_filename_for_test_case(const char *suffix, uint32_t seq_number,
 		str_printf(&filename, "%s/%s-%02d.%s", output_path(), get_test_name(),
 						       seq_number, file_ext);
 
-	test_assert_ptr_not_null(filename);
+	test_assert_ptr_set(filename);
 	return filename;
 }
 
@@ -1715,7 +1715,7 @@ image_convert_to_a8r8g8b8(pixman_image_t *image)
 
 	ret = pixman_image_create_bits_no_clear(PIXMAN_a8r8g8b8,
 						ih.width, ih.height, NULL, 0);
-	test_assert_ptr_not_null(ret);
+	test_assert_ptr_set(ret);
 
 	pixman_image_composite32(PIXMAN_OP_SRC, image, NULL, ret,
 				 0, 0, 0, 0, 0, 0, ih.width, ih.height);
@@ -1776,7 +1776,7 @@ load_image_from_png(const char *fname)
 	/* The Cairo surface will own the data, so we keep it around. */
 	image = pixman_image_create_bits_no_clear(pixman_fmt,
 						  width, height, data, stride);
-	test_assert_ptr_not_null(image);
+	test_assert_ptr_set(image);
 
 	pixman_image_set_destroy_function(image, destroy_cairo_surface,
 					  reference_cairo_surface);
@@ -1927,7 +1927,7 @@ capture_screenshot_of_output(struct client *client, const char *output_name)
 			}
 		}
 
-		test_assert_ptr_not_null(output);
+		test_assert_ptr_set(output);
 	} else {
 		output = client->output;
 	}
@@ -2064,7 +2064,7 @@ verify_screen_content(struct client *client,
 	bool match;
 
 	shot = capture_screenshot_of_output(client, output_name);
-	test_assert_ptr_not_null(shot);
+	test_assert_ptr_set(shot);
 	match = verify_image(shot->image, ref_image, ref_seq_no, clip, seq_no);
 	buffer_destroy(shot);
 
@@ -2098,7 +2098,7 @@ client_buffer_from_image_file(struct client *client,
 	fname = image_filename(basename);
 	img = load_image_from_png(fname);
 	free(fname);
-	test_assert_ptr_not_null(img);
+	test_assert_ptr_set(img);
 
 	buf_w = scale * pixman_image_get_width(img);
 	buf_h = scale * pixman_image_get_height(img);
@@ -2150,15 +2150,15 @@ bind_to_singleton_global(struct client *client,
 			continue;
 
 		/* Multiple singleton objects. */
-		test_assert_ptr_null(g);
+		test_assert_ptr_not_set(g);
 		g = tmp;
 	}
 
 	/*  Singleton not found. */
-	test_assert_ptr_not_null(g);
+	test_assert_ptr_set(g);
 
 	proxy = wl_registry_bind(client->wl_registry, g->name, iface, version);
-	test_assert_ptr_not_null(proxy);
+	test_assert_ptr_set(proxy);
 
 	return proxy;
 }
@@ -2179,7 +2179,7 @@ client_create_viewport(struct client *client)
 					      &wp_viewporter_interface, 1);
 	viewport = wp_viewporter_get_viewport(viewporter,
 					      client->surface->wl_surface);
-	test_assert_ptr_not_null(viewport);
+	test_assert_ptr_set(viewport);
 	wp_viewporter_destroy(viewporter);
 
 	return viewport;
@@ -2269,14 +2269,14 @@ client_wait_breakpoint(struct client *client,
 {
 	struct wet_test_active_breakpoint *active_bp;
 
-	test_assert_ptr_not_null(suite_data);
+	test_assert_ptr_set(suite_data);
 	test_assert_false(suite_data->breakpoints.in_client_break);
 
 	wl_display_flush(client->wl_display);
 	wet_test_wait_sem(&suite_data->breakpoints.client_break);
 
 	active_bp = suite_data->breakpoints.active_bp;
-	test_assert_ptr_not_null(active_bp);
+	test_assert_ptr_set(active_bp);
 	suite_data->breakpoints.in_client_break = true;
 	return active_bp;
 }
@@ -2294,7 +2294,7 @@ get_resource_data_from_proxy(struct wet_testsuite_data *suite_data,
 
 	resource = wl_client_get_object(suite_data->wl_client,
 					wl_proxy_get_id(proxy));
-	test_assert_ptr_not_null(resource);
+	test_assert_ptr_set(resource);
 	return wl_resource_get_user_data(resource);
 }
 

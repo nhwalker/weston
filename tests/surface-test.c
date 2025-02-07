@@ -53,9 +53,9 @@ PLUGIN_TEST(surface_transform)
 	struct weston_coord_global coord_g;
 
 	surface = weston_surface_create(compositor);
-	test_assert_ptr_not_null(surface);
+	test_assert_ptr_set(surface);
 	view = weston_view_create(surface);
-	test_assert_ptr_not_null(view);
+	test_assert_ptr_set(view);
 	surface->width = 200;
 	surface->height = 200;
 	coord_g.c = weston_coord(100, 100);

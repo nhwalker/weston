@@ -25,7 +25,6 @@
 
 #include "config.h"
 
-#include <assert.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -36,6 +35,7 @@
 #include <libweston/libweston.h>
 #include "xwayland.h"
 #include "shared/helpers.h"
+#include "shared/weston-assert.h"
 
 #ifdef WM_DEBUG
 #define wm_log(...) weston_log(__VA_ARGS__)
@@ -591,7 +591,8 @@ weston_wm_handle_selection_request(struct weston_wm *wm,
 	weston_log_continue("property %s\n",
 		get_atom_name(wm->conn, selection_request->property));
 
-	assert(selection_request->requestor != wm->selection_window);
+	WESTON_DASSERT_UINT_NE(selection_request->requestor,
+			       wm->selection_window);
 	wm->selection_request = *selection_request;
 	wm->incr = 0;
 	wm->flush_property_on_delete = 0;

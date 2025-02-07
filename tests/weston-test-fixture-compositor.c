@@ -62,12 +62,12 @@ prog_args_init(struct prog_args *p)
 static void
 prog_args_take(struct prog_args *p, char *arg)
 {
-	test_assert_ptr_not_null(arg);
+	test_assert_ptr_set(arg);
 
 	if (p->argc == p->alloc) {
 		p->alloc += 10;
 		p->argv = realloc(p->argv, sizeof(char *) * p->alloc);
-		test_assert_ptr_not_null(p->argv);
+		test_assert_ptr_set(p->argv);
 	}
 
 	p->argv[p->argc++] = arg;
@@ -80,7 +80,7 @@ prog_args_take(struct prog_args *p, char *arg)
 static void
 prog_args_save(struct prog_args *p)
 {
-	test_assert_ptr_null(p->saved);
+	test_assert_ptr_not_set(p->saved);
 
 	p->saved = calloc(p->argc, sizeof(char *));
 	test_assert_true(p->saved);
@@ -436,7 +436,7 @@ write_cfg(va_list entry_list, FILE *weston_ini)
 {
 	char *entry = va_arg(entry_list, char *);
 	int ret;
-	test_assert_ptr_not_null(entry);
+	test_assert_ptr_set(entry);
 
 	while (entry) {
 		ret = fprintf(weston_ini, "%s\n", entry);
@@ -452,10 +452,10 @@ open_ini_file(struct compositor_setup *setup)
 	char *wd, *tmp_path = NULL;
 	FILE *weston_ini = NULL;
 
-	test_assert_ptr_null(setup->config_file);
+	test_assert_ptr_not_set(setup->config_file);
 
 	wd = realpath(".", NULL);
-	test_assert_ptr_not_null(wd);
+	test_assert_ptr_set(wd);
 
 	str_printf(&tmp_path, "%s/%s.ini", wd, setup->testset_name);
 	if (!tmp_path) {
@@ -464,7 +464,7 @@ open_ini_file(struct compositor_setup *setup)
 	}
 
 	weston_ini = fopen(tmp_path, "w");
-	test_assert_ptr_not_null(weston_ini);
+	test_assert_ptr_set(weston_ini);
 	setup->config_file = tmp_path;
 
 out:
@@ -480,7 +480,7 @@ weston_ini_setup_(struct compositor_setup *setup, ...)
 	va_list entry_list;
 
 	weston_ini = open_ini_file(setup);
-	test_assert_ptr_not_null(weston_ini);
+	test_assert_ptr_set(weston_ini);
 
 	va_start(entry_list, setup);
 	write_cfg(entry_list, weston_ini);

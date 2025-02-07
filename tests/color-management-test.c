@@ -699,7 +699,7 @@ build_sRGB_icc_profile(const char *filename)
 
 	profile = build_lcms_matrix_shaper_profile_output(NULL, &pipeline_sRGB,
 							  vcgt_exponents);
-	test_assert_ptr_not_null(profile);
+	test_assert_ptr_set(profile);
 
 	saved = cmsSaveProfileToFile(profile, filename);
 	test_assert_true(saved);
@@ -784,7 +784,7 @@ wait_until_image_description_ready(struct client *client,
 	while (image_descr->status == CM_IMAGE_DESC_NOT_CREATED)
 		test_assert_int_ge(wl_display_dispatch(client->wl_display), 0);
 
-	test_assert_enum(image_descr->status, CM_IMAGE_DESC_READY);
+	test_assert_enum_eq(image_descr->status, CM_IMAGE_DESC_READY);
 }
 
 TEST(output_get_image_description)

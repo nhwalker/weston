@@ -64,7 +64,7 @@ static const struct my_api {
 static void
 init_tests(struct weston_compositor *compositor)
 {
-	test_assert_ptr_null(weston_plugin_api_get(compositor, MY_API_NAME,
+	test_assert_ptr_not_set(weston_plugin_api_get(compositor, MY_API_NAME,
 						   sizeof(my_test_api)));
 
 	test_assert_int_eq(weston_plugin_api_register(compositor, MY_API_NAME,
@@ -97,9 +97,9 @@ PLUGIN_TEST(plugin_registry_test)
 	test_assert_ptr_eq(weston_plugin_api_get(compositor, MY_API_NAME, sz - 4),
 			   &my_test_api);
 
-	test_assert_ptr_null(weston_plugin_api_get(compositor, MY_API_NAME, sz + 4));
+	test_assert_ptr_not_set(weston_plugin_api_get(compositor, MY_API_NAME, sz + 4));
 
 	api = weston_plugin_api_get(compositor, MY_API_NAME, sz);
-	test_assert_ptr_not_null(api);
+	test_assert_ptr_set(api);
 	test_assert_ptr_eq(api->func2, dummy_func);
 }

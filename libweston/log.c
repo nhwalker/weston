@@ -162,7 +162,7 @@ weston_log_paced(struct weston_log_pacer *pacer,
 	int64_t since_burst_start;
 	int64_t suppressed = 0;
 
-	assert(max_burst != 0);
+	WESTON_DASSERT_UINT_NE(max_burst, 0);
 
 	/* If CLOCK_MONOTONIC fails we silently give up on ever
 	 * reseting the timer. */
@@ -178,8 +178,8 @@ weston_log_paced(struct weston_log_pacer *pacer,
 		pacer->max_burst = max_burst;
 		pacer->reset_ms = reset_ms;
 	} else {
-		assert(pacer->max_burst == max_burst);
-		assert(pacer->reset_ms == reset_ms);
+		WESTON_DASSERT_UINT_EQ(pacer->max_burst, max_burst);
+		WESTON_DASSERT_UINT_EQ(pacer->reset_ms, reset_ms);
 	}
 	since_burst_start = timespec_sub_to_msec(&now, &pacer->burst_start);
 

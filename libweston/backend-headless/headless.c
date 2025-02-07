@@ -28,7 +28,6 @@
 
 #include "config.h"
 
-#include <assert.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -162,7 +161,7 @@ headless_output_repaint(struct weston_output *output_base)
 	struct weston_compositor *ec;
 	pixman_region32_t damage;
 
-	assert(output);
+	WESTON_DASSERT_PTR_SET(output);
 
 	ec = output->base.compositor;
 
@@ -216,7 +215,7 @@ headless_output_disable(struct weston_output *base)
 	struct headless_output *output = to_headless_output(base);
 	struct headless_backend *b;
 
-	assert(output);
+	WESTON_DASSERT_PTR_SET(output);
 
 	if (!output->base.enabled)
 		return 0;
@@ -246,12 +245,12 @@ headless_output_destroy(struct weston_output *base)
 {
 	struct headless_output *output = to_headless_output(base);
 
-	assert(output);
+	WESTON_DASSERT_PTR_SET(output);
 
 	headless_output_disable(&output->base);
 	weston_output_release(&output->base);
 
-	assert(!output->frame);
+	WESTON_DASSERT_PTR_NOT_SET(output->frame);
 	free(output);
 }
 
@@ -350,7 +349,7 @@ headless_output_enable(struct weston_output *base)
 	struct wl_event_loop *loop;
 	int ret = 0;
 
-	assert(output);
+	WESTON_DASSERT_PTR_SET(output);
 
 	b = output->backend;
 
@@ -396,10 +395,10 @@ headless_output_set_size(struct weston_output *base,
 		return -1;
 
 	/* We can only be called once. */
-	assert(!output->base.current_mode);
+	WESTON_DASSERT_PTR_NOT_SET(output->base.current_mode);
 
 	/* Make sure we have scale set. */
-	assert(output->base.current_scale);
+	WESTON_DASSERT_S32_NE(output->base.current_scale, 0);
 
 	wl_list_for_each(head, &output->base.head_list, output_link) {
 		weston_head_set_monitor_strings(head, "weston", "headless",
@@ -439,7 +438,7 @@ headless_output_create(struct weston_backend *backend, const char *name)
 	struct headless_output *output;
 
 	/* name can't be NULL. */
-	assert(name);
+	WESTON_DASSERT_PTR_SET(name);
 
 	output = zalloc(sizeof *output);
 	if (!output)
@@ -468,7 +467,7 @@ headless_head_create(struct weston_backend *base,
 	struct headless_head *head;
 
 	/* name can't be NULL. */
-	assert(name);
+	WESTON_DASSERT_PTR_SET(name);
 
 	head = zalloc(sizeof *head);
 	if (head == NULL)
@@ -499,7 +498,7 @@ headless_head_destroy(struct weston_head *base)
 {
 	struct headless_head *head = to_headless_head(base);
 
-	assert(head);
+	WESTON_DASSERT_PTR_SET(head);
 
 	weston_head_release(&head->base);
 	free(head);

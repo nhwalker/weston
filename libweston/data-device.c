@@ -30,7 +30,6 @@
 #include <unistd.h>
 #include <stdint.h>
 #include <stdio.h>
-#include <assert.h>
 
 #include <libweston/libweston.h>
 #include "libweston-internal.h"
@@ -417,8 +416,8 @@ drag_surface_configure(struct weston_drag *drag,
 	struct weston_layer_entry *list;
 	struct weston_coord_global pos;
 
-	assert((pointer != NULL && touch == NULL) ||
-			(pointer == NULL && touch != NULL));
+	WESTON_DASSERT_TRUE((pointer != NULL && touch == NULL) ||
+			    (pointer == NULL && touch != NULL));
 
 	if (!weston_surface_is_mapped(es) && weston_surface_has_content(es)) {
 		weston_surface_map(es);
@@ -459,7 +458,7 @@ pointer_drag_surface_committed(struct weston_surface *es,
 	struct weston_pointer_drag *drag = es->committed_private;
 	struct weston_pointer *pointer = drag->grab.pointer;
 
-	assert(es->committed == pointer_drag_surface_committed);
+	WESTON_DASSERT_PTR_EQ(es->committed, pointer_drag_surface_committed);
 
 	drag_surface_configure(&drag->base, pointer, NULL, es, new_origin);
 }
@@ -478,7 +477,7 @@ touch_drag_surface_committed(struct weston_surface *es,
 	struct weston_touch_drag *drag = es->committed_private;
 	struct weston_touch *touch = drag->grab.touch;
 
-	assert(es->committed == touch_drag_surface_committed);
+	WESTON_DASSERT_PTR_EQ(es->committed, touch_drag_surface_committed);
 
 	drag_surface_configure(&drag->base, NULL, touch, es, new_origin);
 }
@@ -514,8 +513,8 @@ weston_drag_set_focus(struct weston_drag *drag,
 	struct weston_data_offer *offer;
 	uint32_t serial;
 
-	assert(view);
-	assert(surf_pos.coordinate_space_id == view->surface);
+	WESTON_DASSERT_PTR_SET(view);
+	WESTON_DASSERT_PTR_EQ(surf_pos.coordinate_space_id, view->surface);
 
 	if (drag->focus && drag->focus->surface == view->surface) {
 		drag->focus = view;

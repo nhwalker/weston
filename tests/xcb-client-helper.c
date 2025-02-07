@@ -383,8 +383,8 @@ window_x11_unmap(struct window_x11 *window)
 static void
 window_x11_set_cursor(struct window_x11 *window, const char *cursor_name)
 {
-	test_assert_ptr_not_null(window);
-	test_assert_ptr_null(window->ctx);
+	test_assert_ptr_set(window);
+	test_assert_ptr_not_set(window->ctx);
 
 	if (xcb_cursor_context_new(window->conn->connection,
 				   window->screen, &window->ctx) < 0) {
@@ -601,7 +601,7 @@ create_x11_window(int width, int height, int pos_x, int pos_y,
 	xcb_generic_error_t *error_create;
 	const struct xcb_setup_t *xcb_setup;
 
-	test_assert_ptr_not_null(conn);
+	test_assert_ptr_set(conn);
 	window = xzalloc(sizeof(*window));
 
 	window->conn = conn;
@@ -624,7 +624,7 @@ create_x11_window(int width, int height, int pos_x, int pos_y,
 	cookie = xcb_alloc_color(window->conn->connection, colormap,
 				 bg_color.red, bg_color.blue, bg_color.green);
 	reply = xcb_alloc_color_reply(window->conn->connection, cookie, NULL);
-	test_assert_ptr_not_null(reply);
+	test_assert_ptr_set(reply);
 
 	colorpixel = reply->pixel;
 	free(reply);
@@ -666,7 +666,7 @@ create_x11_window(int width, int height, int pos_x, int pos_y,
 						  window->screen->root_visual,
 						  mask, values);
 	error_create = xcb_request_check(window->conn->connection, cookie_create);
-	test_assert_ptr_null(error_create);
+	test_assert_ptr_not_set(error_create);
 
 	window_state_set_flag(window, CREATED);
 	window_x11_set_cursor(window, "left_ptr");

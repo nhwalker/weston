@@ -115,7 +115,7 @@ check_pointer(struct client *client, int x, int y)
 		 * The global pointer does not map onto surface.  So
 		 * check that it doesn't have the pointer focus.
 		 */
-		test_assert_ptr_null(client->input->pointer->focus);
+		test_assert_ptr_not_set(client->input->pointer->focus);
 	}
 }
 
@@ -130,7 +130,7 @@ static struct client *
 create_client_with_pointer_focus(int x, int y, int w, int h)
 {
 	struct client *cl = create_client_and_test_surface(x, y, w, h);
-	test_assert_ptr_not_null(cl);
+	test_assert_ptr_set(cl);
 	/* Move the pointer inside the surface to ensure that the surface
 	 * has the pointer focus. */
 	check_pointer_move(cl, x, y);
@@ -143,7 +143,7 @@ TEST(test_pointer_top_left)
 	int x, y;
 
 	client = create_client_and_test_surface(46, 76, 111, 134);
-	test_assert_ptr_not_null(client);
+	test_assert_ptr_set(client);
 
 	/* move pointer outside top left */
 	x = client->surface->x - 1;
@@ -170,7 +170,7 @@ TEST(test_pointer_bottom_left)
 	int x, y;
 
 	client = create_client_and_test_surface(99, 100, 100, 98);
-	test_assert_ptr_not_null(client);
+	test_assert_ptr_set(client);
 
 	/* move pointer outside bottom left */
 	x = client->surface->x - 1;
@@ -197,7 +197,7 @@ TEST(test_pointer_top_right)
 	int x, y;
 
 	client = create_client_and_test_surface(48, 100, 67, 100);
-	test_assert_ptr_not_null(client);
+	test_assert_ptr_set(client);
 
 	/* move pointer outside top right */
 	x = client->surface->x + client->surface->width;
@@ -224,7 +224,7 @@ TEST(test_pointer_bottom_right)
 	int x, y;
 
 	client = create_client_and_test_surface(100, 123, 100, 69);
-	test_assert_ptr_not_null(client);
+	test_assert_ptr_set(client);
 
 	/* move pointer outside bottom right */
 	x = client->surface->x + client->surface->width;
@@ -251,7 +251,7 @@ TEST(test_pointer_top_center)
 	int x, y;
 
 	client = create_client_and_test_surface(100, 201, 100, 50);
-	test_assert_ptr_not_null(client);
+	test_assert_ptr_set(client);
 
 	/* move pointer outside top center */
 	x = client->surface->x + client->surface->width/2;
@@ -278,7 +278,7 @@ TEST(test_pointer_bottom_center)
 	int x, y;
 
 	client = create_client_and_test_surface(100, 45, 67, 100);
-	test_assert_ptr_not_null(client);
+	test_assert_ptr_set(client);
 
 	/* move pointer outside bottom center */
 	x = client->surface->x + client->surface->width/2;
@@ -305,7 +305,7 @@ TEST(test_pointer_left_center)
 	int x, y;
 
 	client = create_client_and_test_surface(167, 45, 78, 100);
-	test_assert_ptr_not_null(client);
+	test_assert_ptr_set(client);
 
 	/* move pointer outside left center */
 	x = client->surface->x - 1;
@@ -332,7 +332,7 @@ TEST(test_pointer_right_center)
 	int x, y;
 
 	client = create_client_and_test_surface(110, 37, 100, 46);
-	test_assert_ptr_not_null(client);
+	test_assert_ptr_set(client);
 
 	/* move pointer outside right center */
 	x = client->surface->x + client->surface->width;
@@ -358,7 +358,7 @@ TEST(test_pointer_surface_move)
 	struct client *client;
 
 	client = create_client_and_test_surface(100, 100, 100, 100);
-	test_assert_ptr_not_null(client);
+	test_assert_ptr_set(client);
 
 	/* move pointer outside of client */
 	test_assert_false(surface_contains(client->surface, 50, 50));
@@ -403,14 +403,14 @@ TEST(pointer_button_events)
 	test_assert_u32_eq(pointer->state, 0);
 
 	send_button(client, &t1, BTN_LEFT, WL_POINTER_BUTTON_STATE_PRESSED);
-	test_assert_enum(pointer->button, BTN_LEFT);
-	test_assert_enum(pointer->state, WL_POINTER_BUTTON_STATE_PRESSED);
+	test_assert_enum_eq(pointer->button, BTN_LEFT);
+	test_assert_enum_eq(pointer->state, WL_POINTER_BUTTON_STATE_PRESSED);
 	test_assert_s64_eq(pointer->button_time_msec, timespec_to_msec(&t1));
 	test_assert_true(timespec_eq(&pointer->button_time_timespec, &t1));
 
 	send_button(client, &t2, BTN_LEFT, WL_POINTER_BUTTON_STATE_RELEASED);
-	test_assert_enum(pointer->button, BTN_LEFT);
-	test_assert_enum(pointer->state, WL_POINTER_BUTTON_STATE_RELEASED);
+	test_assert_enum_eq(pointer->button, BTN_LEFT);
+	test_assert_enum_eq(pointer->state, WL_POINTER_BUTTON_STATE_RELEASED);
 	test_assert_s64_eq(pointer->button_time_msec, timespec_to_msec(&t2));
 	test_assert_true(timespec_eq(&pointer->button_time_timespec, &t2));
 
@@ -452,16 +452,16 @@ TEST(pointer_timestamps_stop_after_input_timestamps_object_is_destroyed)
 		input_timestamps_create_for_pointer(client);
 
 	send_button(client, &t1, BTN_LEFT, WL_POINTER_BUTTON_STATE_PRESSED);
-	test_assert_enum(pointer->button, BTN_LEFT);
-	test_assert_enum(pointer->state, WL_POINTER_BUTTON_STATE_PRESSED);
+	test_assert_enum_eq(pointer->button, BTN_LEFT);
+	test_assert_enum_eq(pointer->state, WL_POINTER_BUTTON_STATE_PRESSED);
 	test_assert_s64_eq(pointer->button_time_msec, timespec_to_msec(&t1));
 	test_assert_true(timespec_eq(&pointer->button_time_timespec, &t1));
 
 	input_timestamps_destroy(input_ts);
 
 	send_button(client, &t2, BTN_LEFT, WL_POINTER_BUTTON_STATE_RELEASED);
-	test_assert_enum(pointer->button, BTN_LEFT);
-	test_assert_enum(pointer->state, WL_POINTER_BUTTON_STATE_RELEASED);
+	test_assert_enum_eq(pointer->button, BTN_LEFT);
+	test_assert_enum_eq(pointer->state, WL_POINTER_BUTTON_STATE_RELEASED);
 	test_assert_s64_eq(pointer->button_time_msec, timespec_to_msec(&t2));
 	test_assert_true(timespec_is_zero(&pointer->button_time_timespec));
 

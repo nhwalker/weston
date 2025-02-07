@@ -76,7 +76,7 @@ WESTON_EXPORT_FOR_TESTS void
 weston_idalloc_destroy(struct weston_idalloc *idalloc)
 {
 	/* Sanity check: id 0 should still be taken. */
-	weston_assert_true(idalloc->buckets[0] & 1);
+	WESTON_DASSERT_UINT_EQ(idalloc->buckets[0] & 1, 1);
 
 	free(idalloc->buckets);
 	free(idalloc);
@@ -122,7 +122,7 @@ weston_idalloc_get_id(struct weston_idalloc *idalloc)
 	uint32_t id;
 
 	/* Sanity check: lowest free bucket should not be full. */
-	weston_assert_uint32_neq(*bucket, 0xffffffff);
+	WESTON_DASSERT_U32_NE(*bucket, 0xffffffff);
 
 	for (i = 0; i < 32; i++) {
 		/* Id already used, skip it. */
@@ -141,7 +141,7 @@ weston_idalloc_get_id(struct weston_idalloc *idalloc)
 	}
 
 	/* We need to find an available id. */
-	weston_assert_not_reached("should be able to allocate unique id");
+	WESTON_DASSERT_NOT_REACHED("should be able to allocate unique id");
 }
 
 /**
@@ -162,15 +162,15 @@ weston_idalloc_put_id(struct weston_idalloc *idalloc, uint32_t id)
 	uint32_t *bucket;
 
 	/* Shouldn't try to release index 0, we never advertise this id to anyone. */
-	weston_assert_uint32_neq(id, 0);
+	WESTON_DASSERT_U32_NE(id, 0);
 
 	/* Bucket index should be lower than num_buckets. */
-	weston_assert_uint32_lt(bucket_index, idalloc->num_buckets);
+	WESTON_DASSERT_U32_LT(bucket_index, idalloc->num_buckets);
 
 	bucket = &idalloc->buckets[bucket_index];
 
 	/* Shouldn't try to release a free index. */
-	weston_assert_true((*bucket >> id_index_on_bucket) & 1);
+	WESTON_DASSERT_UINT_EQ((*bucket >> id_index_on_bucket) & 1, 1);
 
 	/* We now have an available index id on this bucket, so it may become
 	 * the lowest bucket. */

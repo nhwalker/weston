@@ -109,7 +109,7 @@ weston_authenticate_user(const char *username, const char *password)
 	authenticated = true;
 out:
 	ret = pam_end(pam, ret);
-	assert(ret == PAM_SUCCESS);
+	WESTON_DASSERT_INT_EQ(ret, PAM_SUCCESS);
 	free(conv.appdata_ptr);
 #endif
 	return authenticated;

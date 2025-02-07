@@ -71,13 +71,13 @@ get_linux_explicit_synchronization(struct client *client)
 		global_sync = g;
 	}
 
-	test_assert_ptr_not_null(global_sync);
+	test_assert_ptr_set(global_sync);
 	test_assert_u32_eq(global_sync->version, 2);
 
 	sync = wl_registry_bind(
 			client->wl_registry, global_sync->name,
 			&zwp_linux_explicit_synchronization_v1_interface, 2);
-	test_assert_ptr_not_null(sync);
+	test_assert_ptr_set(sync);
 
 	return sync;
 }
@@ -86,7 +86,7 @@ static struct client *
 create_test_client(void)
 {
 	struct client *cl = create_client_and_test_surface(0, 0, 100, 100);
-	test_assert_ptr_not_null(cl);
+	test_assert_ptr_set(cl);
 	return cl;
 }
 

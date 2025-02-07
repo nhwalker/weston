@@ -29,7 +29,6 @@
 #include <errno.h>
 #include <string.h>
 #include <time.h>
-#include <assert.h>
 
 #include <libweston/libweston.h>
 #include "shared/timespec-util.h"
@@ -62,7 +61,7 @@ build_track_name(struct weston_surface *surface, char *name, int size)
 
 	/* Make sure we only call this once, so we don't accidentally
 	 * make multiple names for the same surface */
-	assert(surface->damage_track_id == 0);
+	WESTON_DASSERT_U64_EQ(surface->damage_track_id, 0);
 
 	if (surface->get_label)
 		surface->get_label(surface, surface_label, sizeof(surface_label));
@@ -145,7 +144,7 @@ weston_timeline_perfetto(struct weston_log_scope *timeline_scope,
 			gpu_ns = timespec_to_nsec(obj);
 			break;
 		default:
-			assert(!"not reached");
+			WESTON_DASSERT_NOT_REACHED();
 		}
 	}
 	va_end(argp);
@@ -185,6 +184,6 @@ weston_timeline_perfetto(struct weston_log_scope *timeline_scope,
 		WESTON_TRACE_TIMESTAMP_END("Active", output->gpu_track_id, CLOCK_MONOTONIC, gpu_ns);
 		break;
 	default:
-		assert(!"not reached");
+		WESTON_DASSERT_NOT_REACHED();
 	}
 }

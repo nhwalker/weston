@@ -39,7 +39,6 @@
 #include <string.h>
 #include <dlfcn.h>
 #include <limits.h>
-#include <assert.h>
 #include <linux/input.h>
 
 #include "input-method-unstable-v1-server-protocol.h"
@@ -50,6 +49,7 @@
 #include "libweston/libweston.h"
 #include "shared/helpers.h"
 #include "shared/xalloc.h"
+#include "shared/weston-assert.h"
 #include "frontend/weston.h"
 
 /* Representation of ivi_surface protocol object. */
@@ -180,7 +180,7 @@ shell_surface_send_configure(struct weston_surface *surface,
 	struct ivi_shell_surface *shsurf;
 
 	shsurf = get_ivi_shell_surface(surface);
-	assert(shsurf);
+	WESTON_DASSERT_PTR_SET(shsurf);
 
 	if (shsurf->resource)
 		ivi_surface_send_configure(shsurf->resource, width, height);
@@ -221,7 +221,7 @@ static void
 layout_surface_cleanup(struct ivi_shell_surface *ivisurf)
 {
 	struct weston_seat *seat;
-	assert(ivisurf->layout_surface != NULL);
+	WESTON_DASSERT_PTR_SET(ivisurf->layout_surface);
 
 	/* destroy weston_surface destroy signal. */
 	if (!ivisurf->layout_surface->weston_desktop_surface)
@@ -255,7 +255,7 @@ shell_destroy_shell_surface(struct wl_resource *resource)
 	if (ivisurf == NULL)
 		return;
 
-	assert(ivisurf->resource == resource);
+	WESTON_DASSERT_PTR_EQ(ivisurf->resource, resource);
 
 	if (ivisurf->layout_surface != NULL)
 		layout_surface_cleanup(ivisurf);
@@ -273,7 +273,7 @@ shell_handle_surface_destroy(struct wl_listener *listener, void *data)
 			container_of(listener, struct ivi_shell_surface,
 				     surface_destroy_listener);
 
-	assert(ivisurf != NULL);
+	WESTON_DASSERT_PTR_SET(ivisurf);
 
 	if (ivisurf->layout_surface != NULL)
 		layout_surface_cleanup(ivisurf);
@@ -674,7 +674,7 @@ desktop_surface_removed(struct weston_desktop_surface *surface,
 			weston_desktop_surface_get_user_data(surface);
 	struct ivi_shell_surface *ivisurf_child, *tmp;
 
-	assert(ivisurf != NULL);
+	WESTON_DASSERT_PTR_SET(ivisurf);
 
 	weston_desktop_surface_set_user_data(surface, NULL);
 
@@ -1009,7 +1009,7 @@ destroy_input_panel_surface_resource(struct wl_resource *resource)
 	struct ivi_input_panel_surface *ipsurf =
 		wl_resource_get_user_data(resource);
 
-	assert(ipsurf->resource == resource);
+	WESTON_DASSERT_PTR_EQ(ipsurf->resource, resource);
 
 	ivi_layout_surface_destroy(ipsurf->layout_surface);
 	ipsurf->layout_surface = NULL;

@@ -30,6 +30,7 @@
 #include "color-curve-segments.h"
 #include "color-lcms.h"
 #include "shared/xalloc.h"
+#include "shared/weston-assert.h"
 
 /**
  * LCMS internally defines MINUS_INF and PLUS_INF arbitrarily to -1e22 and 1e22.
@@ -405,13 +406,13 @@ are_curvesets_inverse(cmsStage *set_A, cmsStage *set_B)
 	unsigned int i;
 	_cmsStageToneCurvesData *set_A_data, *set_B_data;
 
-	assert(cmsStageType(set_A) == cmsSigCurveSetElemType);
-	assert(cmsStageType(set_B) == cmsSigCurveSetElemType);
+	WESTON_DASSERT_ENUM_EQ(cmsStageType(set_A), cmsSigCurveSetElemType);
+	WESTON_DASSERT_ENUM_EQ(cmsStageType(set_B), cmsSigCurveSetElemType);
 
 	set_A_data = cmsStageData(set_A);
 	set_B_data = cmsStageData(set_B);
 
-	assert(set_A_data->nCurves == set_B_data->nCurves);
+	WESTON_DASSERT_U32_EQ(set_A_data->nCurves, set_B_data->nCurves);
 
 	for (i = 0; i < set_A_data->nCurves; i++)
 		if (!are_curves_inverse(set_A_data->TheCurves[i],
@@ -495,7 +496,7 @@ join_powerlaw_curves(cmsContext context_id,
 	if (seg_A->Type == seg_B->Type) {
 		segment.Params[0] = seg_A->Params[0] * seg_B->Params[0];
 	} else {
-		assert(seg_A->Type == - seg_B->Type);
+		WESTON_DASSERT_S32_EQ(seg_A->Type, -seg_B->Type);
 		if (fabs(seg_B->Params[0]) < PRECISION)
 			return NULL;
 		segment.Params[0] = seg_A->Params[0] / seg_B->Params[0];
@@ -541,7 +542,7 @@ curveset_print(cmsStage *stage, struct weston_log_scope *scope)
 	uint32_t already_printed = 0;
 	unsigned int i, j;
 
-	assert(cmsStageType(stage) == cmsSigCurveSetElemType);
+	WESTON_DASSERT_ENUM_EQ(cmsStageType(stage), cmsSigCurveSetElemType);
 	data = cmsStageData(stage);
 
 	if (data->nCurves == 0) {

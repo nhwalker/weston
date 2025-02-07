@@ -31,12 +31,12 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#include <assert.h>
 
 #include <libweston/libweston.h>
 #include "frontend/weston.h"
 #include "fullscreen-shell-unstable-v1-server-protocol.h"
 #include "shared/helpers.h"
+#include "shared/weston-assert.h"
 #include <libweston/shell-utils.h>
 
 struct fullscreen_shell {
@@ -424,7 +424,7 @@ fs_output_configure_simple(struct fs_output *fsout,
 	if (fsout->pending.surface == configured_surface)
 		fs_output_apply_pending(fsout);
 
-	assert(fsout->view);
+	WESTON_DASSERT_PTR_SET(fsout->view);
 
 	restore_output_mode(fsout->output);
 
@@ -609,7 +609,7 @@ configure_presented_surface_internal(struct weston_surface *surface)
 static void
 fs_output_apply_pending(struct fs_output *fsout)
 {
-	assert(fsout->pending.surface);
+	WESTON_DASSERT_PTR_SET(fsout->pending.surface);
 
 	if (!weston_surface_is_mapped(fsout->pending.surface) &&
 	    !weston_surface_has_content(fsout->pending.surface))

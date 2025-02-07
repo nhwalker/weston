@@ -162,13 +162,13 @@ cmnoop_get_surface_color_transform(struct weston_color_manager *cm_base,
 
 	/* If surface has a cprof, it has to be the stock one. */
 	if (surface->color_profile)
-		weston_assert_ptr_eq(to_cmnoop_cprof(surface->color_profile),
-				     cmnoop->stock_cprof);
+		WESTON_DASSERT_PTR_EQ(to_cmnoop_cprof(surface->color_profile),
+				      cmnoop->stock_cprof);
 
 	/* The output must have a cprof, and it has to be the stock one. */
-	weston_assert_ptr_not_null(output->color_profile);
-	weston_assert_ptr_eq(to_cmnoop_cprof(output->color_profile),
-			     cmnoop->stock_cprof);
+	WESTON_DASSERT_PTR_SET(output->color_profile);
+	WESTON_DASSERT_PTR_EQ(to_cmnoop_cprof(output->color_profile),
+			      cmnoop->stock_cprof);
 
 	if (!check_output_eotf_mode(output))
 		return false;
@@ -187,9 +187,9 @@ cmnoop_create_output_color_outcome(struct weston_color_manager *cm_base,
 	struct weston_color_manager_noop *cmnoop = to_cmnoop(cm_base);
 	struct weston_output_color_outcome *co;
 
-	weston_assert_ptr_not_null(output->color_profile);
-	weston_assert_ptr_eq(to_cmnoop_cprof(output->color_profile),
-			     cmnoop->stock_cprof);
+	WESTON_DASSERT_PTR_SET(output->color_profile);
+	WESTON_DASSERT_PTR_EQ(to_cmnoop_cprof(output->color_profile),
+			      cmnoop->stock_cprof);
 
 	if (!check_output_eotf_mode(output))
 		return NULL;
@@ -243,7 +243,7 @@ cmnoop_destroy(struct weston_color_manager *cm_base)
 	 * Currently we have a bug in which we leak surfaces when shutting down
 	 * Weston with client surfaces alive, and these surfaces may have a
 	 * reference to the stock sRGB profile. */
-	weston_assert_uint32_gt_or_eq(cmnoop->stock_cprof->base.ref_count, 1);
+	WESTON_DASSERT_INT_GE(cmnoop->stock_cprof->base.ref_count, 1);
 	unref_cprof(cmnoop->stock_cprof);
 
 	free(cmnoop);

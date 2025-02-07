@@ -63,7 +63,7 @@ check_client_move(struct client *client, int x, int y)
 	if (output_contains_client(client)) {
 		test_assert_ptr_eq(client->surface->output, client->output);
 	} else {
-		test_assert_ptr_null(client->surface->output);
+		test_assert_ptr_not_set(client->surface->output);
 	}
 }
 
@@ -73,7 +73,7 @@ TEST(test_surface_output)
 	int x, y;
 
 	client = create_client_and_test_surface(100, 100, 100, 100);
-	test_assert_ptr_not_null(client);
+	test_assert_ptr_set(client);
 
 	test_assert_true(output_contains_client(client));
 
@@ -140,7 +140,7 @@ TEST(buffer_release)
 	int frame;
 
 	client = create_client_and_test_surface(100, 100, 100, 100);
-	test_assert_ptr_not_null(client);
+	test_assert_ptr_set(client);
 	surface = client->surface->wl_surface;
 
 	buf1 = create_shm_buffer_a8r8g8b8(client, 100, 100);

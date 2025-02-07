@@ -177,7 +177,7 @@ TEST(test_truncated_shm_file)
 	int frame;
 
 	client = create_client_and_test_surface(46, 76, 111, 134);
-	test_assert_ptr_not_null(client);
+	test_assert_ptr_set(client);
 	surface = client->surface->wl_surface;
 
 	bad_buffer = create_bad_shm_buffer(client, 200, 200);

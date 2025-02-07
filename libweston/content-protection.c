@@ -26,7 +26,6 @@
 #include "config.h"
 #include <stdint.h>
 #include <stdlib.h>
-#include <assert.h>
 #include <signal.h>
 #include <unistd.h>
 #include <string.h>
@@ -238,9 +237,9 @@ get_protection(struct wl_client *client, struct wl_resource *cp_resource,
 	struct wl_listener *listener;
 
 	surface = wl_resource_get_user_data(surface_resource);
-	assert(surface);
+	WESTON_DASSERT_PTR_SET(surface);
 	cp = wl_resource_get_user_data(cp_resource);
-	assert(cp);
+	WESTON_DASSERT_PTR_SET(cp);
 
 	/*
 	 * Check if this client has a corresponding protected-surface

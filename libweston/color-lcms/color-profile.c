@@ -297,14 +297,14 @@ ensure_output_profile_extract(struct cmlcms_color_profile *cprof,
 							cprof->icc.profile, num_points,
 							err_msg);
 		if (ret)
-			weston_assert_ptr_not_null(cprof->extract.eotf.p);
+			WESTON_DASSERT_PTR_SET(cprof->extract.eotf.p);
 		break;
 	case CMLCMS_PROFILE_TYPE_PARAMS:
 		/* TODO: need to address this when we create param profiles. */
 		ret = false;
 		break;
 	default:
-		weston_assert_not_reached("unknown profile type");
+		WESTON_DASSERT_NOT_REACHED("unknown profile type");
 	}
 
 	return ret;
@@ -427,7 +427,7 @@ cmlcms_color_profile_print(const struct cmlcms_color_profile *cprof)
 		free(params_str);
 		break;
 	default:
-		weston_assert_not_reached("unknown profile type");
+		WESTON_DASSERT_NOT_REACHED("unknown profile type");
 	}
 
 	return str;
@@ -487,7 +487,7 @@ cmlcms_color_profile_destroy(struct cmlcms_color_profile *cprof)
 		free(cprof->params);
 		break;
 	default:
-		weston_assert_not_reached("unknown profile type");
+		WESTON_DASSERT_NOT_REACHED("unknown profile type");
 	}
 
 	weston_log_scope_printf(cm->profiles_scope, "Destroyed color profile p%u. " \
@@ -755,7 +755,7 @@ cmlcms_send_image_desc_info(struct cm_image_desc_info *cm_image_desc_info,
 		}
 
 		len = os_ro_anonymous_file_size(cprof->icc.prof_rofile);
-		weston_assert_uint32_gt(len, 0);
+		WESTON_DASSERT_U32_GT(len, 0);
 
 		weston_cm_send_icc_file(cm_image_desc_info, fd, len);
 
@@ -766,8 +766,8 @@ cmlcms_send_image_desc_info(struct cm_image_desc_info *cm_image_desc_info,
 		 * advertising parametric image description support in our
 		 * color-management protocol implementation. */
 		if (cprof != cm->sRGB_profile)
-			weston_assert_not_reached("we don't support parametric " \
-						  "cprof's that are not the stock sRGB one");
+			WESTON_DASSERT_NOT_REACHED("we don't support parametric " \
+						   "cprof's that are not the stock sRGB one");
 
 		/* Stock sRGB color profile. TODO: when we add support for
 		 * parametric color profiles, the stock sRGB will be crafted
@@ -820,7 +820,7 @@ cmlcms_get_parametric_color_profile(struct weston_color_profile *cprof_base,
 		ref_cprof(cprof);
 		return cprof_base;
 	default:
-		weston_assert_not_reached("unknown cprof type");
+		WESTON_DASSERT_NOT_REACHED("unknown cprof type");
 	}
 }
 

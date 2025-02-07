@@ -27,7 +27,6 @@
 
 #include "config.h"
 
-#include <assert.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -439,7 +438,7 @@ x11_output_repaint_gl(struct weston_output *output_base)
 	struct weston_compositor *ec;
 	pixman_region32_t damage;
 
-	assert(output);
+	WESTON_DASSERT_PTR_SET(output);
 
 	ec = output->base.compositor;
 
@@ -517,7 +516,7 @@ x11_output_repaint_shm(struct weston_output *output_base)
 	xcb_generic_error_t *err;
 	pixman_region32_t damage;
 
-	assert(output);
+	WESTON_DASSERT_PTR_SET(output);
 
 	ec = output->base.compositor;
 	b = output->backend;
@@ -867,7 +866,7 @@ x11_output_switch_mode(struct weston_output *base, struct weston_mode *mode)
 	struct weston_size fb_size;
 	static uint32_t values[2];
 
-	assert(output);
+	WESTON_DASSERT_PTR_SET(output);
 
 	b = output->backend;
 
@@ -912,7 +911,7 @@ x11_output_disable(struct weston_output *base)
 	struct x11_output *output = to_x11_output(base);
 	struct x11_backend *backend;
 
-	assert(output);
+	WESTON_DASSERT_PTR_SET(output);
 
 	backend = output->backend;
 
@@ -944,7 +943,7 @@ x11_output_destroy(struct weston_output *base)
 {
 	struct x11_output *output = to_x11_output(base);
 
-	assert(output);
+	WESTON_DASSERT_PTR_SET(output);
 
 	x11_output_disable(&output->base);
 	weston_output_release(&output->base);
@@ -960,7 +959,7 @@ x11_output_enable(struct weston_output *base)
 	const struct weston_mode *mode = output->base.current_mode;
 	struct x11_backend *b;
 
-	assert(output);
+	WESTON_DASSERT_PTR_SET(output);
 
 	b = output->backend;
 
@@ -1152,10 +1151,10 @@ x11_output_set_size(struct weston_output *base, int width, int height)
 	scrn = b->screen;
 
 	/* We can only be called once. */
-	assert(!output->base.current_mode);
+	WESTON_DASSERT_PTR_NOT_SET(output->base.current_mode);
 
 	/* Make sure we have scale set. */
-	assert(output->base.current_scale);
+	WESTON_DASSERT_S32_NE(output->base.current_scale, 0);
 
 	if (width < WINDOW_MIN_WIDTH) {
 		weston_log("Invalid width \"%d\" for output %s\n",
@@ -1204,7 +1203,7 @@ x11_output_create(struct weston_backend *backend, const char *name)
 	struct x11_output *output;
 
 	/* name can't be NULL. */
-	assert(name);
+	WESTON_DASSERT_PTR_SET(name);
 
 	output = zalloc(sizeof *output);
 	if (!output)
@@ -1230,7 +1229,7 @@ x11_head_create(struct weston_backend *base, const char *name)
 	struct x11_backend *backend = to_x11_backend(base);
 	struct x11_head *head;
 
-	assert(name);
+	WESTON_DASSERT_PTR_SET(name);
 
 	head = zalloc(sizeof *head);
 	if (!head)
@@ -1251,7 +1250,7 @@ x11_head_destroy(struct weston_head *base)
 {
 	struct x11_head *head = to_x11_head(base);
 
-	assert(head);
+	WESTON_DASSERT_PTR_SET(head);
 
 	weston_head_release(&head->base);
 	free(head);
@@ -1354,8 +1353,8 @@ x11_backend_deliver_button_event(struct x11_backend *b,
 	bool is_button_pressed = event->response_type == XCB_BUTTON_PRESS;
 	struct timespec time = { 0 };
 
-	assert(event->response_type == XCB_BUTTON_PRESS ||
-	       event->response_type == XCB_BUTTON_RELEASE);
+	WESTON_DASSERT_TRUE(event->response_type == XCB_BUTTON_PRESS ||
+			    event->response_type == XCB_BUTTON_RELEASE);
 
 	output = x11_backend_find_output(b, button_event->event);
 	if (!output)
@@ -1578,7 +1577,8 @@ x11_backend_handle_event(int fd, uint32_t mask, void *data)
 			}
 
 		case XCB_FOCUS_IN:
-			assert(response_type == XCB_KEYMAP_NOTIFY);
+			WESTON_DASSERT_ENUM_EQ(response_type,
+					       XCB_KEYMAP_NOTIFY);
 			keymap_notify = (xcb_keymap_notify_event_t *) event;
 			b->keys.size = 0;
 			for (i = 0; i < ARRAY_LENGTH(keymap_notify->keys) * 8; i++) {

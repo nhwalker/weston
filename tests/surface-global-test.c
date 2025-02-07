@@ -54,9 +54,9 @@ PLUGIN_TEST(surface_to_from_global)
 	struct weston_coord_surface cs;
 
 	surface = weston_surface_create(compositor);
-	test_assert_ptr_not_null(surface);
+	test_assert_ptr_set(surface);
 	view = weston_view_create(surface);
-	test_assert_ptr_not_null(view);
+	test_assert_ptr_set(view);
 	surface->width = 50;
 	surface->height = 50;
 	cg.c = weston_coord(5, 10);

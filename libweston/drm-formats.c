@@ -25,11 +25,10 @@
 
 #include "config.h"
 
-#include <assert.h>
-
 #include <libweston/libweston.h>
 #include "libweston-internal.h"
 #include "shared/weston-drm-fourcc.h"
+#include "shared/weston-assert.h"
 
 /**
  * Initialize a weston_drm_format_array
@@ -128,7 +127,8 @@ weston_drm_format_array_add_format(struct weston_drm_format_array *formats,
 	struct weston_drm_format *fmt;
 
 	/* We should not try to add repeated formats to an array. */
-	assert(!weston_drm_format_array_find_format(formats, format));
+	WESTON_DASSERT_PTR_NOT_SET(weston_drm_format_array_find_format(formats,
+								       format));
 
 	fmt = wl_array_add(&formats->arr, sizeof(*fmt));
 	if (!fmt) {
@@ -156,7 +156,7 @@ weston_drm_format_array_remove_latest_format(struct weston_drm_format_array *for
 	struct wl_array *array = &formats->arr;
 	struct weston_drm_format *fmt;
 
-	assert(array->size >= sizeof(*fmt));
+	WESTON_DASSERT_U64_GE(array->size, sizeof(*fmt));
 
 	array->size -= sizeof(*fmt);
 
@@ -448,7 +448,7 @@ weston_drm_format_add_modifier(struct weston_drm_format *format,
 	uint64_t *mod;
 
 	/* We should not try to add repeated modifiers to a set. */
-	assert(!weston_drm_format_has_modifier(format, modifier));
+	WESTON_DASSERT_FALSE(weston_drm_format_has_modifier(format, modifier));
 
 	mod = wl_array_add(&format->modifiers, sizeof(*mod));
 	if (!mod) {

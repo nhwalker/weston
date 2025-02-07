@@ -30,9 +30,9 @@
 #include <stdint.h>
 #include <string.h>
 #include <stddef.h>
-#include <assert.h>
 
 #include "shared/helpers.h"
+#include "weston-assert.h"
 #include "xcb-xwayland.h"
 
 const char *
@@ -152,7 +152,7 @@ x11_get_atoms(xcb_connection_t *connection, struct atom_x11 *atom)
 	for (i = 0; i < ARRAY_LENGTH(atoms); i++) {
 		xcb_intern_atom_reply_t *reply_atom;
 		reply_atom = xcb_intern_atom_reply(connection, cookies[i], NULL);
-		assert(reply_atom);
+		WESTON_DASSERT_PTR_SET(reply_atom);
 
 		xcb_atom_t rr_atom = reply_atom->atom;
 		*(xcb_atom_t *) ((char *) atom + atoms[i].offset) = rr_atom;

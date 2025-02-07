@@ -189,7 +189,7 @@ TEST(text_test)
 	struct text_input_state state;
 
 	client = create_client_and_test_surface(100, 100, 100, 100);
-	test_assert_ptr_not_null(client);
+	test_assert_ptr_set(client);
 
 	factory = NULL;
 	wl_list_for_each(global, &client->global_list, link) {
@@ -199,7 +199,7 @@ TEST(text_test)
 						   &zwp_text_input_manager_v1_interface, 1);
 	}
 
-	test_assert_ptr_not_null(factory);
+	test_assert_ptr_set(factory);
 
 	memset(&state, 0, sizeof state);
 	text_input = zwp_text_input_manager_v1_create_text_input(factory);

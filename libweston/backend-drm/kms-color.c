@@ -27,17 +27,17 @@
 
 #include <stdint.h>
 #include <libweston/libweston.h>
-#include <assert.h>
 #include <string.h>
 #include <math.h>
 
+#include "shared/weston-assert.h"
 #include "drm-internal.h"
 
 static inline uint16_t
 color_xy_to_u16(float v)
 {
-	assert(v >= 0.0f);
-	assert(v <= 1.0f);
+	WESTON_DASSERT_F32_GE(v, 0.0f);
+	WESTON_DASSERT_F32_LE(v, 1.0f);
 	/*
 	 * CTA-861-G
 	 * 6.9.1 Static Metadata Type 1
@@ -49,8 +49,8 @@ color_xy_to_u16(float v)
 static inline uint16_t
 nits_to_u16(float nits)
 {
-	assert(nits >= 1.0f);
-	assert(nits <= 65535.0f);
+	WESTON_DASSERT_F32_GE(nits, 1.0f);
+	WESTON_DASSERT_F32_LE(nits, 65535.0f);
 	/*
 	 * CTA-861-G
 	 * 6.9.1 Static Metadata Type 1
@@ -63,8 +63,8 @@ nits_to_u16(float nits)
 static inline uint16_t
 nits_to_u16_dark(float nits)
 {
-	assert(nits >= 0.0001f);
-	assert(nits <= 6.5535f);
+	WESTON_DASSERT_F32_GE(nits, 0.0001f);
+	WESTON_DASSERT_F32_LE(nits, 6.5535f);
 	/*
 	 * CTA-861-G
 	 * 6.9.1 Static Metadata Type 1
@@ -133,7 +133,7 @@ drm_output_ensure_hdr_output_metadata_blob(struct drm_output *output)
 
 	switch (output->base.eotf_mode) {
 	case WESTON_EOTF_MODE_NONE:
-		assert(0 && "bad eotf_mode: none");
+		WESTON_DASSERT_NOT_REACHED("bad eotf_mode: none");
 		return -1;
 	case WESTON_EOTF_MODE_SDR:
 		/*
@@ -141,7 +141,7 @@ drm_output_ensure_hdr_output_metadata_blob(struct drm_output *output)
 		 * respond by switching to traditional SDR mode. If they
 		 * do not, the kernel should fix that up.
 		 */
-		assert(output->hdr_output_metadata_blob_id == 0);
+		WESTON_DASSERT_U32_EQ(output->hdr_output_metadata_blob_id, 0);
 		return 0;
 	case WESTON_EOTF_MODE_TRADITIONAL_HDR:
 		meta.hdmi_metadata_type1.eotf = 1; /* from CTA-861-G */
@@ -156,7 +156,7 @@ drm_output_ensure_hdr_output_metadata_blob(struct drm_output *output)
 	}
 
 	if (meta.hdmi_metadata_type1.eotf == 0) {
-		assert(0 && "bad eotf_mode");
+		WESTON_DASSERT_NOT_REACHED("bad eotf_mode");
 		return -1;
 	}
 

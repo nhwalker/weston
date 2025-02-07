@@ -27,7 +27,6 @@
 #include "config.h"
 
 #include <stdbool.h>
-#include <assert.h>
 
 #include <wayland-server.h>
 
@@ -36,6 +35,7 @@
 #include "xdg-shell-unstable-v6-server-protocol.h"
 
 #include <libweston/desktop.h>
+#include "shared/weston-assert.h"
 #include "internal.h"
 
 #define WD_XDG_SHELL_PROTOCOL_VERSION 1
@@ -981,7 +981,7 @@ weston_desktop_xdg_surface_send_configure(void *user_data)
 
 	switch (surface->role) {
 	case WESTON_DESKTOP_XDG_SURFACE_ROLE_NONE:
-		assert(0 && "not reached");
+		WESTON_DASSERT_NOT_REACHED();
 		break;
 	case WESTON_DESKTOP_XDG_SURFACE_ROLE_TOPLEVEL:
 		weston_desktop_xdg_toplevel_send_configure((struct weston_desktop_xdg_toplevel *) surface,
@@ -1049,7 +1049,7 @@ weston_desktop_xdg_surface_schedule_configure(struct weston_desktop_xdg_surface 
 
 	switch (surface->role) {
 	case WESTON_DESKTOP_XDG_SURFACE_ROLE_NONE:
-		assert(0 && "not reached");
+		WESTON_DASSERT_NOT_REACHED();
 		break;
 	case WESTON_DESKTOP_XDG_SURFACE_ROLE_TOPLEVEL:
 		pending_same = weston_desktop_xdg_toplevel_state_compare((struct weston_desktop_xdg_toplevel *) surface);
@@ -1267,7 +1267,7 @@ weston_desktop_xdg_surface_protocol_ack_configure(struct wl_client *wl_client,
 
 	switch (surface->role) {
 	case WESTON_DESKTOP_XDG_SURFACE_ROLE_NONE:
-		assert(0 && "not reached");
+		WESTON_DASSERT_NOT_REACHED();
 		break;
 	case WESTON_DESKTOP_XDG_SURFACE_ROLE_TOPLEVEL:
 		weston_desktop_xdg_toplevel_ack_configure((struct weston_desktop_xdg_toplevel *) surface,
@@ -1337,7 +1337,7 @@ weston_desktop_xdg_surface_close(struct weston_desktop_surface *dsurface,
 
 	switch (surface->role) {
 	case WESTON_DESKTOP_XDG_SURFACE_ROLE_NONE:
-		assert(0 && "not reached");
+		WESTON_DASSERT_NOT_REACHED();
 		break;
 	case WESTON_DESKTOP_XDG_SURFACE_ROLE_TOPLEVEL:
 		weston_desktop_xdg_toplevel_close((struct weston_desktop_xdg_toplevel *) surface);

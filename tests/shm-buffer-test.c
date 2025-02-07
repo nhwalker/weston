@@ -1212,7 +1212,7 @@ xyuv8888_create_buffer(struct client *client,
 	uint8_t cb;
 	uint8_t y0;
 
-	test_assert_enum(drm_format, DRM_FORMAT_XYUV8888);
+	test_assert_enum_eq(drm_format, DRM_FORMAT_XYUV8888);
 
 	/* Full size, 32 bits per pixel */
 	bytes = rgb.width * rgb.height * sizeof(uint32_t);
@@ -1451,7 +1451,7 @@ TEST_P(shm_buffer, shm_cases)
 	fname = image_filename("chocolate-cake");
 	img = load_image_from_png(fname);
 	free(fname);
-	test_assert_ptr_not_null(img);
+	test_assert_ptr_set(img);
 
 	client = create_client();
 	client->surface = create_test_surface(client);

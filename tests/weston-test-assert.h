@@ -60,122 +60,131 @@ test_assert_fail(const char *fmt, ...)
 
 /* Boolean asserts. */
 
-#define test_assert_true(a)  weston_assert_(a, true,  bool, "%d", ==)
-#define test_assert_false(a) weston_assert_(a, false, bool, "%d", ==)
+#define test_assert_true(a)  WESTON_ASSERT_TRUE(a)
+#define test_assert_false(a) WESTON_ASSERT_FALSE(a)
 
 /* String asserts. */
 
-#define test_assert_str_eq(a, b) weston_assert_fn_(strcmp, a, b, const char *, "%s", ==)
+#define test_assert_str_eq(a, b) WESTON_ASSERT_STR_EQ(a, b)
+#define test_assert_str_ne(a, b) WESTON_ASSERT_STR_NE(a, b)
 
 /* Pointer asserts. */
 
-#define test_assert_ptr_null(a)     weston_assert_(a, NULL, const void *, "%p", ==)
-#define test_assert_ptr_not_null(a) weston_assert_(a, NULL, const void *, "%p", !=)
-#define test_assert_ptr_eq(a, b)    weston_assert_(a, b,    const void *, "%p", ==)
-#define test_assert_ptr_ne(a, b)    weston_assert_(a, b,    const void *, "%p", !=)
+#define test_assert_ptr_set(a)     WESTON_ASSERT_PTR_SET(a)
+#define test_assert_ptr_not_set(a) WESTON_ASSERT_PTR_NOT_SET(a)
+#define test_assert_ptr_eq(a, b)   WESTON_ASSERT_PTR_EQ(a, b)
+#define test_assert_ptr_ne(a, b)   WESTON_ASSERT_PTR_NE(a, b)
 
 /* Unsigned integer asserts. */
 
-#define test_assert_u8_eq(a, b) weston_assert_(a, b, uint8_t, "%" PRIu8, ==)
-#define test_assert_u8_ne(a, b) weston_assert_(a, b, uint8_t, "%" PRIu8, !=)
-#define test_assert_u8_gt(a, b) weston_assert_(a, b, uint8_t, "%" PRIu8, >)
-#define test_assert_u8_ge(a, b) weston_assert_(a, b, uint8_t, "%" PRIu8, >=)
-#define test_assert_u8_lt(a, b) weston_assert_(a, b, uint8_t, "%" PRIu8, <)
-#define test_assert_u8_le(a, b) weston_assert_(a, b, uint8_t, "%" PRIu8, <=)
+#define test_assert_u8_eq(a, b) WESTON_ASSERT_U8_EQ(a, b)
+#define test_assert_u8_ne(a, b) WESTON_ASSERT_U8_NE(a, b)
+#define test_assert_u8_gt(a, b) WESTON_ASSERT_U8_GT(a, b)
+#define test_assert_u8_ge(a, b) WESTON_ASSERT_U8_GE(a, b)
+#define test_assert_u8_lt(a, b) WESTON_ASSERT_U8_LT(a, b)
+#define test_assert_u8_le(a, b) WESTON_ASSERT_U8_LE(a, b)
 
-#define test_assert_u16_eq(a, b) weston_assert_(a, b, uint16_t, "%" PRIu16, ==)
-#define test_assert_u16_ne(a, b) weston_assert_(a, b, uint16_t, "%" PRIu16, !=)
-#define test_assert_u16_gt(a, b) weston_assert_(a, b, uint16_t, "%" PRIu16, >)
-#define test_assert_u16_ge(a, b) weston_assert_(a, b, uint16_t, "%" PRIu16, >=)
-#define test_assert_u16_lt(a, b) weston_assert_(a, b, uint16_t, "%" PRIu16, <)
-#define test_assert_u16_le(a, b) weston_assert_(a, b, uint16_t, "%" PRIu16, <=)
+#define test_assert_u16_eq(a, b) WESTON_ASSERT_U16_EQ(a, b)
+#define test_assert_u16_ne(a, b) WESTON_ASSERT_U16_NE(a, b)
+#define test_assert_u16_gt(a, b) WESTON_ASSERT_U16_GT(a, b)
+#define test_assert_u16_ge(a, b) WESTON_ASSERT_U16_GE(a, b)
+#define test_assert_u16_lt(a, b) WESTON_ASSERT_U16_LT(a, b)
+#define test_assert_u16_le(a, b) WESTON_ASSERT_U16_LE(a, b)
 
-#define test_assert_u32_eq(a, b) weston_assert_(a, b, uint32_t, "%" PRIu32, ==)
-#define test_assert_u32_ne(a, b) weston_assert_(a, b, uint32_t, "%" PRIu32, !=)
-#define test_assert_u32_gt(a, b) weston_assert_(a, b, uint32_t, "%" PRIu32, >)
-#define test_assert_u32_ge(a, b) weston_assert_(a, b, uint32_t, "%" PRIu32, >=)
-#define test_assert_u32_lt(a, b) weston_assert_(a, b, uint32_t, "%" PRIu32, <)
-#define test_assert_u32_le(a, b) weston_assert_(a, b, uint32_t, "%" PRIu32, <=)
+#define test_assert_u32_eq(a, b) WESTON_ASSERT_U32_EQ(a, b)
+#define test_assert_u32_ne(a, b) WESTON_ASSERT_U32_NE(a, b)
+#define test_assert_u32_gt(a, b) WESTON_ASSERT_U32_GT(a, b)
+#define test_assert_u32_ge(a, b) WESTON_ASSERT_U32_GE(a, b)
+#define test_assert_u32_lt(a, b) WESTON_ASSERT_U32_LT(a, b)
+#define test_assert_u32_le(a, b) WESTON_ASSERT_U32_LE(a, b)
 
-#define test_assert_u64_eq(a, b) weston_assert_(a, b, uint64_t, "%" PRIu64, ==)
-#define test_assert_u64_ne(a, b) weston_assert_(a, b, uint64_t, "%" PRIu64, !=)
-#define test_assert_u64_gt(a, b) weston_assert_(a, b, uint64_t, "%" PRIu64, >)
-#define test_assert_u64_ge(a, b) weston_assert_(a, b, uint64_t, "%" PRIu64, >=)
-#define test_assert_u64_lt(a, b) weston_assert_(a, b, uint64_t, "%" PRIu64, <)
-#define test_assert_u64_le(a, b) weston_assert_(a, b, uint64_t, "%" PRIu64, <=)
+#define test_assert_u64_eq(a, b) WESTON_ASSERT_U64_EQ(a, b)
+#define test_assert_u64_ne(a, b) WESTON_ASSERT_U64_NE(a, b)
+#define test_assert_u64_gt(a, b) WESTON_ASSERT_U64_GT(a, b)
+#define test_assert_u64_ge(a, b) WESTON_ASSERT_U64_GE(a, b)
+#define test_assert_u64_lt(a, b) WESTON_ASSERT_U64_LT(a, b)
+#define test_assert_u64_le(a, b) WESTON_ASSERT_U64_LE(a, b)
 
-#define test_assert_uint_eq(a, b) weston_assert_(a, b, unsigned int, "%u", ==)
-#define test_assert_uint_ne(a, b) weston_assert_(a, b, unsigned int, "%u", !=)
-#define test_assert_uint_gt(a, b) weston_assert_(a, b, unsigned int, "%u", >)
-#define test_assert_uint_ge(a, b) weston_assert_(a, b, unsigned int, "%u", >=)
-#define test_assert_uint_lt(a, b) weston_assert_(a, b, unsigned int, "%u", <)
-#define test_assert_uint_le(a, b) weston_assert_(a, b, unsigned int, "%u", <=)
+#define test_assert_uint_eq(a, b) WESTON_ASSERT_UINT_EQ(a, b)
+#define test_assert_uint_ne(a, b) WESTON_ASSERT_UINT_NE(a, b)
+#define test_assert_uint_gt(a, b) WESTON_ASSERT_UINT_GT(a, b)
+#define test_assert_uint_ge(a, b) WESTON_ASSERT_UINT_GE(a, b)
+#define test_assert_uint_lt(a, b) WESTON_ASSERT_UINT_LT(a, b)
+#define test_assert_uint_le(a, b) WESTON_ASSERT_UINT_LE(a, b)
 
 /* Signed integer asserts. */
 
-#define test_assert_s8_eq(a, b) weston_assert_(a, b, int8_t, "%" PRId8, ==)
-#define test_assert_s8_ne(a, b) weston_assert_(a, b, int8_t, "%" PRId8, !=)
-#define test_assert_s8_gt(a, b) weston_assert_(a, b, int8_t, "%" PRId8, >)
-#define test_assert_s8_ge(a, b) weston_assert_(a, b, int8_t, "%" PRId8, >=)
-#define test_assert_s8_lt(a, b) weston_assert_(a, b, int8_t, "%" PRId8, <)
-#define test_assert_s8_le(a, b) weston_assert_(a, b, int8_t, "%" PRId8, <=)
+#define test_assert_s8_eq(a, b) WESTON_ASSERT_S8_EQ(a, b)
+#define test_assert_s8_ne(a, b) WESTON_ASSERT_S8_NE(a, b)
+#define test_assert_s8_gt(a, b) WESTON_ASSERT_S8_GT(a, b)
+#define test_assert_s8_ge(a, b) WESTON_ASSERT_S8_GE(a, b)
+#define test_assert_s8_lt(a, b) WESTON_ASSERT_S8_LT(a, b)
+#define test_assert_s8_le(a, b) WESTON_ASSERT_S8_LE(a, b)
 
-#define test_assert_s16_eq(a, b) weston_assert_(a, b, int16_t, "%" PRId16, ==)
-#define test_assert_s16_ne(a, b) weston_assert_(a, b, int16_t, "%" PRId16, !=)
-#define test_assert_s16_gt(a, b) weston_assert_(a, b, int16_t, "%" PRId16, >)
-#define test_assert_s16_ge(a, b) weston_assert_(a, b, int16_t, "%" PRId16, >=)
-#define test_assert_s16_lt(a, b) weston_assert_(a, b, int16_t, "%" PRId16, <)
-#define test_assert_s16_le(a, b) weston_assert_(a, b, int16_t, "%" PRId16, <=)
+#define test_assert_s16_eq(a, b) WESTON_ASSERT_S16_EQ(a, b)
+#define test_assert_s16_ne(a, b) WESTON_ASSERT_S16_NE(a, b)
+#define test_assert_s16_gt(a, b) WESTON_ASSERT_S16_GT(a, b)
+#define test_assert_s16_ge(a, b) WESTON_ASSERT_S16_GE(a, b)
+#define test_assert_s16_lt(a, b) WESTON_ASSERT_S16_LT(a, b)
+#define test_assert_s16_le(a, b) WESTON_ASSERT_S16_LE(a, b)
 
-#define test_assert_s32_eq(a, b) weston_assert_(a, b, int32_t, "%" PRId32, ==)
-#define test_assert_s32_ne(a, b) weston_assert_(a, b, int32_t, "%" PRId32, !=)
-#define test_assert_s32_gt(a, b) weston_assert_(a, b, int32_t, "%" PRId32, >)
-#define test_assert_s32_ge(a, b) weston_assert_(a, b, int32_t, "%" PRId32, >=)
-#define test_assert_s32_lt(a, b) weston_assert_(a, b, int32_t, "%" PRId32, <)
-#define test_assert_s32_le(a, b) weston_assert_(a, b, int32_t, "%" PRId32, <=)
+#define test_assert_s32_eq(a, b) WESTON_ASSERT_S32_EQ(a, b)
+#define test_assert_s32_ne(a, b) WESTON_ASSERT_S32_NE(a, b)
+#define test_assert_s32_gt(a, b) WESTON_ASSERT_S32_GT(a, b)
+#define test_assert_s32_ge(a, b) WESTON_ASSERT_S32_GE(a, b)
+#define test_assert_s32_lt(a, b) WESTON_ASSERT_S32_LT(a, b)
+#define test_assert_s32_le(a, b) WESTON_ASSERT_S32_LE(a, b)
 
-#define test_assert_s64_eq(a, b) weston_assert_(a, b, int64_t, "%" PRId64, ==)
-#define test_assert_s64_ne(a, b) weston_assert_(a, b, int64_t, "%" PRId64, !=)
-#define test_assert_s64_gt(a, b) weston_assert_(a, b, int64_t, "%" PRId64, >)
-#define test_assert_s64_ge(a, b) weston_assert_(a, b, int64_t, "%" PRId64, >=)
-#define test_assert_s64_lt(a, b) weston_assert_(a, b, int64_t, "%" PRId64, <)
-#define test_assert_s64_le(a, b) weston_assert_(a, b, int64_t, "%" PRId64, <=)
+#define test_assert_s64_eq(a, b) WESTON_ASSERT_S64_EQ(a, b)
+#define test_assert_s64_ne(a, b) WESTON_ASSERT_S64_NE(a, b)
+#define test_assert_s64_gt(a, b) WESTON_ASSERT_S64_GT(a, b)
+#define test_assert_s64_ge(a, b) WESTON_ASSERT_S64_GE(a, b)
+#define test_assert_s64_lt(a, b) WESTON_ASSERT_S64_LT(a, b)
+#define test_assert_s64_le(a, b) WESTON_ASSERT_S64_LE(a, b)
 
-#define test_assert_int_eq(a, b) weston_assert_(a, b, int, "%d", ==)
-#define test_assert_int_ne(a, b) weston_assert_(a, b, int, "%d", !=)
-#define test_assert_int_gt(a, b) weston_assert_(a, b, int, "%d", >)
-#define test_assert_int_ge(a, b) weston_assert_(a, b, int, "%d", >=)
-#define test_assert_int_lt(a, b) weston_assert_(a, b, int, "%d", <)
-#define test_assert_int_le(a, b) weston_assert_(a, b, int, "%d", <=)
+#define test_assert_int_eq(a, b) WESTON_ASSERT_INT_EQ(a, b)
+#define test_assert_int_ne(a, b) WESTON_ASSERT_INT_NE(a, b)
+#define test_assert_int_gt(a, b) WESTON_ASSERT_INT_GT(a, b)
+#define test_assert_int_ge(a, b) WESTON_ASSERT_INT_GE(a, b)
+#define test_assert_int_lt(a, b) WESTON_ASSERT_INT_LT(a, b)
+#define test_assert_int_le(a, b) WESTON_ASSERT_INT_LE(a, b)
 
 /* Floating-point asserts. */
 
-#define test_assert_f32_eq(a, b) weston_assert_(a, b, float, "%.10g", ==)
-#define test_assert_f32_ne(a, b) weston_assert_(a, b, float, "%.10g", !=)
-#define test_assert_f32_gt(a, b) weston_assert_(a, b, float, "%.10g", >)
-#define test_assert_f32_ge(a, b) weston_assert_(a, b, float, "%.10g", >=)
-#define test_assert_f32_lt(a, b) weston_assert_(a, b, float, "%.10g", <)
-#define test_assert_f32_le(a, b) weston_assert_(a, b, float, "%.10g", <=)
+#define test_assert_f32_eq(a, b) WESTON_ASSERT_F32_EQ(a, b)
+#define test_assert_f32_ne(a, b) WESTON_ASSERT_F32_NE(a, b)
+#define test_assert_f32_gt(a, b) WESTON_ASSERT_F32_GT(a, b)
+#define test_assert_f32_ge(a, b) WESTON_ASSERT_F32_GE(a, b)
+#define test_assert_f32_lt(a, b) WESTON_ASSERT_F32_LT(a, b)
+#define test_assert_f32_le(a, b) WESTON_ASSERT_F32_LE(a, b)
 
-#define test_assert_f64_eq(a, b) weston_assert_(a, b, double, "%.10g", ==)
-#define test_assert_f64_ne(a, b) weston_assert_(a, b, double, "%.10g", !=)
-#define test_assert_f64_gt(a, b) weston_assert_(a, b, double, "%.10g", >)
-#define test_assert_f64_ge(a, b) weston_assert_(a, b, double, "%.10g", >=)
-#define test_assert_f64_lt(a, b) weston_assert_(a, b, double, "%.10g", <)
-#define test_assert_f64_le(a, b) weston_assert_(a, b, double, "%.10g", <=)
+#define test_assert_f64_eq(a, b) WESTON_ASSERT_F64_EQ(a, b)
+#define test_assert_f64_ne(a, b) WESTON_ASSERT_F64_NE(a, b)
+#define test_assert_f64_gt(a, b) WESTON_ASSERT_F64_GT(a, b)
+#define test_assert_f64_ge(a, b) WESTON_ASSERT_F64_GE(a, b)
+#define test_assert_f64_lt(a, b) WESTON_ASSERT_F64_LT(a, b)
+#define test_assert_f64_le(a, b) WESTON_ASSERT_F64_LE(a, b)
 
-/* Various helpers. */
+/* Bit asserts. */
 
-#define test_assert_bit_set(a, bit)     weston_assert_bit_is_set(a, bit)
-#define test_assert_bit_not_set(a, bit) weston_assert_bit_is_not_set(a, bit)
-#define test_assert_errno(a)            test_assert_int_eq(a, errno)
-#define test_assert_enum(a, b)          test_assert_u64_eq(a, b)
+#define test_assert_bit_set(value, bit)     WESTON_ASSERT_BIT_SET(value, bit)
+#define test_assert_bit_not_set(value, bit) WESTON_ASSERT_BIT_NOT_SET(value, bit)
+#define test_assert_legal_bits(value, mask) WESTON_ASSERT_LEGAL_BITS(value, mask)
 
-/* Explicitly abort when reached. */
+/* Not reached asserts. Explicitly abort when reached. */
+
 #define test_assert_not_reached(...) \
 do { \
-	weston_assert_not_reached(__VA_ARGS__); \
+	WESTON_ASSERT_NOT_REACHED(__VA_ARGS__); \
 	abort(); \
 } while (0)
+
+/* Helper asserts. */
+
+#define test_assert_errno_eq(a) WESTON_ASSERT_ERRNO_EQ(a)
+#define test_assert_errno_ne(a) WESTON_ASSERT_ERRNO_NE(a)
+
+#define test_assert_enum_eq(a, b) WESTON_ASSERT_ENUM_EQ(a, b)
+#define test_assert_enum_ne(a, b) WESTON_ASSERT_ENUM_NE(a, b)
 
 #endif /* _WESTON_TEST_ASSERT_H_ */

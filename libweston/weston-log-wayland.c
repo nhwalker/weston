@@ -32,7 +32,6 @@
 #include "weston-log-internal.h"
 #include "weston-debug-server-protocol.h"
 
-#include <assert.h>
 #include <unistd.h>
 #include <stdarg.h>
 #include <string.h>

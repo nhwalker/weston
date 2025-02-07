@@ -25,8 +25,6 @@
 
 #include "config.h"
 
-#include <assert.h>
-
 #include <libweston/libweston.h>
 #include <libweston/weston-log.h>
 #include "libweston-internal.h"
@@ -35,6 +33,7 @@
 #include "shared/helpers.h"
 #include "shared/weston-drm-fourcc.h"
 #include "shared/xalloc.h"
+#include "shared/weston-assert.h"
 #include "weston-output-capture-server-protocol.h"
 
 /* Lifetimes
@@ -161,7 +160,7 @@ weston_output_capture_info_destroy(struct weston_output_capture_info **cip)
 	struct weston_output_capture_info *ci = *cip;
 	struct weston_capture_source *csrc, *tmp;
 
-	assert(ci);
+	WESTON_DASSERT_PTR_SET(ci);
 
 	/* Unlink sources. They get destroyed by their wl_resource later. */
 	wl_list_for_each_safe(csrc, tmp, &ci->capture_source_list, link) {
@@ -174,7 +173,7 @@ weston_output_capture_info_destroy(struct weston_output_capture_info **cip)
 			weston_capture_task_retire_failed(csrc->pending, "output removed");
 	}
 
-	assert(wl_list_empty(&ci->pending_capture_list));
+	WESTON_DASSERT_TRUE(wl_list_empty(&ci->pending_capture_list));
 
 	free(ci);
 	*cip = NULL;
@@ -190,7 +189,7 @@ weston_output_capture_info_destroy(struct weston_output_capture_info **cip)
 void
 weston_output_capture_info_repaint_done(struct weston_output_capture_info *ci)
 {
-	assert(wl_list_empty(&ci->pending_capture_list));
+	WESTON_DASSERT_TRUE(wl_list_empty(&ci->pending_capture_list));
 }
 
 static bool
@@ -223,8 +222,9 @@ capture_info_get_csi(struct weston_output_capture_info *ci,
 {
 	int srcidx = src;
 
-	assert(ci);
-	assert(srcidx >= 0 && srcidx < (int)ARRAY_LENGTH(ci->source_info));
+	WESTON_DASSERT_PTR_SET(ci);
+	WESTON_DASSERT_INT_GE(srcidx, 0);
+	WESTON_DASSERT_INT_LT(srcidx, (int) ARRAY_LENGTH(ci->source_info));
 
 	return &ci->source_info[srcidx];
 }
@@ -303,7 +303,7 @@ weston_capture_task_destroy(struct weston_capture_task *ct)
 	    ct->owner->output)
 		weston_output_disable_planes_decr(ct->owner->output);
 
-	assert(ct->owner->pending == ct);
+	WESTON_DASSERT_PTR_EQ(ct->owner->pending, ct);
 	ct->owner->pending = NULL;
 	wl_list_remove(&ct->link);
 	wl_list_remove(&ct->buffer_resource_destroy_listener.link);
@@ -395,12 +395,12 @@ weston_output_pull_capture_task(struct weston_output *output,
 	 * already sent.
 	 */
 	csi = capture_info_get_csi(ci, src);
-	assert(csi->width == width);
-	assert(csi->height == height);
-	assert(csi->drm_format == format->format);
+	WESTON_DASSERT_INT_EQ(csi->width, width);
+	WESTON_DASSERT_INT_EQ(csi->height, height);
+	WESTON_DASSERT_U32_EQ(csi->drm_format, format->format);
 
 	wl_list_for_each_safe(ct, tmp, &ci->pending_capture_list, link) {
-		assert(ct->owner->output == output);
+		WESTON_DASSERT_PTR_EQ(ct->owner->output, output);
 
 		if (ct->owner->pixel_source != src)
 			continue;
@@ -479,7 +479,7 @@ destroy_capture_source(struct wl_resource *csrc_resource)
 	struct weston_capture_source *csrc;
 
 	csrc = wl_resource_get_user_data(csrc_resource);
-	assert(csrc_resource == csrc->resource);
+	WESTON_DASSERT_PTR_EQ(csrc_resource, csrc->resource);
 
 	if (csrc->pending)
 		weston_capture_task_destroy(csrc->pending);
@@ -505,7 +505,7 @@ weston_capture_source_v1_capture(struct wl_client *client,
 	struct weston_buffer *buffer;
 
 	csrc = wl_resource_get_user_data(csrc_resource);
-	assert(csrc_resource == csrc->resource);
+	WESTON_DASSERT_PTR_EQ(csrc_resource, csrc->resource);
 
 	/* A capture task already exists? */
 	if (csrc->pending) {

@@ -41,7 +41,8 @@
  */
 
 #include <libweston/libweston.h>
-#include <assert.h>
+
+#include "shared/weston-assert.h"
 #include "color.h"
 
 /* compositor <-> renderer interface */
@@ -216,17 +217,17 @@ static inline void
 check_compositing_area(const struct weston_size *fb_size,
 		       const struct weston_geometry *area)
 {
-	assert(fb_size);
-	assert(fb_size->width > 0);
-	assert(fb_size->height > 0);
+	WESTON_DASSERT_PTR_SET(fb_size);
+	WESTON_DASSERT_S32_GT(fb_size->width, 0);
+	WESTON_DASSERT_S32_GT(fb_size->height, 0);
 
-	assert(area);
-	assert(area->x >= 0);
-	assert(area->width > 0);
-	assert(area->x <= fb_size->width - area->width);
-	assert(area->y >= 0);
-	assert(area->height > 0);
-	assert(area->y <= fb_size->height - area->height);
+	WESTON_DASSERT_PTR_SET(area);
+	WESTON_DASSERT_S32_GE(area->x, 0);
+	WESTON_DASSERT_S32_GT(area->width, 0);
+	WESTON_DASSERT_S32_LE(area->x, fb_size->width - area->width);
+	WESTON_DASSERT_S32_GE(area->y, 0);
+	WESTON_DASSERT_S32_GT(area->height, 0);
+	WESTON_DASSERT_S32_LE(area->y, fb_size->height - area->height);
 }
 
 /* weston_buffer */

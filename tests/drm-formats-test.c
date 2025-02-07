@@ -62,7 +62,7 @@ format_array_add_format_and_modifiers(struct weston_drm_format_array *formats,
         int ret;
 
         fmt = weston_drm_format_array_add_format(formats, format);
-        test_assert_ptr_not_null(fmt);
+        test_assert_ptr_set(fmt);
 
         for (i = 0; i < num_modifiers; i++) {
                 ret = weston_drm_format_add_modifier(fmt, modifiers[i]);
@@ -86,7 +86,7 @@ TEST(basic_operations)
 
         for (i = 0; i < ARRAY_LENGTH(formats); i++) {
                 fmt = weston_drm_format_array_find_format(&format_array, formats[i]);
-                test_assert_ptr_not_null(fmt);
+                test_assert_ptr_set(fmt);
                 test_assert_u32_eq(fmt->format, formats[i]);
                 for (j = 0; j < ARRAY_LENGTH(modifiers); j++)
                         test_assert_true(weston_drm_format_has_modifier(fmt, modifiers[j]));

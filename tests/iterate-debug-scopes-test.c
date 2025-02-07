@@ -62,10 +62,10 @@ iterate_debug_scopes(struct weston_compositor *compositor)
 		const char *desc_name;
 
 		scope_name = weston_log_scope_get_name(nscope);
-		test_assert_ptr_not_null(scope_name);
+		test_assert_ptr_set(scope_name);
 
 		desc_name = weston_log_scope_get_description(nscope);
-		test_assert_ptr_not_null(desc_name);
+		test_assert_ptr_set(desc_name);
 
 		weston_log("\tscope name: %s, desc: %s\n", scope_name, desc_name);
 

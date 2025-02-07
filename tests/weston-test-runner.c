@@ -474,7 +474,7 @@ weston_test_harness_create(int argc, char **argv)
 	struct weston_test_harness *harness;
 
 	harness = zalloc(sizeof(*harness));
-	test_assert_ptr_not_null(harness);
+	test_assert_ptr_set(harness);
 
 	harness->fixt_ind = -1;
 	harness->case_ind = -1;

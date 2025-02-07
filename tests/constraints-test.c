@@ -174,7 +174,7 @@ constraints_init(struct constraints *cs, struct client *client)
 	cs->zwp_pointer_constraints = bind_to_singleton_global(client,
 							       &zwp_pointer_constraints_v1_interface,
 							       1);
-	test_assert_ptr_not_null(cs->zwp_pointer_constraints);
+	test_assert_ptr_set(cs->zwp_pointer_constraints);
 }
 
 static void

@@ -54,7 +54,7 @@ static struct client *
 create_client_with_keyboard_focus(void)
 {
 	struct client *cl = create_client_and_test_surface(10, 10, 1, 1);
-	test_assert_ptr_not_null(cl);
+	test_assert_ptr_set(cl);
 
 	weston_test_activate_surface(cl->test->weston_test,
 				     cl->surface->wl_surface);

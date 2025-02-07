@@ -38,7 +38,6 @@
 #include <unistd.h>
 #include <linux/input.h>
 #include <linux/vt.h>
-#include <assert.h>
 #include <sys/mman.h>
 #include <time.h>
 #include <poll.h>
@@ -57,6 +56,7 @@
 #include "shared/timespec-util.h"
 #include "shared/string-helpers.h"
 #include "shared/weston-drm-fourcc.h"
+#include "shared/weston-assert.h"
 #include "output-capture.h"
 #include "pixman-renderer.h"
 #include "pixel-formats.h"
@@ -146,7 +146,7 @@ drm_backend_create_faked_zpos(struct drm_device *device)
 			      plane->plane_id, plane->zpos_min, plane->zpos_max);
 	}
 
-	assert(wl_list_empty(&tmp_list));
+	WESTON_DASSERT_TRUE(wl_list_empty(&tmp_list));
 }
 
 static int
@@ -175,7 +175,7 @@ drm_output_pageflip_timer_create(struct drm_output *output)
 	struct weston_compositor *ec = output->base.compositor;
 
 	loop = wl_display_get_event_loop(ec->wl_display);
-	assert(loop);
+	WESTON_DASSERT_PTR_SET(loop);
 	output->pageflip_timer = wl_event_loop_add_timer(loop,
 	                                                 pageflip_timeout,
 	                                                 output);
@@ -196,7 +196,7 @@ drm_output_pageflip_timer_create(struct drm_output *output)
 bool
 drm_plane_is_available(struct drm_plane *plane, struct drm_output *output)
 {
-	assert(plane->state_cur);
+	WESTON_DASSERT_PTR_SET(plane->state_cur);
 
 	if (output->is_virtual)
 		return false;
@@ -457,7 +457,7 @@ drm_output_render(struct drm_output_state *state)
 				       &output->base,
 				       &damage);
 
-	assert(scanout_state->damage_blob_id == 0);
+	WESTON_DASSERT_U32_EQ(scanout_state->damage_blob_id, 0);
 
 	rects = pixman_region32_rectangles(&scanout_damage, &n_rects);
 
@@ -584,7 +584,7 @@ drm_output_pick_writeback_capture_task(struct drm_output *output)
 	int32_t height = output->base.current_mode->height;
 	uint32_t format = output->format->format;
 
-	assert(output->device->atomic_modeset);
+	WESTON_DASSERT_TRUE(output->device->atomic_modeset);
 
 	ct = weston_output_pull_capture_task(&output->base,
 					     WESTON_OUTPUT_CAPTURE_SOURCE_WRITEBACK,
@@ -605,9 +605,10 @@ drm_output_pick_writeback_capture_task(struct drm_output *output)
 	}
 
 	buffer = weston_capture_task_get_buffer(ct);
-	assert(buffer->width == width);
-	assert(buffer->height == height);
-	assert(buffer->pixel_format->format == output->format->format);
+	WESTON_DASSERT_S32_EQ(buffer->width, width);
+	WESTON_DASSERT_S32_EQ(buffer->height, height);
+	WESTON_DASSERT_U32_EQ(buffer->pixel_format->format,
+			      output->format->format);
 
 	output->wb_state = drm_writeback_state_alloc();
 	if (!output->wb_state) {
@@ -652,9 +653,10 @@ cursor_bo_update(struct drm_output *output, struct weston_view *ev)
 	uint8_t *s;
 	int i;
 
-	assert(buffer && buffer->shm_buffer);
-	assert(buffer->width <= device->cursor_width);
-	assert(buffer->height <= device->cursor_height);
+	WESTON_DASSERT_PTR_SET(buffer);
+	WESTON_DASSERT_PTR_SET(buffer->shm_buffer);
+	WESTON_DASSERT_S32_LE(buffer->width, device->cursor_width);
+	WESTON_DASSERT_S32_LE(buffer->height, device->cursor_height);
 
 	memset(buf, 0, sizeof buf);
 
@@ -700,17 +702,17 @@ drm_output_repaint(struct weston_output *output_base)
 	struct drm_pending_state *pending_state;
 	struct drm_device *device;
 
-	assert(output);
-	assert(!output->is_virtual);
+	WESTON_DASSERT_PTR_SET(output);
+	WESTON_DASSERT_FALSE(output->is_virtual);
 
 	device = output->device;
 	pending_state = device->repaint_data;
-	assert(pending_state);
+	WESTON_DASSERT_PTR_SET(pending_state);
 
 	if (output->disable_pending || output->destroy_pending)
 		goto err;
 
-	assert(!output->state_last);
+	WESTON_DASSERT_PTR_NOT_SET(output->state_last);
 
 	/* If planes have been disabled in the core, we might not have
 	 * hit assign_planes at all, so might not have valid output state
@@ -727,8 +729,10 @@ drm_output_repaint(struct weston_output *output_base)
 	if (cursor_state && cursor_state->fb) {
 		pixman_region32_t damage;
 
-		assert(cursor_state->plane == output->cursor_plane);
-		assert(cursor_state->fb == output->gbm_cursor_fb[0]);
+		WESTON_DASSERT_PTR_EQ(cursor_state->plane,
+				      output->cursor_plane);
+		WESTON_DASSERT_PTR_EQ(cursor_state->fb,
+				      output->gbm_cursor_fb[0]);
 
 		pixman_region32_init(&damage);
 		weston_output_flush_damage_for_plane(&output->base,
@@ -831,7 +835,7 @@ drm_output_start_repaint_loop(struct weston_output *output_base)
 	if (device->state_invalid)
 		goto finish_frame;
 
-	assert(scanout_plane->state_cur->output == output);
+	WESTON_DASSERT_PTR_EQ(scanout_plane->state_cur->output, output);
 
 	/* If we're tearing, we've been generating timestamps from the
 	 * presentation clock that don't line up with the msc timestamps,
@@ -872,8 +876,8 @@ drm_output_start_repaint_loop(struct weston_output *output_base)
 	 * Use pageflip fallback.
 	 */
 
-	assert(!output->page_flip_pending);
-	assert(!output->state_last);
+	WESTON_DASSERT_FALSE(output->page_flip_pending);
+	WESTON_DASSERT_PTR_NOT_SET(output->state_last);
 
 	pending_state = drm_pending_state_alloc(device);
 	drm_output_state_duplicate(output->state_cur, pending_state,
@@ -1039,7 +1043,7 @@ drm_output_switch_mode(struct weston_output *output_base, struct weston_mode *mo
 	struct drm_output *output = to_drm_output(output_base);
 	struct drm_mode *drm_mode;
 
-	assert(output);
+	WESTON_DASSERT_PTR_SET(output);
 
 	drm_mode = drm_output_choose_mode(output, mode);
 	if (!drm_mode) {
@@ -1483,8 +1487,8 @@ drm_set_dpms(struct weston_output *output_base, enum dpms_enum level)
 	struct drm_output_state *state;
 	int ret;
 
-	assert(output);
-	assert(!output->is_virtual);
+	WESTON_DASSERT_PTR_SET(output);
+	WESTON_DASSERT_FALSE(output->is_virtual);
 
 	if (output->state_cur->dpms == level)
 		return;
@@ -1595,7 +1599,7 @@ drm_rb_discarded_cb(weston_renderbuffer_t rb, void *data)
 	struct drm_fb *dumb;
 	size_t i;
 
-	assert(renderer->type == WESTON_RENDERER_PIXMAN);
+	WESTON_DASSERT_ENUM_EQ(renderer->type, WESTON_RENDERER_PIXMAN);
 
 	for (i = 0; i < ARRAY_LENGTH(output->renderbuffer); i++) {
 		if (rb == output->renderbuffer[i]) {
@@ -1622,7 +1626,7 @@ drm_rb_discarded_cb(weston_renderbuffer_t rb, void *data)
 		}
 	}
 
-	assert(i != ARRAY_LENGTH(output->renderbuffer));
+	WESTON_DASSERT_U64_NE(i, ARRAY_LENGTH(output->renderbuffer));
 
 	weston_log("failed to reload pixman dumb and render buffers");
 	return false;
@@ -1643,7 +1647,7 @@ drm_output_init_pixman(struct drm_output *output, struct drm_backend *b)
 		.format = output->format
 	};
 
-	assert(options.format);
+	WESTON_DASSERT_PTR_SET(options.format);
 
 	if (!options.format->pixman_format) {
 		weston_log("Unsupported pixel format %s\n",
@@ -1868,8 +1872,8 @@ drm_output_set_max_bpc(struct weston_output *base, unsigned max_bpc)
 {
 	struct drm_output *output = to_drm_output(base);
 
-	assert(output);
-	assert(!output->base.enabled);
+	WESTON_DASSERT_PTR_SET(output);
+	WESTON_DASSERT_FALSE(output->base.enabled);
 
 	output->max_bpc = max_bpc;
 }
@@ -1912,8 +1916,8 @@ drm_output_init_gamma_size(struct drm_output *output)
 	struct drm_device *device = output->device;
 	drmModeCrtc *crtc;
 
-	assert(output->base.compositor);
-	assert(output->crtc);
+	WESTON_DASSERT_PTR_SET(output->base.compositor);
+	WESTON_DASSERT_PTR_SET(output->crtc);
 	crtc = drmModeGetCrtc(device->drm.fd, output->crtc->crtc_id);
 	if (!crtc)
 		return -1;
@@ -2087,7 +2091,7 @@ ret:
 static void
 drm_crtc_destroy(struct drm_crtc *crtc)
 {
-	assert(!crtc->output);
+	WESTON_DASSERT_PTR_NOT_SET(crtc->output);
 
 	wl_list_remove(&crtc->link);
 	drm_property_info_free(crtc->props_crtc, WDRM_CRTC__COUNT);
@@ -2213,7 +2217,7 @@ get_scanout_formats(struct drm_device *device)
 
 	/* If we got here it means that dma-buf feedback is supported and that
 	 * the renderer has formats/modifiers to expose. */
-	assert(ec->renderer->get_supported_formats != NULL);
+	WESTON_DASSERT_PTR_SET(ec->renderer->get_supported_formats);
 	renderer_formats = ec->renderer->get_supported_formats(ec);
 
 	scanout_formats = zalloc(sizeof(*scanout_formats));
@@ -2331,8 +2335,8 @@ drm_output_enable(struct weston_output *base)
 	struct drm_backend *b = device->backend;
 	int ret;
 
-	assert(output);
-	assert(!output->is_virtual);
+	WESTON_DASSERT_PTR_SET(output);
+	WESTON_DASSERT_FALSE(output->is_virtual);
 
 	/* TODO: drop this hack when we rework the output configuration API. For
 	 * now we need this because the frontend may call
@@ -2449,8 +2453,8 @@ drm_output_destroy(struct weston_output *base)
 	struct drm_output *output = to_drm_output(base);
 	struct drm_device *device = output->device;
 
-	assert(output);
-	assert(!output->is_virtual);
+	WESTON_DASSERT_PTR_SET(output);
+	WESTON_DASSERT_FALSE(output->is_virtual);
 
 	if (output->page_flip_pending || output->atomic_complete_pending) {
 		if (!base->compositor->shutting_down) {
@@ -2480,10 +2484,10 @@ drm_output_destroy(struct weston_output *base)
 
 	weston_output_release(&output->base);
 
-	assert(!output->state_last);
+	WESTON_DASSERT_PTR_NOT_SET(output->state_last);
 	drm_output_state_free(output->state_cur);
 
-	assert(output->hdr_output_metadata_blob_id == 0);
+	WESTON_DASSERT_U32_EQ(output->hdr_output_metadata_blob_id, 0);
 
 	wl_list_remove(&output->disable_head);
 
@@ -2495,8 +2499,8 @@ drm_output_disable(struct weston_output *base)
 {
 	struct drm_output *output = to_drm_output(base);
 
-	assert(output);
-	assert(!output->is_virtual);
+	WESTON_DASSERT_PTR_SET(output);
+	WESTON_DASSERT_FALSE(output->is_virtual);
 
 	if (output->page_flip_pending || output->atomic_complete_pending) {
 		output->disable_pending = true;
@@ -2627,8 +2631,8 @@ drm_connector_assign_connector_info(struct drm_connector *connector,
 {
 	struct drm_device *device = connector->device;
 
-	assert(connector->conn != conn);
-	assert(connector->connector_id == conn->connector_id);
+	WESTON_DASSERT_PTR_NE(connector->conn, conn);
+	WESTON_DASSERT_U32_EQ(connector->connector_id, conn->connector_id);
 
 	if (drm_connector_update_properties(connector) < 0)
 		return -1;
@@ -2840,7 +2844,7 @@ drm_head_destroy(struct weston_head *base)
 {
 	struct drm_head *head = to_drm_head(base);
 
-	assert(head);
+	WESTON_DASSERT_PTR_SET(head);
 
 	drm_free_display_info(&head->base.display_info);
 	weston_head_release(&head->base);
@@ -2947,8 +2951,8 @@ pixman_copy_screenshot(uint32_t *dst, uint32_t *src, int dst_stride,
 	pixman_dst = pixman_image_create_bits(pixman_format,
 					      width, height,
 					      dst, dst_stride);
-	assert(pixman_src);
-	assert(pixman_dst);
+	WESTON_DASSERT_PTR_SET(pixman_src);
+	WESTON_DASSERT_PTR_SET(pixman_dst);
 
 	pixman_image_composite32(PIXMAN_OP_SRC,
 				 pixman_src,     /* src */
@@ -3145,7 +3149,7 @@ drm_writeback_create(struct drm_device *device, drmModeConnector *conn)
 	int ret;
 
 	writeback = zalloc(sizeof *writeback);
-	assert(writeback);
+	WESTON_DASSERT_PTR_SET(writeback);
 
 	writeback->device = device;
 
@@ -3293,7 +3297,7 @@ drm_backend_update_connectors(struct drm_device *device,
 
 		/* Connector can't be owned by both a head and a writeback, so
 		 * one of the searches must fail. */
-		assert(head == NULL || writeback == NULL);
+		WESTON_DASSERT_TRUE(head == NULL || writeback == NULL);
 
 		if (head) {
 			ret = drm_head_update_info(head, conn);
@@ -3752,13 +3756,13 @@ find_primary_gpu(struct drm_backend *b, const char *seat)
 		/* Per the (!is_boot_vga && drm_device) test above, we only
 		 * trump existing saved devices with boot-VGA devices, so if
 		 * we end up here, this must be the first device we've seen. */
-		assert(!drm_device);
+		WESTON_DASSERT_PTR_NOT_SET(drm_device);
 		drm_device = dev;
 	}
 
 	/* If we're returning a device to use, we must have an open FD for
 	 * it. */
-	assert(!!drm_device == (device->drm.fd >= 0));
+	WESTON_DASSERT_TRUE(!!drm_device == (device->drm.fd >= 0));
 
 	udev_enumerate_unref(e);
 	return drm_device;
@@ -3784,7 +3788,7 @@ open_specific_drm_device(struct drm_backend *b, struct drm_device *device,
 
 	/* If we're returning a device to use, we must have an open FD for
 	 * it. */
-	assert(device->drm.fd >= 0);
+	WESTON_DASSERT_INT_GE(device->drm.fd, 0);
 
 	return udev_device;
 }

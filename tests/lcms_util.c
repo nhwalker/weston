@@ -199,7 +199,7 @@ build_MPE_curve_stage(cmsContext context_id, enum transfer_fn fn)
 	c = build_MPE_curve(context_id, fn);
 	stage = cmsStageAllocToneCurves(context_id, 3,
 					(cmsToneCurve *[3]){ c, c, c });
-	test_assert_ptr_not_null(stage);
+	test_assert_ptr_set(stage);
 	cmsFreeToneCurve(c);
 
 	return stage;
@@ -569,10 +569,10 @@ build_lcms_matrix_shaper_profile_output(cmsContext context_id,
 					    (-1) * type_inverse_tone_curve,
 					    inverse_tone_curve_param);
 
-	test_assert_ptr_not_null(arr_curves[0]);
+	test_assert_ptr_set(arr_curves[0]);
 	hRGB = cmsCreateRGBProfileTHR(context_id, &wp_d65,
 				      &pipeline->prim_output, arr_curves);
-	test_assert_ptr_not_null(hRGB);
+	test_assert_ptr_set(hRGB);
 
 	vcgt_tag_add_to_profile(context_id, hRGB, vcgt_exponents);
 

@@ -26,8 +26,6 @@
 
 #include "config.h"
 
-#include <assert.h>
-
 #include <wayland-server.h>
 
 #include <libweston/libweston.h>
@@ -422,8 +420,8 @@ weston_desktop_seat_popup_grab_start(struct weston_desktop_seat *seat,
 				     struct weston_desktop_surface *parent,
 				     struct wl_client *client, uint32_t serial)
 {
-	assert(seat == NULL || seat->popup_grab.client == NULL ||
-	       seat->popup_grab.client == client);
+	WESTON_DASSERT_TRUE(seat == NULL || seat->popup_grab.client == NULL ||
+			    seat->popup_grab.client == client);
 
 	struct weston_seat *wseat = seat != NULL ? seat->seat : NULL;
 	/* weston_seat_get_* functions can properly handle a NULL wseat */
@@ -548,7 +546,7 @@ weston_desktop_seat_popup_grab_add_surface(struct weston_desktop_seat *seat,
 	struct weston_desktop_surface *desktop_surface;
 	struct weston_surface *surface;
 
-	assert(seat->popup_grab.client != NULL);
+	WESTON_DASSERT_PTR_SET(seat->popup_grab.client);
 
 	wl_list_insert(&seat->popup_grab.surfaces, link);
 
@@ -565,7 +563,7 @@ void
 weston_desktop_seat_popup_grab_remove_surface(struct weston_desktop_seat *seat,
 					      struct wl_list *link)
 {
-	assert(seat->popup_grab.client != NULL);
+	WESTON_DASSERT_PTR_SET(seat->popup_grab.client);
 
 	wl_list_remove(link);
 	wl_list_init(link);

@@ -32,7 +32,6 @@
 
 #include <stdlib.h>
 #include <string.h>
-#include <assert.h>
 
 #include <libweston/libweston.h>
 #include <libweston/weston-log.h>
@@ -44,6 +43,7 @@
 #include "pixel-formats.h"
 #include "shared/helpers.h"
 #include "shared/timespec-util.h"
+#include "shared/weston-assert.h"
 
 /* static const char vertex_shader[]; vertex.glsl */
 #include "vertex-shader.h"
@@ -385,14 +385,14 @@ gl_shader_create(struct gl_renderer *gr,
 	if (requirements->variant == SHADER_VARIANT_SOLID) {
 		shader->color_uniform = glGetUniformLocation(shader->program,
 							     "unicolor");
-		assert(shader->color_uniform != -1);
+		WESTON_DASSERT_INT_NE(shader->color_uniform, -1);
 	} else {
 		shader->color_uniform = -1;
 	}
 	if (requirements->tint) {
 		shader->tint_uniform = glGetUniformLocation(shader->program,
 							    "tint");
-		assert(shader->tint_uniform != -1);
+		WESTON_DASSERT_INT_NE(shader->tint_uniform, -1);
 	} else {
 		shader->tint_uniform = -1;
 	}
@@ -585,7 +585,7 @@ gl_renderer_get_program(struct gl_renderer *gr,
 	struct gl_shader_requirements reqs = *requirements;
 	struct gl_shader *shader;
 
-	assert(reqs.pad_bits_ == 0);
+	WESTON_DASSERT_UINT_EQ(reqs.pad_bits_, 0);
 
 	if (gr->current_shader &&
 	    gl_shader_requirements_cmp(&reqs, &gr->current_shader->key) == 0)
@@ -676,9 +676,9 @@ gl_shader_load_config(struct gl_renderer *gr,
 
 	glUniform1f(shader->view_alpha_uniform, sconf->view_alpha);
 
-	assert(sconf->input_num <= SHADER_INPUT_TEX_MAX);
+	WESTON_DASSERT_INT_LE(sconf->input_num, SHADER_INPUT_TEX_MAX);
 	for (i = 0; i < sconf->input_num; i++) {
-		assert(shader->tex_uniforms[i] != -1);
+		WESTON_DASSERT_INT_NE(shader->tex_uniforms[i], -1);
 
 		/* If the OpenGL ES implementation lacks swizzles as texture
 		 * parameters (OpenGL ES 2), the fragment shader loads swizzling
@@ -718,9 +718,9 @@ gl_shader_load_config(struct gl_renderer *gr,
 	case SHADER_COLOR_CURVE_IDENTITY:
 		break;
 	case SHADER_COLOR_CURVE_LUT_3x1D:
-		assert(sconf->color_pre_curve.lut_3x1d.tex != 0);
-		assert(shader->color_pre_curve.lut_3x1d.tex_2d_uniform != -1);
-		assert(shader->color_pre_curve.lut_3x1d.scale_offset_uniform != -1);
+		WESTON_DASSERT_INT_NE(sconf->color_pre_curve.lut_3x1d.tex, 0);
+		WESTON_DASSERT_INT_NE(shader->color_pre_curve.lut_3x1d.tex_2d_uniform, -1);
+		WESTON_DASSERT_INT_NE(shader->color_pre_curve.lut_3x1d.scale_offset_uniform, -1);
 		glActiveTexture(GL_TEXTURE0 + TEX_UNIT_COLOR_PRE_CURVE);
 		glBindTexture(GL_TEXTURE_2D, sconf->color_pre_curve.lut_3x1d.tex);
 		glUniform1i(shader->color_pre_curve.lut_3x1d.tex_2d_uniform,
@@ -742,9 +742,9 @@ gl_shader_load_config(struct gl_renderer *gr,
 	case SHADER_COLOR_MAPPING_IDENTITY:
 		break;
 	case SHADER_COLOR_MAPPING_3DLUT:
-		assert(shader->color_mapping.lut3d.tex_uniform != -1);
-		assert(sconf->color_mapping.lut3d.tex != 0);
-		assert(shader->color_mapping.lut3d.scale_offset_uniform != -1);
+		WESTON_DASSERT_INT_NE(shader->color_mapping.lut3d.tex_uniform, -1);
+		WESTON_DASSERT_INT_NE(sconf->color_mapping.lut3d.tex, 0);
+		WESTON_DASSERT_INT_NE(shader->color_mapping.lut3d.scale_offset_uniform, -1);
 		glActiveTexture(GL_TEXTURE0 + TEX_UNIT_COLOR_MAPPING);
 		glBindTexture(GL_TEXTURE_3D, sconf->color_mapping.lut3d.tex);
 		glUniform1i(shader->color_mapping.lut3d.tex_uniform,
@@ -753,7 +753,7 @@ gl_shader_load_config(struct gl_renderer *gr,
 			     1, sconf->color_mapping.lut3d.scale_offset);
 		break;
 	case SHADER_COLOR_MAPPING_MATRIX:
-		assert(shader->color_mapping.matrix_uniform != -1);
+		WESTON_DASSERT_INT_NE(shader->color_mapping.matrix_uniform, -1);
 		glUniformMatrix3fv(shader->color_mapping.matrix_uniform,
 				   1, GL_FALSE,
 				   sconf->color_mapping.matrix);
@@ -764,9 +764,9 @@ gl_shader_load_config(struct gl_renderer *gr,
 	case SHADER_COLOR_CURVE_IDENTITY:
 		break;
 	case SHADER_COLOR_CURVE_LUT_3x1D:
-		assert(sconf->color_post_curve.lut_3x1d.tex != 0);
-		assert(shader->color_post_curve.lut_3x1d.tex_2d_uniform != -1);
-		assert(shader->color_post_curve.lut_3x1d.scale_offset_uniform != -1);
+		WESTON_DASSERT_INT_NE(sconf->color_post_curve.lut_3x1d.tex, 0);
+		WESTON_DASSERT_INT_NE(shader->color_post_curve.lut_3x1d.tex_2d_uniform, -1);
+		WESTON_DASSERT_INT_NE(shader->color_post_curve.lut_3x1d.scale_offset_uniform, -1);
 		glActiveTexture(GL_TEXTURE0 + TEX_UNIT_COLOR_POST_CURVE);
 		glBindTexture(GL_TEXTURE_2D, sconf->color_post_curve.lut_3x1d.tex);
 		glUniform1i(shader->color_post_curve.lut_3x1d.tex_2d_uniform,

@@ -27,11 +27,11 @@
 
 #include <libweston/weston-log.h>
 #include "shared/helpers.h"
+#include "shared/weston-assert.h"
 #include <libweston/libweston.h>
 
 #include "weston-log-internal.h"
 
-#include <assert.h>
 #include <unistd.h>
 #include <stdarg.h>
 #include <string.h>
@@ -239,8 +239,8 @@ weston_log_subscriber_create_flight_rec(size_t size)
 	struct weston_debug_log_flight_recorder *flight_rec;
 	char *weston_rb;
 
-	assert("Can't create more than one flight recorder." &&
-			!weston_primary_flight_recorder_ring_buffer);
+	/* Can't create more than one flight recorder. */
+	WESTON_DASSERT_PTR_NOT_SET(weston_primary_flight_recorder_ring_buffer);
 
 	flight_rec = zalloc(sizeof(*flight_rec));
 	if (!flight_rec)

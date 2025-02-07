@@ -96,8 +96,8 @@ params_add(struct wl_client *client,
 		return;
 	}
 
-	weston_assert_ptr_eq(buffer->params_resource, params_resource);
-	weston_assert_ptr_null(buffer->buffer_resource);
+	WESTON_DASSERT_PTR_EQ(buffer->params_resource, params_resource);
+	WESTON_DASSERT_PTR_NOT_SET(buffer->buffer_resource);
 
 	if (plane_idx >= MAX_DMABUF_PLANES) {
 		wl_resource_post_error(params_resource,
@@ -154,8 +154,8 @@ destroy_linux_dmabuf_wl_buffer(struct wl_resource *resource)
 	struct linux_dmabuf_buffer *buffer;
 
 	buffer = wl_resource_get_user_data(resource);
-	weston_assert_ptr_eq(buffer->buffer_resource, resource);
-	weston_assert_ptr_null(buffer->params_resource);
+	WESTON_DASSERT_PTR_EQ(buffer->buffer_resource, resource);
+	WESTON_DASSERT_PTR_NOT_SET(buffer->params_resource);
 
 	if (buffer->user_data_destroy_func)
 		buffer->user_data_destroy_func(buffer);
@@ -184,8 +184,8 @@ params_create_common(struct wl_client *client,
 		return;
 	}
 
-	weston_assert_ptr_eq(buffer->params_resource, params_resource);
-	weston_assert_ptr_null(buffer->buffer_resource);
+	WESTON_DASSERT_PTR_EQ(buffer->params_resource, params_resource);
+	WESTON_DASSERT_PTR_NOT_SET(buffer->buffer_resource);
 
 	/* Switch the linux_dmabuf_buffer object from params resource to
 	 * eventually wl_buffer resource.
@@ -800,7 +800,7 @@ weston_dmabuf_feedback_send_all(struct weston_compositor *compositor,
 {
 	struct wl_resource *res;
 
-	weston_assert_true(!wl_list_empty(&dmabuf_feedback->resource_list));
+	WESTON_DASSERT_FALSE(wl_list_empty(&dmabuf_feedback->resource_list));
 	wl_resource_for_each(res, &dmabuf_feedback->resource_list)
 		weston_dmabuf_feedback_send(dmabuf_feedback,
 					    format_table, res, false);
@@ -971,9 +971,9 @@ linux_dmabuf_buffer_get(struct weston_compositor *compositor,
 		return NULL;
 
 	buffer = wl_resource_get_user_data(resource);
-	weston_assert_ptr_not_null(buffer);
-	weston_assert_ptr_null(buffer->params_resource);
-	weston_assert_ptr_eq(buffer->buffer_resource, resource);
+	WESTON_DASSERT_PTR_SET(buffer);
+	WESTON_DASSERT_PTR_NOT_SET(buffer->params_resource);
+	WESTON_DASSERT_PTR_EQ(buffer->buffer_resource, resource);
 
 	return buffer;
 }
@@ -1000,7 +1000,7 @@ linux_dmabuf_buffer_set_user_data(struct linux_dmabuf_buffer *buffer,
 				  void *data,
 				  dmabuf_user_data_destroy_func func)
 {
-	weston_assert_true(data == NULL || buffer->user_data == NULL);
+	WESTON_DASSERT_TRUE(data == NULL || buffer->user_data);
 
 	buffer->user_data = data;
 	buffer->user_data_destroy_func = func;
@@ -1058,7 +1058,7 @@ bind_linux_dmabuf(struct wl_client *client,
 
 	/* If we got here, it means that the renderer is able to import dma-buf
 	 * buffers, and so it must have get_supported_formats() set. */
-	weston_assert_ptr_not_null(compositor->renderer->get_supported_formats);
+	WESTON_DASSERT_PTR_SET(compositor->renderer->get_supported_formats);
 	supported_formats = compositor->renderer->get_supported_formats(compositor);
 
 	wl_array_for_each(fmt, &supported_formats->arr) {
@@ -1133,12 +1133,12 @@ linux_dmabuf_buffer_send_server_error(struct linux_dmabuf_buffer *buffer,
 	struct wl_resource *display_resource;
 	uint32_t id;
 
-	weston_assert_ptr_not_null(buffer->buffer_resource);
+	WESTON_DASSERT_PTR_SET(buffer->buffer_resource);
 	id = wl_resource_get_id(buffer->buffer_resource);
 	client = wl_resource_get_client(buffer->buffer_resource);
 	display_resource = wl_client_get_object(client, 1);
 
-	weston_assert_ptr_not_null(display_resource);
+	WESTON_DASSERT_PTR_SET(display_resource);
 	wl_resource_post_error(display_resource,
 			       WL_DISPLAY_ERROR_INVALID_OBJECT,
 			       "linux_dmabuf server error with "

@@ -36,6 +36,7 @@
 #include "frontend/weston.h"
 #include <libweston/xwayland-api.h>
 #include "shared/helpers.h"
+#include "shared/weston-assert.h"
 #include "shared/os-compatibility.h"
 #include "shared/process-util.h"
 #include "shared/string-helpers.h"
@@ -96,7 +97,7 @@ xserver_cleanup(struct wet_process *process, int status, void *data)
 
 	/* We only have one Xwayland process active, so make sure it's the
 	 * right one */
-	assert(process == wxw->process);
+	WESTON_DASSERT_PTR_EQ(process, wxw->process);
 
 	wxw->api->xserver_exited(wxw->xwayland);
 	wxw->process = NULL;
@@ -148,7 +149,7 @@ spawn_xserver(void *user_data, const char *display, int abstract_fd, int unix_fd
 	fdstr_set_fd1(&x11_unix_socket, unix_fd);
 	no_cloexec_fds[num_no_cloexec_fds++] = unix_fd;
 
-	assert(num_no_cloexec_fds <= ARRAY_LENGTH(no_cloexec_fds));
+	WESTON_DASSERT_U64_LE(num_no_cloexec_fds, ARRAY_LENGTH(no_cloexec_fds));
 
 	section = weston_config_get_section(config, "xwayland", NULL, NULL);
 	weston_config_section_get_string(section, "path",

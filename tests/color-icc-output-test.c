@@ -198,7 +198,7 @@ build_output_icc_profile(const struct setup_args *arg, const char *filename)
 	bool saved;
 
 	profile = build_lcms_profile_output(arg);
-	test_assert_ptr_not_null(profile);
+	test_assert_ptr_set(profile);
 
 	saved = cmsSaveProfileToFile(profile, filename);
 	test_assert_true(saved);
@@ -407,7 +407,7 @@ TEST(opaque_pixel_conversion)
 	bool match;
 
 	client = create_client_and_test_surface(0, 0, width, height);
-	test_assert_ptr_not_null(client);
+	test_assert_ptr_set(client);
 	surface = client->surface->wl_surface;
 
 	buf = create_shm_buffer_a8r8g8b8(client, width, height);
@@ -418,7 +418,7 @@ TEST(opaque_pixel_conversion)
 	wl_surface_commit(surface);
 
 	shot = capture_screenshot_of_output(client, NULL);
-	test_assert_ptr_not_null(shot);
+	test_assert_ptr_set(shot);
 
 	match = verify_image(shot->image, "shaper_matrix", arg->ref_image_index,
 			     NULL, seq_no);
@@ -546,7 +546,7 @@ fill_alpha_pattern(struct buffer *buf)
 	struct image_header ih = image_header_from(buf->image);
 	int y;
 
-	test_assert_enum(ih.pixman_format, PIXMAN_a8r8g8b8);
+	test_assert_enum_eq(ih.pixman_format, PIXMAN_a8r8g8b8);
 	test_assert_int_eq(ih.width, BLOCK_WIDTH * ALPHA_STEPS);
 
 	for (y = 0; y < ih.height; y++) {
@@ -639,7 +639,7 @@ TEST(output_icc_alpha_blend)
 	move_client(client, 0, 0);
 
 	shot = capture_screenshot_of_output(client, NULL);
-	test_assert_ptr_not_null(shot);
+	test_assert_ptr_set(shot);
 	match = verify_image(shot->image, "output_icc_alpha_blend", arg->ref_image_index,
 			     NULL, seq_no);
 	test_assert_true(check_blend_pattern(bg, fg, shot, arg));

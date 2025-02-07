@@ -26,7 +26,6 @@
 
 #include "config.h"
 
-#include <assert.h>
 #include <float.h>
 #include <string.h>
 #include <stdlib.h>
@@ -35,6 +34,7 @@
 #include <wayland-server.h>
 #include <libweston/matrix.h>
 
+#include "shared/weston-assert.h"
 
 /*
  * Matrices are stored in column-major order, that is the array indices are:
@@ -135,7 +135,7 @@ weston_matrix_transform_coord(const struct weston_matrix *matrix,
 
 	weston_matrix_transform(matrix, &t);
 
-	assert(fabsf(t.f[3]) > 1e-6);
+	WESTON_DASSERT_F32_GT(fabsf(t.f[3]), 1e-6);
 
 	out.x = t.f[0] / t.f[3];
 	out.y = t.f[1] / t.f[3];
@@ -300,8 +300,10 @@ near_zero(float a)
 static float
 get_el(const struct weston_matrix *matrix, int row, int col)
 {
-	assert(row >= 0 && row <= 3);
-	assert(col >= 0 && col <= 3);
+	WESTON_DASSERT_INT_GE(row, 0);
+	WESTON_DASSERT_INT_LE(row, 3);
+	WESTON_DASSERT_INT_GE(col, 0);
+	WESTON_DASSERT_INT_LE(col, 3);
 
 	return matrix->d[col * 4 + row];
 }

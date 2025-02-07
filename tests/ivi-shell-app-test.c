@@ -165,13 +165,13 @@ get_ivi_application(struct client *client)
 	}
 
 	/* No ivi_application found. */
-	test_assert_ptr_not_null(global_iviapp);
+	test_assert_ptr_set(global_iviapp);
 
 	test_assert_int_eq(global_iviapp->version, 1);
 
 	iviapp = wl_registry_bind(client->wl_registry, global_iviapp->name,
 				  &ivi_application_interface, 1);
-	test_assert_ptr_not_null(iviapp);
+	test_assert_ptr_set(iviapp);
 
 	return iviapp;
 }

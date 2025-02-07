@@ -69,13 +69,13 @@ get_presentation(struct client *client)
 		global_pres = g;
 	}
 
-	test_assert_ptr_not_null(global_pres);
+	test_assert_ptr_set(global_pres);
 
 	test_assert_u32_eq(global_pres->version, 1);
 
 	pres = wl_registry_bind(client->wl_registry, global_pres->name,
 				&wp_presentation_interface, 1);
-	test_assert_ptr_not_null(pres);
+	test_assert_ptr_set(pres);
 
 	return pres;
 }
@@ -104,7 +104,7 @@ feedback_sync_output(void *data,
 {
 	struct feedback *fb = data;
 
-	test_assert_enum(fb->result, FB_PENDING);
+	test_assert_enum_eq(fb->result, FB_PENDING);
 
 	if (output)
 		fb->sync_output = output;
@@ -123,7 +123,7 @@ feedback_presented(void *data,
 {
 	struct feedback *fb = data;
 
-	test_assert_enum(fb->result, FB_PENDING);
+	test_assert_enum_eq(fb->result, FB_PENDING);
 	fb->result = FB_PRESENTED;
 	fb->seq = u64_from_u32s(seq_hi, seq_lo);
 	timespec_from_proto(&fb->time, tv_sec_hi, tv_sec_lo, tv_nsec);
@@ -137,7 +137,7 @@ feedback_discarded(void *data,
 {
 	struct feedback *fb = data;
 
-	test_assert_enum(fb->result, FB_PENDING);
+	test_assert_enum_eq(fb->result, FB_PENDING);
 	fb->result = FB_DISCARDED;
 }
 
@@ -231,7 +231,7 @@ TEST(test_presentation_feedback_simple)
 	struct wp_presentation *pres;
 
 	client = create_client_and_test_surface(100, 50, 123, 77);
-	test_assert_ptr_not_null(client);
+	test_assert_ptr_set(client);
 	pres = get_presentation(client);
 
 	wl_surface_attach(client->surface->wl_surface,

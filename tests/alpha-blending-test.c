@@ -106,7 +106,7 @@ fill_alpha_pattern(struct buffer *buf)
 	struct image_header ih = image_header_from(buf->image);
 	int y;
 
-	test_assert_enum(ih.pixman_format, PIXMAN_a8r8g8b8);
+	test_assert_enum_eq(ih.pixman_format, PIXMAN_a8r8g8b8);
 	test_assert_int_eq(ih.width, BLOCK_WIDTH * ALPHA_STEPS);
 
 	for (y = 0; y < ih.height; y++) {
@@ -352,7 +352,7 @@ TEST(alpha_blend)
 	move_client(client, 0, 0);
 
 	shot = capture_screenshot_of_output(client, NULL);
-	test_assert_ptr_not_null(shot);
+	test_assert_ptr_set(shot);
 	match = verify_image(shot->image, "alpha_blend", seq_no, NULL, seq_no);
 	test_assert_true(check_blend_pattern(bg, fg, shot, space));
 	test_assert_true(match);

@@ -23,7 +23,6 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-#include <assert.h>
 #include <linux/input.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -34,6 +33,7 @@
 #include "frontend/weston.h"
 #include "libweston/libweston.h"
 #include "shared/helpers.h"
+#include "shared/weston-assert.h"
 #include <libweston/shell-utils.h>
 
 #include <libweston/xwayland-api.h>
@@ -541,7 +541,7 @@ kiosk_shell_surface_activate(struct kiosk_shell_surface *shsurf,
 		struct kiosk_shell_surface *current_focus =
 			get_kiosk_shell_surface(kiosk_seat->focused_surface);
 		struct weston_desktop_surface *dsurface_focus;
-		assert(current_focus);
+		WESTON_DASSERT_PTR_SET(current_focus);
 
 		dsurface_focus = current_focus->desktop_surface;
 		if (--current_focus->focus_count == 0)
@@ -781,9 +781,9 @@ kiosk_shell_output_configure(struct kiosk_shell_output *shoutput)
 	struct weston_config_section *section =
 		weston_config_get_section(wc, "output", "name", shoutput->output->name);
 
-	assert(shoutput->app_ids == NULL);
-	assert(shoutput->x11_wm_name_app_ids == NULL);
-	assert(shoutput->x11_wm_class_app_ids == NULL);
+	WESTON_DASSERT_PTR_NOT_SET(shoutput->app_ids);
+	WESTON_DASSERT_PTR_NOT_SET(shoutput->x11_wm_name_app_ids);
+	WESTON_DASSERT_PTR_NOT_SET(shoutput->x11_wm_class_app_ids);
 
 	if (section) {
 		weston_config_section_get_string(section, "app-ids",
@@ -985,7 +985,7 @@ desktop_surface_committed(struct weston_desktop_surface *desktop_surface,
 	bool is_resized;
 	bool is_fullscreen;
 
-	assert(shsurf);
+	WESTON_DASSERT_PTR_SET(shsurf);
 
 	if (surface->width == 0)
 		return;
@@ -1403,7 +1403,7 @@ kiosk_shell_destroy_surfaces_on_layer(struct weston_layer *layer)
        wl_list_for_each_safe(view, view_next, &layer->view_list.link, layer_link.link) {
                struct kiosk_shell_surface *shsurf =
                        get_kiosk_shell_surface(view->surface);
-               assert(shsurf);
+               WESTON_DASSERT_PTR_SET(shsurf);
                kiosk_shell_surface_destroy(shsurf);
        }
 

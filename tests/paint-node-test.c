@@ -91,7 +91,7 @@ TEST(top_surface_present_in_output_repaint)
 	color_rgb888(&red, 255, 0, 0);
 
 	client = create_client_and_test_surface(100, 50, 100, 100);
-	test_assert_ptr_not_null(client);
+	test_assert_ptr_set(client);
 
 	/* move the pointer clearly away from our screenshooting area */
 	weston_test_move_pointer(client->test->weston_test, 0, 1, 0, 2, 30);
@@ -111,22 +111,22 @@ TEST(top_surface_present_in_output_repaint)
 		struct weston_surface *surface;
 		struct weston_buffer *buffer;
 
-		test_assert_enum(breakpoint->template_->breakpoint,
-				 WESTON_TEST_BREAKPOINT_POST_REPAINT);
+		test_assert_enum_eq(breakpoint->template_->breakpoint,
+				    WESTON_TEST_BREAKPOINT_POST_REPAINT);
 		compositor = breakpoint->compositor;
 		head = breakpoint->resource;
 		output = next_output(compositor, NULL);
 		test_assert_ptr_eq(output, head->output);
 		test_assert_str_eq(output->name, "headless");
-		test_assert_ptr_null(next_output(compositor, output));
+		test_assert_ptr_not_set(next_output(compositor, output));
 
 		/* check that our surface is top of the paint node list */
 		pnode = next_pnode_from_z(output, NULL);
-		test_assert_ptr_not_null(pnode);
+		test_assert_ptr_set(pnode);
 		view = pnode->view;
 		surface = view->surface;
 		buffer = surface->buffer_ref.buffer;
-		test_assert_ptr_not_null(surface->resource);
+		test_assert_ptr_set(surface->resource);
 		test_assert_ptr_eq(wl_resource_get_client(surface->resource),
 				   suite_data->wl_client);
 		test_assert_true(weston_view_is_mapped(view));
@@ -135,7 +135,7 @@ TEST(top_surface_present_in_output_repaint)
 		test_assert_s32_eq(surface->height, 100);
 		test_assert_s32_eq(buffer->width, surface->width);
 		test_assert_s32_eq(buffer->height, surface->height);
-		test_assert_enum(buffer->type, WESTON_BUFFER_SHM);
+		test_assert_enum_eq(buffer->type, WESTON_BUFFER_SHM);
 	}
 
 	buffer_destroy(buf);
@@ -152,7 +152,7 @@ TEST(test_surface_unmaps_on_null)
 	color_rgb888(&red, 255, 0, 0);
 
 	client = create_client_and_test_surface(100, 50, 100, 100);
-	test_assert_ptr_not_null(client);
+	test_assert_ptr_set(client);
 
 	/* move the pointer clearly away from our screenshooting area */
 	weston_test_move_pointer(client->test->weston_test, 0, 1, 0, 2, 30);
@@ -172,18 +172,18 @@ TEST(test_surface_unmaps_on_null)
 		struct weston_surface *surface;
 		struct weston_buffer *buffer;
 
-		test_assert_enum(breakpoint->template_->breakpoint,
-				 WESTON_TEST_BREAKPOINT_POST_REPAINT);
+		test_assert_enum_eq(breakpoint->template_->breakpoint,
+				    WESTON_TEST_BREAKPOINT_POST_REPAINT);
 		compositor = breakpoint->compositor;
 		head = breakpoint->resource;
 		output = next_output(compositor, NULL);
 		test_assert_ptr_eq(output, head->output);
 		test_assert_str_eq(output->name, "headless");
-		test_assert_ptr_null(next_output(compositor, output));
+		test_assert_ptr_not_set(next_output(compositor, output));
 
 		/* check that our surface is top of the paint node list */
 		pnode = next_pnode_from_z(output, NULL);
-		test_assert_ptr_not_null(pnode);
+		test_assert_ptr_set(pnode);
 		view = pnode->view;
 		surface = view->surface;
 		buffer = surface->buffer_ref.buffer;
@@ -195,7 +195,7 @@ TEST(test_surface_unmaps_on_null)
 		test_assert_s32_eq(surface->height, 100);
 		test_assert_s32_eq(buffer->width, surface->width);
 		test_assert_s32_eq(buffer->height, surface->height);
-		test_assert_enum(buffer->type, WESTON_BUFFER_SHM);
+		test_assert_enum_eq(buffer->type, WESTON_BUFFER_SHM);
 
 		REARM_BREAKPOINT(breakpoint);
 	}
@@ -212,24 +212,24 @@ TEST(test_surface_unmaps_on_null)
 		struct weston_surface *surface;
 		struct weston_buffer *buffer;
 
-		test_assert_enum(breakpoint->template_->breakpoint,
-				 WESTON_TEST_BREAKPOINT_POST_REPAINT);
+		test_assert_enum_eq(breakpoint->template_->breakpoint,
+				    WESTON_TEST_BREAKPOINT_POST_REPAINT);
 		compositor = breakpoint->compositor;
 		head = breakpoint->resource;
 		output = next_output(compositor, NULL);
 		test_assert_ptr_eq(output, head->output);
 		test_assert_str_eq(output->name, "headless");
-		test_assert_ptr_null(next_output(compositor, output));
+		test_assert_ptr_not_set(next_output(compositor, output));
 
 		/* check that our NULL-buffer commit removed the surface from
 		 * view */
 		pnode = next_pnode_from_z(output, NULL);
-		test_assert_ptr_not_null(pnode);
+		test_assert_ptr_set(pnode);
 		view = pnode->view;
 		surface = view->surface;
 		buffer = surface->buffer_ref.buffer;
-		test_assert_ptr_null(surface->resource);
-		test_assert_enum(buffer->type, WESTON_BUFFER_SOLID);
+		test_assert_ptr_not_set(surface->resource);
+		test_assert_enum_eq(buffer->type, WESTON_BUFFER_SOLID);
 	}
 
 	buffer_destroy(buf);

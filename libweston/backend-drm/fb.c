@@ -62,7 +62,7 @@ drm_fb_destroy_dumb(struct drm_fb *fb)
 {
 	struct drm_mode_destroy_dumb destroy_arg;
 
-	assert(fb->type == BUFFER_PIXMAN_DUMB);
+	WESTON_DASSERT_ENUM_EQ(fb->type, BUFFER_PIXMAN_DUMB);
 
 	if (fb->map && fb->size > 0)
 		munmap(fb->map, fb->size);
@@ -365,8 +365,9 @@ drm_fb_destroy_gbm(struct gbm_bo *bo, void *data)
 {
 	struct drm_fb *fb = data;
 
-	assert(fb->type == BUFFER_GBM_SURFACE || fb->type == BUFFER_CLIENT ||
-	       fb->type == BUFFER_CURSOR);
+	WESTON_DASSERT_TRUE(fb->type == BUFFER_GBM_SURFACE ||
+			    fb->type == BUFFER_CLIENT ||
+			    fb->type == BUFFER_CURSOR);
 	drm_fb_destroy(fb);
 }
 
@@ -542,7 +543,7 @@ drm_fb_get_from_bo(struct gbm_bo *bo, struct drm_device *device,
 	int i;
 
 	if (fb) {
-		assert(fb->type == type);
+		WESTON_DASSERT_ENUM_EQ(fb->type, type);
 		return drm_fb_ref(fb);
 	}
 
@@ -611,7 +612,7 @@ drm_fb_unref(struct drm_fb *fb)
 	if (!fb)
 		return;
 
-	assert(fb->refcnt > 0);
+	WESTON_DASSERT_INT_GT(fb->refcnt, 0);
 	if (--fb->refcnt > 0)
 		return;
 
@@ -632,7 +633,7 @@ drm_fb_unref(struct drm_fb *fb)
 		break;
 #endif
 	default:
-		assert(NULL);
+		WESTON_DASSERT_NOT_REACHED();
 		break;
 	}
 }
@@ -707,8 +708,8 @@ drm_fb_handle_buffer_destroy(struct wl_listener *listener, void *data)
 
 	wl_list_for_each_safe(buf_fb, tmp, &private->buffer_fb_list, link) {
 		if (buf_fb->fb) {
-			assert(buf_fb->fb->type == BUFFER_CLIENT ||
-			       buf_fb->fb->type == BUFFER_DMABUF);
+			WESTON_DASSERT_TRUE(buf_fb->fb->type == BUFFER_CLIENT ||
+					    buf_fb->fb->type == BUFFER_DMABUF);
 			drm_fb_unref(buf_fb->fb);
 		}
 		wl_list_remove(&buf_fb->link);

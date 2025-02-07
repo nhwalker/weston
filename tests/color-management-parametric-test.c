@@ -670,8 +670,8 @@ TEST_P(create_parametric_image_description, good_test_cases)
 	struct image_description *image_desc = NULL;
 
 	/* No good test case should have expected error. */
-	test_assert_enum(args->error_point, ERROR_POINT_NONE);
-	test_assert_enum(args->expected_error, NOT_SET);
+	test_assert_enum_eq(args->error_point, ERROR_POINT_NONE);
+	test_assert_enum_eq(args->expected_error, NOT_SET);
 
 	client = create_client();
 	color_manager_init(&cm, client);
@@ -722,7 +722,7 @@ TEST_P(create_parametric_image_description, good_test_cases)
 
 	while (image_desc->status == CM_IMAGE_DESC_NOT_CREATED)
 		test_assert_int_ge(wl_display_dispatch(client->wl_display), 0);
-	test_assert_enum(image_desc->status, CM_IMAGE_DESC_READY);
+	test_assert_enum_eq(image_desc->status, CM_IMAGE_DESC_READY);
 
 	image_description_destroy(image_desc);
 	color_manager_fini(&cm);
@@ -839,9 +839,9 @@ TEST_P(fail_to_create_parametric_image_description, bad_test_cases)
 
 	/* This TEST() is for bad params, so we shouldn't be able to
 	 * successfully create an image description. */
-	test_assert_enum(args->error_point, ERROR_POINT_GRACEFUL_FAILURE);
-	test_assert_enum(image_desc->status, CM_IMAGE_DESC_FAILED);
-	test_assert_enum(image_desc->failure_reason, args->expected_error);
+	test_assert_enum_eq(args->error_point, ERROR_POINT_GRACEFUL_FAILURE);
+	test_assert_enum_eq(image_desc->status, CM_IMAGE_DESC_FAILED);
+	test_assert_enum_eq(image_desc->failure_reason, args->expected_error);
 
 out:
 	if (image_desc)

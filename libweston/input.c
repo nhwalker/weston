@@ -32,7 +32,6 @@
 #include <stdint.h>
 #include <string.h>
 #include <sys/mman.h>
-#include <assert.h>
 #include <unistd.h>
 #include <values.h>
 #include <fcntl.h>
@@ -143,12 +142,12 @@ weston_touch_create_touch_device(struct weston_touch *touch,
 {
 	struct weston_touch_device *device;
 
-	assert(syspath);
+	WESTON_DASSERT_PTR_SET(syspath);
 	if (ops) {
-		assert(ops->get_output);
-		assert(ops->get_calibration_head_name);
-		assert(ops->get_calibration);
-		assert(ops->set_calibration);
+		WESTON_DASSERT_PTR_SET(ops->get_output);
+		WESTON_DASSERT_PTR_SET(ops->get_calibration_head_name);
+		WESTON_DASSERT_PTR_SET(ops->get_calibration);
+		WESTON_DASSERT_PTR_SET(ops->set_calibration);
 	}
 
 	device = zalloc(sizeof *device);
@@ -297,7 +296,7 @@ unbind_pointer_client_resource(struct wl_resource *resource)
 	if (pointer) {
 		pointer_client = weston_pointer_get_pointer_client(pointer,
 								   client);
-		assert(pointer_client);
+		WESTON_DASSERT_PTR_SET(pointer_client);
 		remove_input_resource_from_timestamps(resource,
 						      &pointer->timestamps_list);
 		weston_pointer_cleanup_pointer_client(pointer, pointer_client);
@@ -322,7 +321,7 @@ weston_pointer_motion_to_abs(struct weston_pointer *pointer,
 		return pos;
 	}
 
-	assert(!"invalid motion event");
+	WESTON_DASSERT_NOT_REACHED("invalid motion event");
 	pos.c = weston_coord(0, 0);
 	return pos;
 }
@@ -1413,7 +1412,7 @@ weston_touch_destroy(struct weston_touch *touch)
 {
 	struct wl_resource *resource;
 
-	assert(wl_list_empty(&touch->device_list));
+	WESTON_DASSERT_TRUE(wl_list_empty(&touch->device_list));
 
 	wl_resource_for_each(resource, &touch->resource_list) {
 		wl_resource_set_user_data(resource, NULL);
@@ -2739,7 +2738,7 @@ notify_pointer_focus(struct weston_seat *seat, struct weston_output *output,
 {
 	struct weston_pointer *pointer = weston_seat_get_pointer(seat);
 
-	assert(output);
+	WESTON_DASSERT_PTR_SET(output);
 
 	weston_pointer_move_to(pointer, pos);
 }
@@ -2812,7 +2811,7 @@ notify_keyboard_focus_out(struct weston_seat *seat)
 	if (focus) {
 		seat->use_saved_kbd_focus = true;
 		seat->saved_kbd_focus = focus;
-		assert(seat->saved_kbd_focus_listener.notify == NULL);
+		WESTON_DASSERT_PTR_NOT_SET(seat->saved_kbd_focus_listener.notify);
 		seat->saved_kbd_focus_listener.notify =
 			destroy_device_saved_kbd_focus;
 		wl_signal_add(&focus->destroy_signal,
@@ -2873,7 +2872,7 @@ process_touch_normal(struct weston_touch_device *device,
 	struct weston_view *ev;
 
 	if (touch_type != WL_TOUCH_UP)
-		assert(pos);
+		WESTON_DASSERT_PTR_SET(pos);
 
 	/* Update grab's global coordinates. */
 	if (touch_id == touch->grab_touch_id && touch_type != WL_TOUCH_UP)
@@ -3009,7 +3008,7 @@ weston_compositor_set_touch_mode_calib(struct weston_compositor *compositor)
 	switch (compositor->touch_mode) {
 	case WESTON_TOUCH_MODE_PREP_CALIB:
 	case WESTON_TOUCH_MODE_CALIB:
-		assert(0);
+		WESTON_DASSERT_NOT_REACHED();
 		return;
 	case WESTON_TOUCH_MODE_PREP_NORMAL:
 		compositor->touch_mode = WESTON_TOUCH_MODE_CALIB;
@@ -3057,14 +3056,14 @@ notify_touch_normalized(struct weston_touch_device *device,
 	struct weston_touch *touch = device->aggregate;
 
 	if (touch_type != WL_TOUCH_UP) {
-		assert(pos);
+		WESTON_DASSERT_PTR_SET(pos);
 
 		if (weston_touch_device_can_calibrate(device))
-			assert(norm != NULL);
+			WESTON_DASSERT_PTR_SET(norm);
 		else
-			assert(norm == NULL);
+			WESTON_DASSERT_PTR_NOT_SET(norm);
 	} else {
-		assert(!pos);
+		WESTON_DASSERT_PTR_NOT_SET(pos);
 	}
 
 	/* Update touchpoints count regardless of the current mode. */
@@ -3226,7 +3225,7 @@ tablet_tool_cursor_surface_committed(struct weston_surface *es,
 	if (es->width == 0)
 		return;
 
-	assert(es == tool->sprite->surface);
+	WESTON_DASSERT_PTR_EQ(es, tool->sprite->surface);
 
 	tool->hotspot = weston_coord_surface_sub(tool->hotspot, new_origin);
 	hotspot_inv = weston_coord_surface_invert(tool->hotspot);
@@ -3518,7 +3517,7 @@ pointer_cursor_surface_committed(struct weston_surface *es,
 	if (es->width == 0)
 		return;
 
-	assert(es == pointer->sprite->surface);
+	WESTON_DASSERT_PTR_EQ(es, pointer->sprite->surface);
 
 	pointer->hotspot = weston_coord_surface_sub(pointer->hotspot,
 						    new_origin);
@@ -4177,7 +4176,7 @@ WL_EXPORT void
 weston_seat_release_keyboard(struct weston_seat *seat)
 {
 	seat->keyboard_device_count--;
-	assert(seat->keyboard_device_count >= 0);
+	WESTON_DASSERT_INT_GE(seat->keyboard_device_count, 0);
 	if (seat->keyboard_device_count == 0) {
 		weston_keyboard_set_focus(seat->keyboard_state, NULL);
 		weston_keyboard_cancel_grab(seat->keyboard_state);
@@ -4623,7 +4622,7 @@ static void
 enable_pointer_constraint(struct weston_pointer_constraint *constraint,
 			  struct weston_view *view)
 {
-	assert(constraint->view == NULL);
+	WESTON_DASSERT_PTR_NOT_SET(constraint->view);
 	constraint->view = view;
 	pointer_constraint_notify_activated(constraint);
 	weston_pointer_start_grab(constraint->pointer, &constraint->grab);
@@ -5253,14 +5252,15 @@ add_non_overlapping_edges(pixman_box32_t *boxes,
 	 * eliminated. */
 	prev_border = NULL;
 	wl_array_for_each(border, &band_merge) {
-		assert(border->line.a.y == border->line.b.y);
-		assert(!prev_border ||
-		       prev_border->line.a.y == border->line.a.y);
-		assert(!prev_border ||
-		       (prev_border->line.a.x != border->line.a.x ||
-			prev_border->line.b.x != border->line.b.x));
-		assert(!prev_border ||
-		       prev_border->line.a.x <= border->line.a.x);
+		WESTON_DASSERT_F64_EQ(border->line.a.y, border->line.b.y);
+		if (prev_border) {
+			WESTON_DASSERT_F64_EQ(prev_border->line.a.y,
+					      border->line.a.y);
+			WESTON_DASSERT_TRUE(prev_border->line.a.x != border->line.a.x ||
+					    prev_border->line.b.x != border->line.b.x);
+			WESTON_DASSERT_F64_LE(prev_border->line.a.x,
+					      border->line.a.x);
+		}
 
 		if (prev_border &&
 		    prev_border->line.a.x == border->line.a.x) {
@@ -5300,8 +5300,9 @@ add_non_overlapping_edges(pixman_box32_t *boxes,
 			prev_border->line.b.x = border->line.a.x;
 			prev_border = new_border;
 		} else {
-			assert(!prev_border ||
-			       prev_border->line.b.x < border->line.a.x);
+			if (prev_border)
+				WESTON_DASSERT_F64_LT(prev_border->line.b.x,
+						      border->line.a.x);
 			/*
 			 * First border or non-overlapping.
 			 *
@@ -5563,7 +5564,7 @@ weston_pointer_clamp_event_to_region(struct weston_pointer *pointer,
 	struct weston_coord_surface clamped_surf_pos;
 	struct weston_coord_surface surf_pos;
 
-	assert(pointer->focus);
+	WESTON_DASSERT_PTR_SET(pointer->focus);
 
 	pos = weston_pointer_motion_to_abs(pointer, event);
 	surf_pos = weston_coord_global_to_surface(pointer->focus, pos);
@@ -5690,7 +5691,7 @@ maybe_warp_confined_pointer(struct weston_pointer_constraint *constraint)
 		pixman_region32_intersect(&confine_region,
 					  &constraint->surface->input,
 					  &constraint->region);
-		assert(pixman_region32_not_empty(&confine_region));
+		WESTON_DASSERT_TRUE(pixman_region32_not_empty(&confine_region));
 		region_to_outline(&confine_region, &borders);
 		pixman_region32_fini(&confine_region);
 
@@ -5703,7 +5704,7 @@ maybe_warp_confined_pointer(struct weston_pointer_constraint *constraint)
 				closest_distance_2 = distance_2;
 			}
 		}
-		assert(closest_border);
+		WESTON_DASSERT_PTR_SET(closest_border);
 
 		warp_to_behind_border(closest_border, &cs);
 
@@ -5729,8 +5730,8 @@ confined_pointer_grab_pointer_motion(struct weston_pointer_grab *grab,
 	struct weston_coord_global pos;
 	struct weston_coord_surface surf_pos;
 
-	assert(pointer->focus);
-	assert(pointer->focus->surface == constraint->surface);
+	WESTON_DASSERT_PTR_SET(pointer->focus);
+	WESTON_DASSERT_PTR_EQ(pointer->focus->surface, constraint->surface);
 
 	surface = pointer->focus->surface;
 

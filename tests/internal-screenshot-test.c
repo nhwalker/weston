@@ -91,7 +91,7 @@ TEST(internal_screenshot)
 	/* Create the client */
 	testlog("Creating client for test\n");
 	client = create_client_and_test_surface(100, 100, 100, 100);
-	test_assert_ptr_not_null(client);
+	test_assert_ptr_set(client);
 	surface = client->surface->wl_surface;
 
 	/*
@@ -121,20 +121,20 @@ TEST(internal_screenshot)
 	/* Take a snapshot.  Result will be in screenshot->wl_buffer. */
 	testlog("Taking a screenshot\n");
 	screenshot = capture_screenshot_of_output(client, NULL);
-	test_assert_ptr_not_null(screenshot);
+	test_assert_ptr_set(screenshot);
 
 	/* Load good reference image */
 	fname = screenshot_reference_filename("internal-screenshot-good", 0);
 	testlog("Loading good reference image %s\n", fname);
 	reference_good = load_image_from_png(fname);
-	test_assert_ptr_not_null(reference_good);
+	test_assert_ptr_set(reference_good);
 	free(fname);
 
 	/* Load bad reference image */
 	fname = screenshot_reference_filename("internal-screenshot-bad", 0);
 	testlog("Loading bad reference image %s\n", fname);
 	reference_bad = load_image_from_png(fname);
-	test_assert_ptr_not_null(reference_bad);
+	test_assert_ptr_set(reference_bad);
 	free(fname);
 
 	/* Test check_images_match() without a clip.

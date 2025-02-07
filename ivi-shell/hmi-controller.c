@@ -58,13 +58,13 @@
 #include <stdio.h>
 #include <string.h>
 #include <linux/input.h>
-#include <assert.h>
 #include <time.h>
 
 #include "ivi-layout-export.h"
 #include "ivi-hmi-controller-server-protocol.h"
 #include "shared/helpers.h"
 #include "shared/xalloc.h"
+#include "shared/weston-assert.h"
 #include "frontend/weston.h"
 
 /*****************************************************************************
@@ -561,7 +561,7 @@ create_layer(struct weston_output *output,
 		hmi_ctrl->interface->layer_create_with_dimension(layer->id_layer,
 						       layer->width,
 						       layer->height);
-	assert(layer->ivilayer != NULL);
+	WESTON_DASSERT_PTR_SET(layer->ivilayer);
 	layer->output = output;
 
 	hmi_ctrl->interface->screen_add_layer(output, layer->ivilayer);
@@ -1101,7 +1101,7 @@ ivi_hmi_controller_set_background(struct hmi_controller *hmi_ctrl,
 		ivilayer = base_layer->ivilayer;
 
 		ivisurf = hmi_ctrl->interface->get_surface_from_id(*add_surface_id);
-		assert(ivisurf != NULL);
+		WESTON_DASSERT_PTR_SET(ivisurf);
 
 		hmi_ctrl->interface->layer_add_surface(ivilayer, ivisurf);
 
@@ -1141,7 +1141,7 @@ ivi_hmi_controller_set_panel(struct hmi_controller *hmi_ctrl,
 
 		ivilayer = base_layer->ivilayer;
 		ivisurf = hmi_ctrl->interface->get_surface_from_id(*add_surface_id);
-		assert(ivisurf != NULL);
+		WESTON_DASSERT_PTR_SET(ivisurf);
 
 		hmi_ctrl->interface->layer_add_surface(ivilayer, ivisurf);
 
@@ -1186,7 +1186,7 @@ ivi_hmi_controller_set_button(struct hmi_controller *hmi_ctrl,
 	*add_surface_id = id_surface;
 
 	ivisurf = hmi_ctrl->interface->get_surface_from_id(id_surface);
-	assert(ivisurf != NULL);
+	WESTON_DASSERT_PTR_SET(ivisurf);
 
 	hmi_ctrl->interface->layer_add_surface(ivilayer, ivisurf);
 
@@ -1228,7 +1228,7 @@ ivi_hmi_controller_set_home_button(struct hmi_controller *hmi_ctrl,
 	*add_surface_id = id_surface;
 
 	ivisurf = hmi_ctrl->interface->get_surface_from_id(id_surface);
-	assert(ivisurf != NULL);
+	WESTON_DASSERT_PTR_SET(ivisurf);
 
 	hmi_ctrl->interface->layer_add_surface(ivilayer, ivisurf);
 
@@ -1260,7 +1260,7 @@ ivi_hmi_controller_set_workspacebackground(struct hmi_controller *hmi_ctrl,
 	ivilayer = hmi_ctrl->workspace_background_layer.ivilayer;
 
 	ivisurf = hmi_ctrl->interface->get_surface_from_id(id_surface);
-	assert(ivisurf != NULL);
+	WESTON_DASSERT_PTR_SET(ivisurf);
 
 	hmi_ctrl->interface->layer_add_surface(ivilayer, ivisurf);
 
@@ -1388,7 +1388,7 @@ ivi_hmi_controller_add_launchers(struct hmi_controller *hmi_ctrl,
 
 		layout_surface =
 			hmi_ctrl->interface->get_surface_from_id(data->surface_id);
-		assert(layout_surface);
+		WESTON_DASSERT_PTR_SET(layout_surface);
 
 		hmi_ctrl->interface->surface_set_destination_rectangle(
 				layout_surface, x, y, icon_size, icon_size);
@@ -1426,7 +1426,7 @@ ivi_hmi_controller_add_launchers(struct hmi_controller *hmi_ctrl,
 	wl_array_for_each(data, &launchers) {
 		layout_surface =
 			hmi_ctrl->interface->get_surface_from_id(data->surface_id);
-		assert(layout_surface);
+		WESTON_DASSERT_PTR_SET(layout_surface);
 
 		hmi_ctrl->interface->layer_add_surface(hmi_ctrl->workspace_layer.ivilayer,
 						       layout_surface);

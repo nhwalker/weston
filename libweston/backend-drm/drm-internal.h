@@ -38,7 +38,6 @@
 #include <unistd.h>
 #include <linux/input.h>
 #include <linux/vt.h>
-#include <assert.h>
 #include <sys/mman.h>
 #include <time.h>
 
@@ -684,12 +683,12 @@ drm_output_get_plane_type_name(struct drm_plane *p)
 		case PLANE_SUBTYPE_BOTH:
 			return "over/underlay";
 		default:
-			assert(0);
+			WESTON_DASSERT_NOT_REACHED();
 			break;
 		}
 		// fall through
 	default:
-		assert(0);
+		WESTON_DASSERT_NOT_REACHED();
 		break;
 	}
 }

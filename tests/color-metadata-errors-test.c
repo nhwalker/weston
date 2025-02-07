@@ -225,7 +225,7 @@ TEST_P(color_characteristics_config_error, config_cases)
 
 	wc = create_config(t);
 	section = weston_config_get_section(wc, "output", "name", "mockoutput");
-	test_assert_ptr_not_null(section);
+	test_assert_ptr_set(section);
 
 	retval = wet_output_set_color_characteristics(&mock_output, wc, section);
 
@@ -640,7 +640,7 @@ TEST_P(mode_config_error, mode_config_cases)
 
 	wc = create_mode_config(t);
 	section = weston_config_get_section(wc, "output", "name", "mockoutput");
-	test_assert_ptr_not_null(section);
+	test_assert_ptr_set(section);
 
 	retval = wet_output_set_eotf_mode(&mock_output, section, t->color_management);
 	if (retval == 0) {
@@ -655,8 +655,10 @@ TEST_P(mode_config_error, mode_config_cases)
 
 	test_assert_int_eq(retval, t->expected_retval);
 	test_assert_int_eq(strcmp(logbuf, t->expected_error), 0);
-	test_assert_enum(weston_output_get_eotf_mode(&mock_output), t->expected_eotf_mode);
-	test_assert_enum(weston_output_get_colorimetry_mode(&mock_output), t->expected_colorimetry_mode);
+	test_assert_enum_eq(weston_output_get_eotf_mode(&mock_output),
+			    t->expected_eotf_mode);
+	test_assert_enum_eq(weston_output_get_colorimetry_mode(&mock_output),
+			    t->expected_colorimetry_mode);
 
 	weston_config_destroy(wc);
 	free(logbuf);

@@ -27,8 +27,6 @@
 
 #include "config.h"
 
-#include <assert.h>
-
 #include "shared/helpers.h"
 #include "shared/platform.h"
 #include "shared/string-helpers.h"
@@ -37,8 +35,6 @@
 #include "gl-renderer-internal.h"
 #include "pixel-formats.h"
 #include "shared/weston-egl-ext.h"
-
-#include <assert.h>
 
 struct egl_config_print_info {
 	const EGLint *attrs;
@@ -450,7 +446,7 @@ gl_renderer_get_egl_config(struct gl_renderer *gr,
 	};
 
 	for (i = 0; i < formats_count; i++)
-		assert(formats[i]);
+		WESTON_DASSERT_PTR_SET(formats[i]);
 
 	if (egl_config_is_compatible(gr, gr->egl_config, egl_surface_type,
 				     formats, formats_count))
@@ -492,7 +488,7 @@ gl_renderer_set_egl_device(struct gl_renderer *gr)
 	EGLAttrib attrib;
 	const char *extensions;
 
-	assert(egl_client_has(gr, EXTENSION_EXT_DEVICE_QUERY));
+	WESTON_DASSERT_TRUE(egl_client_has(gr, EXTENSION_EXT_DEVICE_QUERY));
 
 	if (!gr->query_display_attrib(gr->egl_display, EGL_DEVICE_EXT, &attrib)) {
 		weston_log("failed to get EGL device\n");

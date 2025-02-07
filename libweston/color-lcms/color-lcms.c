@@ -26,7 +26,6 @@
 
 #include "config.h"
 
-#include <assert.h>
 #include <string.h>
 #include <libweston/libweston.h>
 
@@ -295,7 +294,7 @@ cmlcms_create_output_color_outcome(struct weston_color_manager *cm_base,
 	if (!cmlcms_get_hdr_meta(output, &co->hdr_meta))
 		goto out_fail;
 
-	assert(output->color_profile);
+	WESTON_DASSERT_PTR_SET(output->color_profile);
 
 	/* TODO: take container color space into account */
 
@@ -385,20 +384,20 @@ cmlcms_init(struct weston_color_manager *cm_base)
 		weston_compositor_add_log_scope(compositor, "color-lcms-transformations",
 						"Color transformation creation and destruction.\n",
 						transforms_scope_new_sub, NULL, cm);
-	weston_assert_ptr_not_null(cm->transforms_scope);
+	WESTON_DASSERT_PTR_SET(cm->transforms_scope);
 
 	cm->optimizer_scope =
 		weston_compositor_add_log_scope(compositor, "color-lcms-optimizer",
 						"Color transformation pipeline optimizer. It's best " \
 						"used together with the color-lcms-transformations " \
 						"log scope.\n", NULL, NULL, NULL);
-	weston_assert_ptr_not_null(cm->optimizer_scope);
+	WESTON_DASSERT_PTR_SET(cm->optimizer_scope);
 
 	cm->profiles_scope =
 		weston_compositor_add_log_scope(compositor, "color-lcms-profiles",
 						"Color profile creation and destruction.\n",
 						profiles_scope_new_sub, NULL, cm);
-	weston_assert_ptr_not_null(cm->profiles_scope);
+	WESTON_DASSERT_PTR_SET(cm->profiles_scope);
 
 	cm->lcms_ctx = cmsCreateContext(NULL, cm);
 	if (!cm->lcms_ctx) {
@@ -439,7 +438,7 @@ cmlcms_destroy(struct weston_color_manager *cm_base)
 	if (cm->sRGB_profile) {
 		/* TODO: when we fix the ugly bug described below, we should
 		 * change this assert to == 1. */
-		weston_assert_true(cm->sRGB_profile->base.ref_count >= 1);
+		WESTON_DASSERT_INT_GE(cm->sRGB_profile->base.ref_count, 1);
 		unref_cprof(cm->sRGB_profile);
 	}
 
@@ -460,8 +459,8 @@ cmlcms_destroy(struct weston_color_manager *cm_base)
 			cmlcms_color_profile_destroy(cprof);
 	}
 
-	assert(wl_list_empty(&cm->color_transform_list));
-	assert(wl_list_empty(&cm->color_profile_list));
+	WESTON_DASSERT_TRUE(wl_list_empty(&cm->color_transform_list));
+	WESTON_DASSERT_TRUE(wl_list_empty(&cm->color_profile_list));
 
 	if (cm->lcms_ctx)
 		cmsDeleteContext(cm->lcms_ctx);

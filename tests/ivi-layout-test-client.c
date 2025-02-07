@@ -88,14 +88,14 @@ client_create_runner(struct client *client)
 		global_runner = g;
 	}
 
-	test_assert_ptr_not_null(global_runner);
+	test_assert_ptr_set(global_runner);
 	test_assert_u32_eq(global_runner->version, 1);
 
 	runner->test_runner = wl_registry_bind(client->wl_registry,
 					       global_runner->name,
 					       &weston_test_runner_interface,
 					       1);
-	test_assert_ptr_not_null(runner->test_runner);
+	test_assert_ptr_set(runner->test_runner);
 
 	weston_test_runner_add_listener(runner->test_runner,
 					&test_runner_listener, runner);
@@ -142,13 +142,13 @@ get_ivi_application(struct client *client)
 		global_iviapp = g;
 	}
 
-	test_assert_ptr_not_null(global_iviapp);
+	test_assert_ptr_set(global_iviapp);
 
 	test_assert_u32_eq(global_iviapp->version, 1);
 
 	iviapp = wl_registry_bind(client->wl_registry, global_iviapp->name,
 				  &ivi_application_interface, 1);
-	test_assert_ptr_not_null(iviapp);
+	test_assert_ptr_set(iviapp);
 
 	return iviapp;
 }

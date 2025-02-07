@@ -94,7 +94,7 @@ TEST(drm_writeback_screenshot) {
 	/* create client */
 	testlog("Creating client for test\n");
 	client = create_client_and_test_surface(100, 100, 100, 100);
-	test_assert_ptr_not_null(client);
+	test_assert_ptr_set(client);
 	surface = client->surface->wl_surface;
 
 	/* move pointer away from image so it does not interfere with the
@@ -114,7 +114,7 @@ TEST(drm_writeback_screenshot) {
 	testlog("Taking a screenshot\n");
 	screenshot = client_capture_output(client, client->output,
                                            WESTON_CAPTURE_V1_SOURCE_WRITEBACK);
-	test_assert_ptr_not_null(screenshot);
+	test_assert_ptr_set(screenshot);
 	buffer_destroy(screenshot);
 
 	/* take another screenshot; this is important to ensure the
@@ -122,13 +122,13 @@ TEST(drm_writeback_screenshot) {
 	testlog("Taking another screenshot\n");
 	screenshot = client_capture_output(client, client->output,
                                            WESTON_CAPTURE_V1_SOURCE_WRITEBACK);
-	test_assert_ptr_not_null(screenshot);
+	test_assert_ptr_set(screenshot);
 
 	/* load reference image */
 	fname = screenshot_reference_filename("drm-writeback-screenshot", 0);
 	testlog("Loading good reference image %s\n", fname);
 	reference = load_image_from_png(fname);
-	test_assert_ptr_not_null(reference);
+	test_assert_ptr_set(reference);
 	free(fname);
 
 	/* check if they match - only the colored square matters, so the

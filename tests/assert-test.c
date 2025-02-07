@@ -58,56 +58,56 @@ my_type_cmp(const struct my_type *a, const struct my_type *b)
 }
 
 #define weston_assert_my_type_lt(a, b) \
-	weston_assert_fn_(my_type_cmp, a, b, const struct my_type *, "my_type %p", <)
+	WESTON_ASSERT_FN_(my_type_cmp, a, b, const struct my_type *, "my_type %p", <)
 
 TEST(asserts)
 {
 	bool ret;
 
-	ret = weston_assert_true(false);
+	ret = WESTON_ASSERT_TRUE(false);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_true(true);
+	ret = WESTON_ASSERT_TRUE(true);
 	abort_if_not(ret);
 
-	ret = weston_assert_false(true);
+	ret = WESTON_ASSERT_FALSE(true);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_false(false);
+	ret = WESTON_ASSERT_FALSE(false);
 	abort_if_not(ret);
 
-	ret = weston_assert_true(true && false);
+	ret = WESTON_ASSERT_TRUE(true && false);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_ptr_not_null(&ret);
+	ret = WESTON_ASSERT_PTR_SET(&ret);
 	abort_if_not(ret);
 
-	ret = weston_assert_ptr_not_null(NULL);
+	ret = WESTON_ASSERT_PTR_SET(NULL);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_ptr_null(NULL);
+	ret = WESTON_ASSERT_PTR_NOT_SET(NULL);
 	abort_if_not(ret);
 
-	ret = weston_assert_ptr_null(&ret);
+	ret = WESTON_ASSERT_PTR_NOT_SET(&ret);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_ptr_eq(&ret, &ret);
+	ret = WESTON_ASSERT_PTR_EQ(&ret, &ret);
 	abort_if_not(ret);
 
-	ret = weston_assert_ptr_eq(&ret, &ret + 1);
+	ret = WESTON_ASSERT_PTR_EQ(&ret, &ret + 1);
 	abort_if_not(ret == false);
 
 	double fifteen = 15.0;
-	ret = weston_assert_double_eq(fifteen, 15.000001);
+	ret = WESTON_ASSERT_F64_EQ(fifteen, 15.000001);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_double_eq(fifteen, 15);
+	ret = WESTON_ASSERT_F64_EQ(fifteen, 15);
 	abort_if_not(ret);
 
 	const char *nom = "bar";
-	ret = weston_assert_str_eq(nom, "bar");
+	ret = WESTON_ASSERT_STR_EQ(nom, "bar");
 	abort_if_not(ret);
-	ret = weston_assert_str_eq(nom, "baz");
+	ret = WESTON_ASSERT_STR_EQ(nom, "baz");
 	abort_if_not(ret == false);
 
 	struct my_type a = { 1, 2.0 };
@@ -118,21 +118,21 @@ TEST(asserts)
 	abort_if_not(ret == false);
 
 	uint32_t bitfield = 0xffff;
-	ret = weston_assert_bit_is_set(bitfield, 1ull << 2);
+	ret = WESTON_ASSERT_BIT_SET(bitfield, 1ull << 2);
 	abort_if_not(ret);
-	ret = weston_assert_bit_is_set(bitfield, 1ull << 57);
+	ret = WESTON_ASSERT_BIT_SET(bitfield, 1ull << 57);
 	abort_if_not(ret == false);
 
 	uint64_t max_uint64 = UINT64_MAX;
-	ret = weston_assert_uint64_eq(max_uint64, 0);
+	ret = WESTON_ASSERT_U64_EQ(max_uint64, 0);
 	abort_if_not(ret == false);
 
 	uint64_t val = 0x200010001000ffff;
 	uint64_t msk = 0x00000000fffffff3;
-	ret = weston_assert_legal_bits(val, msk);
+	ret = WESTON_ASSERT_LEGAL_BITS(val, msk);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_legal_bits(val, UINT64_MAX);
+	ret = WESTON_ASSERT_LEGAL_BITS(val, UINT64_MAX);
 	abort_if_not(ret);
 
 	/* If we reach that point, it's a success so reset the assert counter

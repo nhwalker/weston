@@ -351,7 +351,7 @@ weston_color_feature_info_from(struct weston_compositor *compositor,
 		if (color_feature_info_table[i].feature == feature)
 			return &color_feature_info_table[i];
 
-	weston_assert_not_reached("unknown color feature");
+	WESTON_DASSERT_NOT_REACHED("unknown color feature");
 }
 
 WL_EXPORT const struct weston_render_intent_info *
@@ -364,7 +364,7 @@ weston_render_intent_info_from(struct weston_compositor *compositor,
 		if (render_intent_info_table[i].intent == intent)
 			return &render_intent_info_table[i];
 
-	weston_assert_not_reached("unknown render intent");
+	WESTON_DASSERT_NOT_REACHED("unknown render intent");
 }
 
 WL_EXPORT const struct weston_render_intent_info *
@@ -390,7 +390,7 @@ weston_color_primaries_info_from(struct weston_compositor *compositor,
 		if (color_primaries_info_table[i].primaries == primaries)
 			return &color_primaries_info_table[i];
 
-	weston_assert_not_reached("unknown primaries");
+	WESTON_DASSERT_NOT_REACHED("unknown primaries");
 }
 
 WL_EXPORT const struct weston_color_primaries_info *
@@ -415,7 +415,7 @@ weston_color_tf_info_from(struct weston_compositor *compositor,
 		if (color_tf_info_table[i].tf == tf)
 			return &color_tf_info_table[i];
 
-	weston_assert_not_reached("unknown tf");
+	WESTON_DASSERT_NOT_REACHED("unknown tf");
 }
 
 WL_EXPORT const struct weston_color_tf_info *
