@@ -262,6 +262,8 @@ do {										\
 #define WESTON_ASSERT_ENUM_EQ(a, b) WESTON_ASSERT_U64_EQ(a, b)
 #define WESTON_ASSERT_ENUM_NE(a, b) WESTON_ASSERT_U64_NE(a, b)
 
+#define WESTON_ASSERT_IF(cond, a) if (cond) WESTON_ASSERT_TRUE(a)
+
 /* Debug asserts. Compiled out in release builds. */
 
 #if !defined(NDEBUG)
@@ -354,6 +356,7 @@ do {										\
 #define WESTON_DASSERT_ERRNO_NE(a) WESTON_ASSERT_ERRNO_EQ(a)
 #define WESTON_DASSERT_ENUM_EQ(a, b) WESTON_ASSERT_ENUM_EQ(a, b)
 #define WESTON_DASSERT_ENUM_NE(a, b) WESTON_ASSERT_ENUM_NE(a, b)
+#define WESTON_DASSERT_IF(cond, a) WESTON_ASSERT_IF(cond, a)
 
 #else
 
@@ -445,5 +448,6 @@ do {										\
 #define WESTON_DASSERT_ERRNO_NE(a)
 #define WESTON_DASSERT_ENUM_EQ(a, b)
 #define WESTON_DASSERT_ENUM_NE(a, b)
+#define WESTON_DASSERT_IF(cond, a)
 
 #endif /* !defined(NDEBUG) */

@@ -1169,6 +1169,8 @@ drm_connector_set_hdcp_property(struct drm_connector *connector,
 	uint64_t prop_val;
 	struct drm_property_info *props = connector->props;
 
+	MAYBE_UNUSED(ret);
+
 	get_drm_protection_from_weston(protection, &drm_protection,
 				       &drm_cp_type);
 
@@ -1647,9 +1649,8 @@ drm_pending_state_apply_atomic(struct drm_pending_state *pending_state,
 	wl_list_for_each(output_state, &pending_state->output_list, link) {
 		if (output_state->output->is_virtual)
 			continue;
-		if (mode == DRM_STATE_APPLY_SYNC)
-			WESTON_DASSERT_ENUM_EQ(output_state->dpms,
-					       WESTON_DPMS_OFF);
+		WESTON_DASSERT_IF(mode == DRM_STATE_APPLY_SYNC,
+				  output_state->dpms == WESTON_DPMS_OFF);
 		may_tear &= output_state->tear;
 		ret |= drm_output_apply_state_atomic(output_state, req, &flags);
 	}
@@ -1883,6 +1884,8 @@ page_flip_handler(int fd, unsigned int frame,
 	uint32_t flags = WP_PRESENTATION_FEEDBACK_KIND_VSYNC |
 			 WP_PRESENTATION_FEEDBACK_KIND_HW_COMPLETION |
 			 WP_PRESENTATION_FEEDBACK_KIND_HW_CLOCK;
+
+	MAYBE_UNUSED(device);
 
 	drm_output_update_msc(output, frame);
 

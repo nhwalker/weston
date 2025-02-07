@@ -160,10 +160,12 @@ cmnoop_get_surface_color_transform(struct weston_color_manager *cm_base,
 {
 	struct weston_color_manager_noop *cmnoop = to_cmnoop(cm_base);
 
+	MAYBE_UNUSED(cmnoop);
+
 	/* If surface has a cprof, it has to be the stock one. */
-	if (surface->color_profile)
-		WESTON_DASSERT_PTR_EQ(to_cmnoop_cprof(surface->color_profile),
-				      cmnoop->stock_cprof);
+	WESTON_DASSERT_IF(surface->color_profile,
+			  to_cmnoop_cprof(surface->color_profile) ==
+			  cmnoop->stock_cprof);
 
 	/* The output must have a cprof, and it has to be the stock one. */
 	WESTON_DASSERT_PTR_SET(output->color_profile);
@@ -186,6 +188,8 @@ cmnoop_create_output_color_outcome(struct weston_color_manager *cm_base,
 {
 	struct weston_color_manager_noop *cmnoop = to_cmnoop(cm_base);
 	struct weston_output_color_outcome *co;
+
+	MAYBE_UNUSED(cmnoop);
 
 	WESTON_DASSERT_PTR_SET(output->color_profile);
 	WESTON_DASSERT_PTR_EQ(to_cmnoop_cprof(output->color_profile),

@@ -310,6 +310,8 @@ drm_output_check_zpos_plane_states(struct drm_output_state *state)
 		struct wl_list *next_node = ps->link.next;
 		bool found_dup = false;
 
+		MAYBE_UNUSED(found_dup);
+
 		/* skip any plane that is not enabled */
 		if (!ps->fb)
 			continue;

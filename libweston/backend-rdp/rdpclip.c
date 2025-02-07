@@ -189,6 +189,8 @@ clipboard_process_text_utf8(struct rdp_clipboard_data_source *source, bool is_se
 		char *data = source->data_contents.data;
 		size_t data_size, data_size_in_char;
 
+		MAYBE_UNUSED(data_size_in_char);
+
 		/* Linux to Windows (convert utf-8 to UNICODE) */
 		/* Include terminating NULL in size */
 		WESTON_DASSERT_U64_LE((source->data_contents.size + 1),

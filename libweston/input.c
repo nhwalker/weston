@@ -2871,8 +2871,7 @@ process_touch_normal(struct weston_touch_device *device,
 	struct weston_compositor *ec = device->aggregate->seat->compositor;
 	struct weston_view *ev;
 
-	if (touch_type != WL_TOUCH_UP)
-		WESTON_DASSERT_PTR_SET(pos);
+	WESTON_DASSERT_IF(touch_type != WL_TOUCH_UP, pos);
 
 	/* Update grab's global coordinates. */
 	if (touch_id == touch->grab_touch_id && touch_type != WL_TOUCH_UP)
@@ -3055,16 +3054,12 @@ notify_touch_normalized(struct weston_touch_device *device,
 	struct weston_seat *seat = device->aggregate->seat;
 	struct weston_touch *touch = device->aggregate;
 
-	if (touch_type != WL_TOUCH_UP) {
-		WESTON_DASSERT_PTR_SET(pos);
-
-		if (weston_touch_device_can_calibrate(device))
-			WESTON_DASSERT_PTR_SET(norm);
-		else
-			WESTON_DASSERT_PTR_NOT_SET(norm);
-	} else {
-		WESTON_DASSERT_PTR_NOT_SET(pos);
-	}
+	WESTON_DASSERT_IF(touch_type != WL_TOUCH_UP, pos);
+	WESTON_DASSERT_IF(touch_type == WL_TOUCH_UP, !pos);
+	WESTON_DASSERT_IF(touch_type != WL_TOUCH_UP,
+			  !weston_touch_device_can_calibrate(device) || norm);
+	WESTON_DASSERT_IF(touch_type != WL_TOUCH_UP,
+			  weston_touch_device_can_calibrate(device) || !norm);
 
 	/* Update touchpoints count regardless of the current mode. */
 	switch (touch_type) {
@@ -5300,9 +5295,8 @@ add_non_overlapping_edges(pixman_box32_t *boxes,
 			prev_border->line.b.x = border->line.a.x;
 			prev_border = new_border;
 		} else {
-			if (prev_border)
-				WESTON_DASSERT_F64_LT(prev_border->line.b.x,
-						      border->line.a.x);
+			WESTON_DASSERT_IF(prev_border, prev_border->line.b.x <
+					  border->line.a.x);
 			/*
 			 * First border or non-overlapping.
 			 *

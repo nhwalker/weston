@@ -296,8 +296,7 @@ ensure_output_profile_extract(struct cmlcms_color_profile *cprof,
 		ret = ensure_output_profile_extract_icc(&cprof->extract, lcms_ctx,
 							cprof->icc.profile, num_points,
 							err_msg);
-		if (ret)
-			WESTON_DASSERT_PTR_SET(cprof->extract.eotf.p);
+		WESTON_DASSERT_IF(ret, cprof->extract.eotf.p);
 		break;
 	case CMLCMS_PROFILE_TYPE_PARAMS:
 		/* TODO: need to address this when we create param profiles. */

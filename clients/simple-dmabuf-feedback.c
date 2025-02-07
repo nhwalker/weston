@@ -1204,6 +1204,8 @@ print_tranche_format_modifier(uint32_t format, uint64_t modifier)
 	char *mod_name;
 	int len;
 
+	MAYBE_UNUSED(len);
+
 	mod_name = pixel_format_get_modifier(modifier);
 	fmt_info = pixel_format_get_info(format);
 

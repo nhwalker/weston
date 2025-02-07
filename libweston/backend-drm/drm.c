@@ -584,6 +584,8 @@ drm_output_pick_writeback_capture_task(struct drm_output *output)
 	int32_t height = output->base.current_mode->height;
 	uint32_t format = output->format->format;
 
+	MAYBE_UNUSED(buffer);
+
 	WESTON_DASSERT_TRUE(output->device->atomic_modeset);
 
 	ct = weston_output_pull_capture_task(&output->base,
@@ -3698,6 +3700,8 @@ find_primary_gpu(struct drm_backend *b, const char *seat)
 	struct udev_list_entry *entry;
 	const char *path, *device_seat, *id;
 	struct udev_device *dev, *drm_device, *pci;
+
+	MAYBE_UNUSED(device);
 
 	e = udev_enumerate_new(b->udev);
 	udev_enumerate_add_match_subsystem(e, "drm");

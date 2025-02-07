@@ -4119,12 +4119,10 @@ weston_output_finish_frame(struct weston_output *output,
 	 * If timestamp of latest vblank is given, it must always go forwards.
 	 * If not given, INVALID flag must be set.
 	 */
-	if (stamp)
-		WESTON_DASSERT_S64_GE(timespec_sub_to_nsec(stamp, &output->frame_time),
-				      0);
-	else
-		WESTON_DASSERT_BIT_SET(presented_flags,
-				       WP_PRESENTATION_FEEDBACK_INVALID);
+	WESTON_DASSERT_IF(stamp,
+			  timespec_sub_to_nsec(stamp, &output->frame_time) >= 0);
+	WESTON_DASSERT_IF(!stamp, presented_flags &
+			  WP_PRESENTATION_FEEDBACK_INVALID);
 
 	weston_compositor_read_presentation_clock(compositor, &now);
 
@@ -9534,6 +9532,8 @@ weston_compositor_print_scene_graph(struct weston_compositor *ec)
 	char *ret;
 	size_t len;
 	int err;
+
+	MAYBE_UNUSED(err);
 
 	fp = open_memstream(&ret, &len);
 	WESTON_ASSERT_PTR_SET(fp);

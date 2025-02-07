@@ -143,10 +143,8 @@ weston_desktop_xwayland_surface_change_state(struct weston_desktop_xwayland_surf
 	}
 
 	if (parent != NULL) {
-		struct weston_surface *psurface;
-
-		psurface = weston_desktop_surface_get_surface(parent);
-		WESTON_DASSERT_PTR_EQ(offset->coordinate_space_id, psurface);
+		WESTON_DASSERT_PTR_EQ(offset->coordinate_space_id,
+				      weston_desktop_surface_get_surface(parent));
 		weston_desktop_surface_set_relative_to(surface->surface, parent,
 						       *offset, false);
 	}

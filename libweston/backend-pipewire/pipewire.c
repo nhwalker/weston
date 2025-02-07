@@ -1071,6 +1071,8 @@ pipewire_switch_mode(struct weston_output *base, struct weston_mode *target_mode
 	struct weston_mode *local_mode;
 	struct weston_size fb_size;
 
+	MAYBE_UNUSED(output);
+
 	WESTON_DASSERT_PTR_SET(output);
 
 	local_mode = pipewire_ensure_matching_mode(base, target_mode);

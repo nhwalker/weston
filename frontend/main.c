@@ -3867,6 +3867,8 @@ vnc_backend_output_configure(struct weston_output *output)
 	int height;
 	bool resizeable;
 
+	MAYBE_UNUSED(parsed_options);
+
 	WESTON_DASSERT_PTR_SET(parsed_options);
 
 	if (!api) {

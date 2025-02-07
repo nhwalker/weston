@@ -238,6 +238,17 @@ u64_from_u32s(uint32_t hi, uint32_t lo)
 #endif
 
 /**
+ * Flag x as maybe unused to prevent compilers from emitting warnings on unused
+ * but set variables. This is useful to avoid compiler warnings when NDEBUG is
+ * set (release builds) and assertions are compiled out.
+ *
+ * C23 has the [[maybe_unused]] variable attribute.
+ *
+ * @param a The variable to flag as maybe unused.
+ */
+#define MAYBE_UNUSED(a) (void) a
+
+/**
  * Returns number of bits set in 32-bit value x.
  *
  * @param x a 32-bit value.
