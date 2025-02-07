@@ -565,7 +565,7 @@ vnc_output_update_cursor(struct vnc_output *output)
 
 	fb = nvnc_fb_new(buffer->width, buffer->height, DRM_FORMAT_ARGB8888,
 			 buffer->width);
-	WESTON_DASSERT_PTR_SET(fb);
+	WESTON_ASSERT_PTR_SET(fb);
 
 	src = wl_shm_buffer_get_data(buffer->shm_buffer);
 	dst = nvnc_fb_get_addr(fb);
@@ -728,7 +728,7 @@ vnc_update_buffer(struct nvnc_display *display, struct pixman_region32 *damage)
 	struct nvnc_fb *fb;
 
 	fb = nvnc_fb_pool_acquire(output->fb_pool);
-	WESTON_DASSERT_PTR_SET(fb);
+	WESTON_ASSERT_PTR_SET(fb);
 
 	buffer = nvnc_get_userdata(fb);
 	if (!buffer) {

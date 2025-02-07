@@ -101,7 +101,7 @@ weston_color_profile_param_builder_create(struct weston_compositor *compositor)
 
 	builder->err_fp = open_memstream(&builder->err_msg,
 					 &builder->err_msg_size);
-	WESTON_DASSERT_PTR_SET(builder->err_fp);
+	WESTON_ASSERT_PTR_SET(builder->err_fp);
 
 	return builder;
 }

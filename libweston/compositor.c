@@ -691,8 +691,7 @@ weston_view_create_internal(struct weston_surface *surface)
 	struct weston_view *view;
 
 	view = zalloc(sizeof *view);
-	if (view == NULL)
-		return NULL;
+	WESTON_ASSERT_PTR_SET(view);
 
 	view->surface = surface;
 
@@ -734,7 +733,6 @@ weston_view_create_subsurfaces(struct weston_view *parent_view,
 	struct weston_view *child_view;
 
 	child_view = weston_view_create_internal(child_surface);
-	WESTON_DASSERT_PTR_SET(child_view);
 
 	weston_view_set_transform_parent(child_view, parent_view);
 	weston_view_set_rel_position(child_view, sub->position.offset);
@@ -9538,7 +9536,7 @@ weston_compositor_print_scene_graph(struct weston_compositor *ec)
 	int err;
 
 	fp = open_memstream(&ret, &len);
-	WESTON_DASSERT_PTR_SET(fp);
+	WESTON_ASSERT_PTR_SET(fp);
 
 	weston_compositor_read_presentation_clock(ec, &now);
 	fprintf(fp, "Weston scene graph at %ld.%09ld:\n\n",

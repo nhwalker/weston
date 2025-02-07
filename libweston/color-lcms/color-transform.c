@@ -1153,9 +1153,9 @@ transform_factory(_cmsTransform2Fn *xform_fn,
 		return FALSE;
 	}
 	context_id = cmsGetPipelineContextID(*lut);
-	WESTON_DASSERT_PTR_SET(context_id);
+	WESTON_ASSERT_PTR_SET(context_id);
 	xform = cmsGetContextUserData(context_id);
-	WESTON_DASSERT_PTR_SET(xform);
+	WESTON_ASSERT_PTR_SET(xform);
 
 	cm = to_cmlcms(xform->base.cm);
 

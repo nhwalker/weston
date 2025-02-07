@@ -44,7 +44,7 @@ drm_plane_state_alloc(struct drm_output_state *state_output,
 {
 	struct drm_plane_state *state = zalloc(sizeof(*state));
 
-	WESTON_DASSERT_PTR_SET(state);
+	WESTON_ASSERT_PTR_SET(state);
 	state->output_state = state_output;
 	state->plane = plane;
 	state->in_fence_fd = -1;
@@ -126,7 +126,7 @@ drm_plane_state_duplicate(struct drm_output_state *state_output,
 	struct drm_plane_state *old, *tmp;
 
 	WESTON_DASSERT_PTR_SET(src);
-	WESTON_DASSERT_PTR_SET(dst);
+	WESTON_ASSERT_PTR_SET(dst);
 	*dst = *src;
 	/* We don't want to copy this, because damage is transient, and only
 	 * lasts for the duration of a single repaint.
@@ -377,7 +377,7 @@ drm_output_state_alloc(struct drm_output *output)
 {
 	struct drm_output_state *state = zalloc(sizeof(*state));
 
-	WESTON_DASSERT_PTR_SET(state);
+	WESTON_ASSERT_PTR_SET(state);
 	state->output = output;
 	state->dpms = WESTON_DPMS_OFF;
 	state->protection = WESTON_HDCP_DISABLE;
@@ -404,7 +404,7 @@ drm_output_state_duplicate(struct drm_output_state *src,
 	struct drm_output_state *dst = malloc(sizeof(*dst));
 	struct drm_plane_state *ps;
 
-	WESTON_DASSERT_PTR_SET(dst);
+	WESTON_ASSERT_PTR_SET(dst);
 
 	/* Copy the whole structure, then individually modify the
 	 * pending_state, as well as the list link into our pending

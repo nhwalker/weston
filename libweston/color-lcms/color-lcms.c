@@ -384,20 +384,20 @@ cmlcms_init(struct weston_color_manager *cm_base)
 		weston_compositor_add_log_scope(compositor, "color-lcms-transformations",
 						"Color transformation creation and destruction.\n",
 						transforms_scope_new_sub, NULL, cm);
-	WESTON_DASSERT_PTR_SET(cm->transforms_scope);
+	WESTON_ASSERT_PTR_SET(cm->transforms_scope);
 
 	cm->optimizer_scope =
 		weston_compositor_add_log_scope(compositor, "color-lcms-optimizer",
 						"Color transformation pipeline optimizer. It's best " \
 						"used together with the color-lcms-transformations " \
 						"log scope.\n", NULL, NULL, NULL);
-	WESTON_DASSERT_PTR_SET(cm->optimizer_scope);
+	WESTON_ASSERT_PTR_SET(cm->optimizer_scope);
 
 	cm->profiles_scope =
 		weston_compositor_add_log_scope(compositor, "color-lcms-profiles",
 						"Color profile creation and destruction.\n",
 						profiles_scope_new_sub, NULL, cm);
-	WESTON_DASSERT_PTR_SET(cm->profiles_scope);
+	WESTON_ASSERT_PTR_SET(cm->profiles_scope);
 
 	cm->lcms_ctx = cmsCreateContext(NULL, cm);
 	if (!cm->lcms_ctx) {

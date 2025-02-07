@@ -87,9 +87,9 @@ custom_env_init_from_environ(struct custom_env *env)
 
 	for (it = environ; *it; it++) {
 		ep = wl_array_add(&env->envp, sizeof *ep);
-		WESTON_DASSERT_PTR_SET(ep);
+		WESTON_ASSERT_PTR_SET(ep);
 		*ep = strdup(*it);
-		WESTON_DASSERT_PTR_SET(*ep);
+		WESTON_ASSERT_PTR_SET(*ep);
 	}
 }
 
@@ -133,10 +133,10 @@ custom_env_add_arg(struct custom_env *env, const char *arg)
 	WESTON_DASSERT_FALSE(env->arg_finalized);
 
 	ap = wl_array_add(&env->argp, sizeof *ap);
-	WESTON_DASSERT_PTR_SET(ap);
+	WESTON_ASSERT_PTR_SET(ap);
 
 	*ap = strdup(arg);
-	WESTON_DASSERT_PTR_SET(*ap);
+	WESTON_ASSERT_PTR_SET(*ap);
 }
 
 void
@@ -152,10 +152,10 @@ custom_env_set_env_var(struct custom_env *env, const char *name, const char *val
 		free(*ep);
 	else
 		ep = wl_array_add(&env->envp, sizeof *ep);
-	WESTON_DASSERT_PTR_SET(ep);
+	WESTON_ASSERT_PTR_SET(ep);
 
 	str_printf(ep, "%s=%s", name, value);
-	WESTON_DASSERT_PTR_SET(*ep);
+	WESTON_ASSERT_PTR_SET(*ep);
 }
 
 /**
@@ -177,7 +177,7 @@ custom_env_add_from_exec_string(struct custom_env *env, const char *exec_str)
 	char *dup_path = strdup(exec_str);
 	char *start = dup_path;
 
-	WESTON_DASSERT_PTR_SET(dup_path);
+	WESTON_ASSERT_PTR_SET(dup_path);
 
 	/* Build the environment array (if any) by handling any number of
 	 * equal-separated key=value at the start of the string, split by
@@ -245,7 +245,7 @@ custom_env_get_envp(struct custom_env *env)
 
 	/* add terminating NULL */
 	ep = wl_array_add(&env->envp, sizeof *ep);
-	WESTON_DASSERT_PTR_SET(ep);
+	WESTON_ASSERT_PTR_SET(ep);
 	*ep = NULL;
 
 	env->env_finalized = true;
@@ -262,7 +262,7 @@ custom_env_get_argp(struct custom_env *env)
 
 	/* add terminating NULL */
 	ap = wl_array_add(&env->argp, sizeof *ap);
-	WESTON_DASSERT_PTR_SET(ap);
+	WESTON_ASSERT_PTR_SET(ap);
 	*ap = NULL;
 
 	env->arg_finalized = true;

@@ -446,8 +446,7 @@ create_focus_surface(struct weston_compositor *ec,
 	};
 
 	fsurf = malloc(sizeof *fsurf);
-	if (!fsurf)
-		return NULL;
+	WESTON_ASSERT_PTR_SET(fsurf);
 
 	curtain_params.surface_private = fsurf;
 
@@ -738,9 +737,7 @@ workspace_create(struct desktop_shell *shell)
 				       ANIMATION_DIM_LAYER);
 
 		ws->fsurf_front = create_focus_surface(shell->compositor, output);
-		WESTON_DASSERT_PTR_SET(ws->fsurf_front);
 		ws->fsurf_back = create_focus_surface(shell->compositor, output);
-		WESTON_DASSERT_PTR_SET(ws->fsurf_back);
 	} else {
 		ws->fsurf_front = NULL;
 		ws->fsurf_back = NULL;
@@ -3734,7 +3731,7 @@ shell_fade_create_view(struct desktop_shell *shell)
 	curtain_params.width = x2 - x1;
 	curtain_params.height = y2 - y1;
 	curtain = weston_shell_utils_curtain_create(compositor, &curtain_params);
-	WESTON_DASSERT_PTR_SET(curtain);
+	WESTON_ASSERT_PTR_SET(curtain);
 
 	weston_view_move_to_layer(curtain->view, &compositor->fade_layer.view_list);
 

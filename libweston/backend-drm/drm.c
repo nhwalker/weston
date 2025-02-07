@@ -2951,8 +2951,8 @@ pixman_copy_screenshot(uint32_t *dst, uint32_t *src, int dst_stride,
 	pixman_dst = pixman_image_create_bits(pixman_format,
 					      width, height,
 					      dst, dst_stride);
-	WESTON_DASSERT_PTR_SET(pixman_src);
-	WESTON_DASSERT_PTR_SET(pixman_dst);
+	WESTON_ASSERT_PTR_SET(pixman_src);
+	WESTON_ASSERT_PTR_SET(pixman_dst);
 
 	pixman_image_composite32(PIXMAN_OP_SRC,
 				 pixman_src,     /* src */
@@ -3149,7 +3149,7 @@ drm_writeback_create(struct drm_device *device, drmModeConnector *conn)
 	int ret;
 
 	writeback = zalloc(sizeof *writeback);
-	WESTON_DASSERT_PTR_SET(writeback);
+	WESTON_ASSERT_PTR_SET(writeback);
 
 	writeback->device = device;
 
