@@ -51,26 +51,24 @@ weston_assert_fail_(const char *fmt, ...)
 #endif
 
 #define WESTON_ASSERT_(a, b, val_type, val_fmt, cmp)				\
-({										\
+do {										\
 	val_type a_ = (a);							\
 	val_type b_ = (b);							\
 	bool cond = a_ cmp b_;							\
 	if (!cond)								\
 		custom_assert_fail_("%s:%u: Assertion %s %s %s (" val_fmt " %s " val_fmt ") failed!\n",	\
 				    __FILE__, __LINE__, #a, #cmp, #b, a_, #cmp, b_);				\
-	cond;									\
-})
+} while (0)
 
 #define WESTON_ASSERT_FN_(fn, a, b, val_type, val_fmt, cmp)			\
-({										\
+do {										\
 	val_type a_ = (a);							\
 	val_type b_ = (b);							\
 	bool cond = fn(a_, b_) cmp 0;						\
 	if (!cond)								\
 		custom_assert_fail_("%s:%u: Assertion %s %s %s (" val_fmt " %s " val_fmt ") failed!\n",	\
 				    __FILE__, __LINE__, #a, #cmp, #b, a_, #cmp, b_);				\
-	cond;									\
-})
+} while (0)
 
 /* Boolean asserts. */
 
@@ -182,7 +180,7 @@ weston_assert_fail_(const char *fmt, ...)
 /* Bit asserts. */
 
 #define WESTON_ASSERT_BIT_SET(value, bit)					\
-({										\
+do {										\
 	uint64_t v = (value);							\
 	uint64_t b = (bit);							\
 	bool cond = (v & b) == b;						\
@@ -190,11 +188,10 @@ weston_assert_fail_(const char *fmt, ...)
 	if (!cond)								\
 		custom_assert_fail_("%s:%u: Assertion failed! Bit \"%s\" (0x%" PRIx64 ") of \"%s\" (0x%" PRIx64 ") is not set.\n",	\
 				    __FILE__, __LINE__, #bit, b, #value, v);	\
-	cond;									\
-})
+} while (0)
 
 #define WESTON_ASSERT_BIT_NOT_SET(value, bit)					\
-({										\
+do {										\
 	uint64_t v = (value);							\
 	uint64_t b = (bit);							\
 	bool cond = (v & b) == 0;						\
@@ -202,11 +199,10 @@ weston_assert_fail_(const char *fmt, ...)
 	if (!cond)								\
 		custom_assert_fail_("%s:%u: Assertion failed! Bit \"%s\" (0x%" PRIx64 ") of \"%s\" (0x%" PRIx64 ") is set.\n",	\
 				    __FILE__, __LINE__, #bit, b, #value, v);	\
-	cond;									\
-})
+} while (0)
 
 #define WESTON_ASSERT_LEGAL_BITS(value, mask)					\
-({										\
+do {										\
 	uint64_t v_ = (value);							\
 	uint64_t m_ = (mask);							\
 	uint64_t ill = v_ & ~m_;						\
@@ -216,8 +212,7 @@ weston_assert_fail_(const char *fmt, ...)
 				    "Value %s (0x%" PRIx64 ") contains illegal bits 0x%" PRIx64 ". " \
 				    "Legal mask is %s (0x%" PRIx64 ").\n",	\
 				    __FILE__, __LINE__, #value, v_, ill, #mask, m_); \
-	cond;									\
-})
+} while (0)
 
 /* Not reached asserts. */
 
