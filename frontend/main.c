@@ -2345,6 +2345,7 @@ drm_backend_output_configure(struct weston_output *output,
 	char *gbm_format = NULL;
 	char *content_type = NULL;
 	char *seat = NULL;
+	char *mpo_attrib = NULL;
 
 	api = weston_drm_output_get_api(output->compositor);
 	if (!api) {
@@ -2411,6 +2412,12 @@ drm_backend_output_configure(struct weston_output *output,
 
 	api->set_seat(output, seat);
 	free(seat);
+
+	weston_config_section_get_string(section,
+					 "mpo", &mpo_attrib, NULL);
+
+	api->set_mpo(output, mpo_attrib);
+	free(mpo_attrib);
 
 	allow_content_protection(output, section);
 

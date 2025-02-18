@@ -104,6 +104,14 @@ struct weston_drm_output_api {
 	 */
 	int (*set_content_type)(struct weston_output *output,
 				const char *content_type);
+
+	/** The mpo distribution for the output
+	 *  - "enable" : default value
+	 *  - "disable"
+	 *  - "reserve" : reserve for specific surface layer on this output
+	 */
+	void (*set_mpo) (struct weston_output *output,
+			 const char *mpo_attrib);
 };
 
 static inline const struct weston_drm_output_api *

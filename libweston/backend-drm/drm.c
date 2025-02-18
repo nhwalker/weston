@@ -1906,6 +1906,22 @@ drm_output_set_content_type(struct weston_output *base,
 	return -1;
 }
 
+/* disable: will not use HW overlay
+ * reserve: reserve overlay for specific surface layer
+ * default: enable overlay for any fit surface layer
+ */
+static void
+drm_output_set_mpo(struct weston_output *base,
+		   const char *mpo_attrib)
+{
+	if (mpo_attrib == NULL)
+		base->mpo = OVERLAY_ENABLE;
+	else if (strcmp(mpo_attrib, "disable") == 0)
+		base->mpo = OVERLAY_DISABLE;
+	else if (strcmp(mpo_attrib, "reserve") == 0)
+		base->mpo = OVERLAY_RESERVE;
+}
+ 
 static int
 drm_output_init_gamma_size(struct drm_output *output)
 {
@@ -3995,6 +4011,7 @@ static const struct weston_drm_output_api api = {
 	drm_output_set_seat,
 	drm_output_set_max_bpc,
 	drm_output_set_content_type,
+	drm_output_set_mpo,
 };
 
 static struct drm_backend *
