@@ -1519,10 +1519,28 @@ static void
 shell_surface_update_layer(struct shell_surface *shsurf)
 {
 	struct weston_layer_entry *new_layer_link;
+	struct weston_surface *surface =
+		weston_desktop_surface_get_surface(shsurf->desktop_surface);
+	struct weston_layer *layer;
+	struct weston_view *view;
+	struct weston_output *output;
 
 	new_layer_link = shell_surface_calculate_layer_link(shsurf);
 	assert(new_layer_link);
 
+	layer = new_layer_link->layer;
+	output = shsurf->output;
+
+	if ((layer->position == WESTON_LAYER_POSITION_NORMAL)
+	    && (output != NULL)
+	    && (output->mpo == OVERLAY_RESERVE)) {
+		wl_list_for_each(view, &layer->view_list.link, layer_link.link) {
+			if (view->surface->overlay_zpos <= surface->overlay_zpos)
+				continue;
+
+			new_layer_link = &view->layer_link;
+		}
+	}
 	weston_view_move_to_layer(shsurf->view, new_layer_link);
 	shell_surface_update_child_surface_layers(shsurf);
 }
@@ -1740,6 +1758,108 @@ shell_set_view_fullscreen(struct shell_surface *shsurf)
 	shsurf->state.lowered = false;
 }
 
+/* parse app_id in weston.ini section output. it's like
+ * app_id=org.freedesktop.weston.simple-egl|overlay1
+ */
+static bool
+shell_output_parse_appid(struct shell_surface *shsurf, char *cur,
+			 char *comma, const char *app_id)
+{
+	char *p = NULL;
+	char *str = NULL, *substr = NULL;
+	size_t len;
+	int overlay;
+
+	if (app_id == NULL)
+		return false;
+
+	len = strlen(app_id);
+
+	if (comma != NULL)
+		str = strndup(cur, comma-cur);
+	else
+		str = strdup(cur);
+
+	if (str == NULL)
+		return false;
+
+	if (strcmp(str, app_id) == 0) {
+		free(str);
+		return true;
+	}
+
+	if ((strncmp(str, app_id, len) != 0) ||
+	    (str[len] != '|')) {
+		free(str);
+		return false;
+	}
+
+	p = strchr(str, '|');
+
+	if (p != NULL) {
+		substr = strdup(p+1);
+
+		if (substr != NULL) {
+			if (sscanf(substr, "overlay%d", &overlay) == 1) {
+				weston_desktop_surface_set_overlay(
+					shsurf->desktop_surface, overlay);
+			}
+			free(substr);
+		}
+	}
+
+	free(str);
+	return true;
+}
+
+static bool
+shell_output_has_app_id(struct shell_output *shell_output,
+			struct shell_surface *shsurf, const char *app_id)
+{
+	char *cur, *comma = NULL;
+	bool has_app_id = false;
+
+	if (!shell_output->app_ids)
+		return false;
+
+	cur = shell_output->app_ids;
+
+	while ((cur = strstr(cur, app_id))) {
+		comma = strchr(cur, ',');
+		has_app_id = shell_output_parse_appid(shsurf, cur, comma, app_id);
+		if (has_app_id)
+			return true;
+
+		if (comma != NULL)
+			cur = comma;
+		else
+			break;
+	}
+
+	return false;
+}
+
+static struct weston_output *
+shell_surface_find_assign_output(struct shell_surface *shsurf)
+{
+	struct shell_output *shell_output;
+	const char *app_id;
+
+	/* Check if we have a designated output for this app. */
+	app_id = weston_desktop_surface_get_app_id(shsurf->desktop_surface);
+	if (app_id) {
+		wl_list_for_each(shell_output, &shsurf->shell->output_list, link) {
+			if (shell_output_has_app_id(shell_output, shsurf, app_id)) {
+				shsurf->appid_output_assigned = true;
+				printf("Debug, %s app-id %s output %s\n", __func__, app_id, shell_output->output->name);
+				return shell_output->output;
+                        }
+                }
+        }
+
+	return NULL;
+}
+
 static void
 desktop_shell_destroy_seat(struct shell_seat *shseat)
 {
@@ -1927,6 +2047,7 @@ desktop_surface_added(struct weston_desktop_surface *desktop_surface,
 	struct wl_client *wl_client =
 		weston_desktop_client_get_client(client);
 	struct weston_view *view;
+	struct weston_output *output = NULL;
 	struct shell_surface *shsurf;
 	struct weston_surface *surface =
 		weston_desktop_surface_get_surface(desktop_surface);
@@ -1953,9 +2074,12 @@ desktop_surface_added(struct weston_desktop_surface *desktop_surface,
 	shsurf->desktop_surface = desktop_surface;
 	shsurf->view = view;
 	shsurf->fullscreen.black_view = NULL;
+	shsurf->appid_output_assigned = false;
 
-	shell_surface_set_output(
-		shsurf, weston_shell_utils_get_default_output(shsurf->shell->compositor));
+	output = shell_surface_find_assign_output(shsurf);
+	if (!output)
+		output = weston_shell_utils_get_default_output(shsurf->shell->compositor);
+	shell_surface_set_output(shsurf, output);
 
 	wl_signal_init(&shsurf->destroy_signal);
 
@@ -2148,6 +2272,8 @@ desktop_surface_committed(struct weston_desktop_surface *desktop_surface,
 		weston_desktop_surface_get_user_data(desktop_surface);
 	struct weston_surface *surface =
 		weston_desktop_surface_get_surface(desktop_surface);
+	const char *app_id =
+		weston_desktop_surface_get_app_id(desktop_surface);
 	struct weston_view *view = shsurf->view;
 	struct desktop_shell *shell = data;
 	bool was_fullscreen;
@@ -2162,6 +2288,19 @@ desktop_surface_committed(struct weston_desktop_surface *desktop_surface,
 
 	if (surface->width == 0) {
 		return;
+	}
+
+	if (!shsurf->appid_output_assigned && app_id) {
+		struct weston_output *output = NULL;
+
+		/* reset previous output being set in _added() as the output is
+		 * being cached */
+		output = shell_surface_find_assign_output(shsurf);
+		if (output) {
+			shsurf->output = NULL;
+			shell_surface_set_output(shsurf, output);
+		}
+		shsurf->appid_output_assigned = true;
 	}
 
 	was_fullscreen = shsurf->state.fullscreen;
@@ -4429,6 +4568,7 @@ shell_output_destroy(struct shell_output *shell_output)
 	}
 	wl_list_remove(&shell_output->destroy_listener.link);
 	wl_list_remove(&shell_output->link);
+	free(shell_output->app_ids);
 	free(shell_output);
 }
 
@@ -4502,6 +4642,21 @@ desktop_shell_temporary_curtain_get_label(struct weston_surface *surface,
 }
 
 static void
+desktop_shell_output_config(struct shell_output *shell_output)
+{
+	struct weston_config *wc = wet_get_config(shell_output->shell->compositor);
+	struct weston_config_section *section =
+		weston_config_get_section(wc, "output", "name", shell_output->output->name);
+
+	assert(shell_output->app_ids == NULL);
+
+	if (section) {
+		weston_config_section_get_string(section, "app-ids",
+						 &shell_output->app_ids, NULL);
+	}
+}
+
+static void
 create_shell_output(struct desktop_shell *shell,
 					struct weston_output *output)
 {
@@ -4518,6 +4673,8 @@ create_shell_output(struct desktop_shell *shell,
 	wl_signal_add(&output->destroy_signal,
 		      &shell_output->destroy_listener);
 	wl_list_insert(shell->output_list.prev, &shell_output->link);
+
+	desktop_shell_output_config(shell_output);
 
 	if (!shell->disallow_output_changed_move && wl_list_length(&shell->output_list) == 1)
 		shell_for_each_layer(shell,

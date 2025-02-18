@@ -721,6 +721,12 @@ struct weston_output {
 	 * mirror-of key in [output] section.
 	 */
 	struct weston_output *mirror_of;
+
+	enum {
+		OVERLAY_DISABLE = 0,
+		OVERLAY_RESERVE,
+		OVERLAY_ENABLE,
+	} mpo; 
 };
 
 enum weston_pointer_motion_mask {
@@ -1968,6 +1974,10 @@ struct weston_surface {
 
 	/* struct weston_paint_node::surface_link */
 	struct wl_list paint_node_list;
+
+	/* surface go to hw overlay or not*/
+	int overlay_zpos;
+	bool set_overlay;
 
 	/** Damage in local coordinates from the client, for tex upload. */
 	pixman_region32_t damage;

@@ -763,6 +763,16 @@ weston_desktop_surface_set_title(struct weston_desktop_surface *surface,
 	free(old);
 }
 
+WL_EXPORT void
+weston_desktop_surface_set_overlay(struct weston_desktop_surface *surface,
+				    int overlay)
+{
+	if (surface->surface) {
+		surface->surface->overlay_zpos = overlay;
+		surface->surface->set_overlay = true;
+	}
+}
+
 void
 weston_desktop_surface_set_app_id(struct weston_desktop_surface *surface,
 				  const char *app_id)

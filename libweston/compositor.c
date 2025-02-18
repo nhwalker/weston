@@ -1041,6 +1041,8 @@ weston_surface_create(struct weston_compositor *compositor)
 	surface->desired_protection = WESTON_HDCP_DISABLE;
 	surface->current_protection = WESTON_HDCP_DISABLE;
 	surface->protection_mode = WESTON_SURFACE_PROTECTION_MODE_RELAXED;
+	surface->set_overlay = false;
+	surface->overlay_zpos = 0;
 
 	wl_list_init(&surface->cm_feedback_surface_resource_list);
 	surface->cm_surface = NULL;
