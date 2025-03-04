@@ -26,11 +26,11 @@
 #include <string.h>
 
 #include <wayland-server.h>
-#include <assert.h>
 
 #include <libweston/libweston.h>
 #include <libweston/zalloc.h>
 #include "shared/helpers.h"
+#include "shared/weston-assert.h"
 
 #include <libweston/desktop.h>
 #include "internal.h"
@@ -58,8 +58,8 @@ weston_desktop_create(struct weston_compositor *compositor,
 	struct weston_desktop *desktop;
 	struct wl_display *display = compositor->wl_display;
 
-	assert(api->surface_added);
-	assert(api->surface_removed);
+	WESTON_DASSERT_PTR_SET(api->surface_added);
+	WESTON_DASSERT_PTR_SET(api->surface_removed);
 
 	desktop = zalloc(sizeof(struct weston_desktop));
 	desktop->compositor = compositor;

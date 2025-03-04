@@ -23,7 +23,6 @@
 
 #include "config.h"
 
-#include <assert.h>
 #include <errno.h>
 
 #include "color-management-v1-client-protocol.h"
@@ -32,6 +31,7 @@
 #include "single-pixel-buffer-v1-client-protocol.h"
 #include "viewporter-client-protocol.h"
 #include "window.h"
+#include "weston-client-assert.h"
 
 enum image_description_status {
 	IMAGE_DESCRIPTION_NOT_CREATED = 0,
@@ -498,7 +498,7 @@ create_image_description(struct color *color, uint32_t primaries_named, uint32_t
 		return NULL;
 	}
 
-	assert(image_desc_status == IMAGE_DESCRIPTION_READY);
+	WESTON_DASSERT_ENUM_EQ(image_desc_status, IMAGE_DESCRIPTION_READY);
 
 	return image_description;
 }

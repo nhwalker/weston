@@ -26,8 +26,6 @@
 
 #include "config.h"
 
-#include <assert.h>
-
 #include <wayland-server.h>
 
 #include <libweston/libweston.h>
@@ -35,6 +33,7 @@
 
 #include <libweston/desktop.h>
 #include "internal.h"
+#include "shared/weston-assert.h"
 #include "xwayland/xwayland-internal-interface.h"
 
 enum weston_desktop_xwayland_surface_state {
@@ -77,9 +76,9 @@ weston_desktop_xwayland_surface_change_state(struct weston_desktop_xwayland_surf
 	struct weston_surface *wsurface;
 	bool to_add = (parent == NULL && state != XWAYLAND);
 
-	assert(state != NONE);
-	assert(!parent || state == TRANSIENT);
-	assert(!parent || offset);
+	WESTON_DASSERT_ENUM_NE(state, NONE);
+	WESTON_DASSERT_TRUE(!parent || state == TRANSIENT);
+	WESTON_DASSERT_TRUE(!parent || offset);
 
 	if (to_add && surface->added) {
 		surface->state = state;
@@ -94,7 +93,7 @@ weston_desktop_xwayland_surface_change_state(struct weston_desktop_xwayland_surf
 
 	if (surface->state != state) {
 		if (surface->state == XWAYLAND) {
-			assert(!surface->added);
+			WESTON_DASSERT_FALSE(surface->added);
 
 			weston_desktop_surface_unlink_view(surface->view);
 			weston_view_destroy(surface->view);
@@ -125,7 +124,7 @@ weston_desktop_xwayland_surface_change_state(struct weston_desktop_xwayland_surf
 		}
 
 		if (state == XWAYLAND) {
-			assert(!surface->added);
+			WESTON_DASSERT_FALSE(surface->added);
 
 			surface->view =
 				weston_desktop_surface_create_view(surface->surface);
@@ -144,10 +143,8 @@ weston_desktop_xwayland_surface_change_state(struct weston_desktop_xwayland_surf
 	}
 
 	if (parent != NULL) {
-		struct weston_surface *psurface;
-
-		psurface = weston_desktop_surface_get_surface(parent);
-		assert(offset->coordinate_space_id == psurface);
+		WESTON_DASSERT_PTR_EQ(offset->coordinate_space_id,
+				      weston_desktop_surface_get_surface(parent));
 		weston_desktop_surface_set_relative_to(surface->surface, parent,
 						       *offset, false);
 	}
@@ -162,7 +159,7 @@ weston_desktop_xwayland_surface_committed(struct weston_desktop_surface *dsurfac
 	struct weston_geometry oldgeom;
 	struct weston_coord_surface tmp;
 
-	assert(dsurface == surface->surface);
+	WESTON_DASSERT_PTR_EQ(dsurface, surface->surface);
 	surface->committed = true;
 
 #ifdef WM_DEBUG

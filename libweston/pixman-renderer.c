@@ -30,7 +30,6 @@
 #include <errno.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <assert.h>
 
 #include "pixman-renderer.h"
 #include "color.h"
@@ -185,7 +184,7 @@ region_intersect_only_translation(pixman_region32_t *result_global,
 	struct weston_coord_global cg;
 
 	cs = weston_coord_surface(0, 0, view->surface);
-	assert(view_transformation_is_translation(view));
+	WESTON_DASSERT_TRUE(view_transformation_is_translation(view));
 
 	/* Convert from surface to global coordinates */
 	pixman_region32_copy(result_global, surf);
@@ -264,7 +263,7 @@ composite_clipped(struct weston_output *output,
 	bitspp = PIXMAN_FORMAT_BPP(src_format);
 	src_data = pixman_image_get_data(src);
 
-	assert(src_format);
+	WESTON_DASSERT_ENUM_NE(src_format, 0);
 
 	/* This would be massive overdraw, except when n_box is 1. */
 	boxes = pixman_region32_rectangles(src_clip, &n_box);
@@ -483,7 +482,7 @@ draw_paint_node(struct weston_paint_node *pnode,
 	if (!pnode->surf_xform_valid)
 		return;
 
-	assert(pnode->surf_xform.transform == NULL);
+	WESTON_DASSERT_PTR_NOT_SET(pnode->surf_xform.transform);
 
 	/* No buffer attached */
 	if (!ps->image)
@@ -577,8 +576,8 @@ pixman_renderer_do_capture(struct weston_buffer *into, pixman_image_t *from)
 	struct wl_shm_buffer *shm = into->shm_buffer;
 	pixman_image_t *dest;
 
-	assert(into->type == WESTON_BUFFER_SHM);
-	assert(shm);
+	WESTON_DASSERT_ENUM_EQ(into->type, WESTON_BUFFER_SHM);
+	WESTON_DASSERT_PTR_SET(shm);
 
 	wl_shm_buffer_begin_access(shm);
 
@@ -614,9 +613,10 @@ pixman_renderer_do_capture_tasks(struct weston_output *output,
 						     pfmt))) {
 		struct weston_buffer *buffer = weston_capture_task_get_buffer(ct);
 
-		assert(buffer->width == width);
-		assert(buffer->height == height);
-		assert(buffer->pixel_format->format == pfmt->format);
+		WESTON_DASSERT_S32_EQ(buffer->width, width);
+		WESTON_DASSERT_S32_EQ(buffer->height, height);
+		WESTON_DASSERT_U32_EQ(buffer->pixel_format->format,
+				      pfmt->format);
 
 		if (buffer->type != WESTON_BUFFER_SHM) {
 			weston_capture_task_retire_failed(ct, "pixman: unsupported buffer");
@@ -640,8 +640,9 @@ pixman_renderer_repaint_output(struct weston_output *output,
 	struct pixman_output_state *po = get_output_state(output);
 	struct pixman_renderbuffer *rb;
 
-	assert(po);
-	assert(((struct pixman_renderbuffer *) renderbuffer)->output == output);
+	WESTON_DASSERT_PTR_SET(po);
+	WESTON_DASSERT_PTR_EQ(((struct pixman_renderbuffer *) renderbuffer)->output,
+			      output);
 
 	/* Accumulate damage in all renderbuffers */
 	wl_list_for_each(rb, &po->renderbuffer_list, link) {
@@ -652,8 +653,8 @@ pixman_renderer_repaint_output(struct weston_output *output,
 
 	pixman_renderer_output_set_buffer(output, rb->image);
 
-	assert(output->from_blend_to_output_by_backend ||
-	       output->color_outcome->from_blend_to_output == NULL);
+	WESTON_DASSERT_TRUE(output->from_blend_to_output_by_backend ||
+			    output->color_outcome->from_blend_to_output == NULL);
 
 	if (!po->hw_buffer)
  		return;
@@ -922,7 +923,7 @@ pixman_renderer_create_renderbuffer(struct weston_output *output,
 	struct pixman_output_state *po = get_output_state(output);
 	struct pixman_renderbuffer *renderbuffer;
 
-	assert(po);
+	WESTON_DASSERT_PTR_SET(po);
 
 	renderbuffer = xzalloc(sizeof(*renderbuffer));
 
@@ -959,7 +960,7 @@ pixman_renderer_create_renderbuffer(struct weston_output *output,
 static void
 pixman_renderbuffer_fini(struct pixman_renderbuffer *renderbuffer)
 {
-	assert(!renderbuffer->stale);
+	WESTON_DASSERT_FALSE(renderbuffer->stale);
 
 	pixman_region32_fini(&renderbuffer->damage);
 	pixman_image_unref(renderbuffer->image);
@@ -1018,10 +1019,10 @@ pixman_renderer_resize_output(struct weston_output *output,
 	 * Pixman-renderer does not implement output decorations blitting,
 	 * wayland-backend does it on its own.
 	 */
-	assert(area->x == 0);
-	assert(area->y == 0);
-	assert(fb_size->width == area->width);
-	assert(fb_size->height == area->height);
+	WESTON_DASSERT_S32_EQ(area->x, 0);
+	WESTON_DASSERT_S32_EQ(area->y, 0);
+	WESTON_DASSERT_S32_EQ(fb_size->width, area->width);
+	WESTON_DASSERT_S32_EQ(fb_size->height, area->height);
 
 	pixman_renderer_output_set_buffer(output, NULL);
 
@@ -1162,12 +1163,14 @@ pixman_renderer_output_set_buffer(struct weston_output *output,
 	pixman_format = pixman_image_get_format(po->hw_buffer);
 	po->hw_format = pixel_format_get_info_by_pixman(pixman_format);
 	compositor->read_format = po->hw_format;
-	assert(po->hw_format);
+	WESTON_DASSERT_PTR_SET(po->hw_format);
 
 	pixman_image_ref(po->hw_buffer);
 
-	assert(po->fb_size.width == pixman_image_get_width(po->hw_buffer));
-	assert(po->fb_size.height == pixman_image_get_height(po->hw_buffer));
+	WESTON_DASSERT_S32_EQ(po->fb_size.width,
+			      pixman_image_get_width(po->hw_buffer));
+	WESTON_DASSERT_S32_EQ(po->fb_size.height,
+			      pixman_image_get_height(po->hw_buffer));
 
 	/*
 	 * The size cannot change, but the format might, or we did not have
@@ -1192,7 +1195,7 @@ pixman_renderer_output_create(struct weston_output *output,
 		.height = options->fb_size.height
 	};
 
-	assert(!get_output_state(output));
+	WESTON_DASSERT_PTR_NOT_SET(get_output_state(output));
 
 	po = zalloc(sizeof *po);
 	if (po == NULL)
@@ -1224,7 +1227,7 @@ pixman_renderer_output_destroy(struct weston_output *output)
 {
 	struct pixman_output_state *po = get_output_state(output);
 
-	assert(po);
+	WESTON_DASSERT_PTR_SET(po);
 
 	if (po->shadow_image)
 		pixman_image_unref(po->shadow_image);

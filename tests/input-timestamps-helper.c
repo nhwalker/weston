@@ -52,17 +52,17 @@ get_input_timestamps_manager(struct client *client)
 			continue;
 
 		/* Can't have multiple input timestamp managers. */
-		test_assert_ptr_null(global_ts);
+		TEST_ASSERT_PTR_NOT_SET(global_ts);
 
 		global_ts = g;
 	}
 
-	test_assert_ptr_not_null(global_ts);
-	test_assert_u32_eq(global_ts->version, 1);
+	TEST_ASSERT_PTR_SET(global_ts);
+	TEST_ASSERT_U32_EQ(global_ts->version, 1);
 
 	ts = wl_registry_bind(client->wl_registry, global_ts->name,
 			      &zwp_input_timestamps_manager_v1_interface, 1);
-	test_assert_ptr_not_null(ts);
+	TEST_ASSERT_PTR_SET(ts);
 
 	return ts;
 }
@@ -97,12 +97,12 @@ input_timestamps_create_for_keyboard(struct client *client)
 	struct input_timestamps *input_ts;
 
 	input_ts = zalloc(sizeof *input_ts);
-	test_assert_ptr_not_null(input_ts);
+	TEST_ASSERT_PTR_SET(input_ts);
 
 	input_ts->proxy =
 		zwp_input_timestamps_manager_v1_get_keyboard_timestamps(
 			manager, client->input->keyboard->wl_keyboard);
-	test_assert_ptr_not_null(input_ts->proxy);
+	TEST_ASSERT_PTR_SET(input_ts->proxy);
 
 	zwp_input_timestamps_v1_add_listener(input_ts->proxy,
 					     &input_timestamps_listener,
@@ -124,12 +124,12 @@ input_timestamps_create_for_pointer(struct client *client)
 	struct input_timestamps *input_ts;
 
 	input_ts = zalloc(sizeof *input_ts);
-	test_assert_ptr_not_null(input_ts);
+	TEST_ASSERT_PTR_SET(input_ts);
 
 	input_ts->proxy =
 		zwp_input_timestamps_manager_v1_get_pointer_timestamps(
 			manager, client->input->pointer->wl_pointer);
-	test_assert_ptr_not_null(input_ts->proxy);
+	TEST_ASSERT_PTR_SET(input_ts->proxy);
 
 	zwp_input_timestamps_v1_add_listener(input_ts->proxy,
 					     &input_timestamps_listener,
@@ -151,12 +151,12 @@ input_timestamps_create_for_touch(struct client *client)
 	struct input_timestamps *input_ts;
 
 	input_ts = zalloc(sizeof *input_ts);
-	test_assert_ptr_not_null(input_ts);
+	TEST_ASSERT_PTR_SET(input_ts);
 
 	input_ts->proxy =
 		zwp_input_timestamps_manager_v1_get_touch_timestamps(
 			manager, client->input->touch->wl_touch);
-	test_assert_ptr_not_null(input_ts->proxy);
+	TEST_ASSERT_PTR_SET(input_ts->proxy);
 
 	zwp_input_timestamps_v1_add_listener(input_ts->proxy,
 					     &input_timestamps_listener,

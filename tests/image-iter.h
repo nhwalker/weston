@@ -68,9 +68,9 @@ image_header_from(pixman_image_t *image)
 static inline uint32_t *
 image_header_get_row_u32(const struct image_header *header, int y)
 {
-	test_assert_int_ge(y, 0);
-	test_assert_int_lt(y, header->height);
-	test_assert_int_eq(PIXMAN_FORMAT_BPP(header->pixman_format), 32);
+	TEST_ASSERT_INT_GE(y, 0);
+	TEST_ASSERT_INT_LT(y, header->height);
+	TEST_ASSERT_INT_EQ(PIXMAN_FORMAT_BPP(header->pixman_format), 32);
 
 	return (uint32_t *)(header->data + y * header->stride_bytes);
 }

@@ -24,7 +24,6 @@
 
 #include "config.h"
 
-#include <assert.h>
 #include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -42,6 +41,7 @@
 #include "shared/helpers.h"
 #include "shared/xalloc.h"
 #include "window.h"
+#include "weston-client-assert.h"
 #include "text-input-unstable-v1-client-protocol.h"
 
 struct text_entry {
@@ -826,8 +826,9 @@ text_entry_update_layout(struct text_entry *entry)
 	char *text;
 	PangoAttrList *attr_list;
 
-	assert(entry->cursor <= (strlen(entry->text) +
-	       (entry->preedit.text ? strlen(entry->preedit.text) : 0)));
+	WESTON_DASSERT_U32_LE(entry->cursor, strlen(entry->text) +
+			      (entry->preedit.text ?
+			       strlen(entry->preedit.text) : 0));
 
 	if (entry->preedit.text) {
 		text = xmalloc(strlen(entry->text) + strlen(entry->preedit.text) + 1);
@@ -1055,7 +1056,7 @@ text_entry_set_cursor_position(struct text_entry *entry,
 	if (text_entry_has_preedit(entry)) {
 		text_entry_commit_and_reset(entry);
 
-		assert(!text_entry_has_preedit(entry));
+		WESTON_DASSERT_FALSE(text_entry_has_preedit(entry));
 	}
 
 	if (entry->cursor == cursor)
@@ -1076,9 +1077,9 @@ text_entry_delete_text(struct text_entry *entry,
 {
 	uint32_t l;
 
-	assert(index <= strlen(entry->text));
-	assert(index + length <= strlen(entry->text));
-	assert(index + length >= length);
+	WESTON_DASSERT_U32_LE(index, strlen(entry->text));
+	WESTON_DASSERT_U32_LE(index + length, strlen(entry->text));
+	WESTON_DASSERT_U32_GE(index + length, length);
 
 	l = strlen(entry->text + index + length);
 	memmove(entry->text + index,

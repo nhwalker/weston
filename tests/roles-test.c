@@ -60,18 +60,18 @@ get_subcompositor(struct client *client)
 			continue;
 
 		if (global_sub)
-			test_assert_not_reached("multiple wl_subcompositor objects");
+			TEST_ASSERT_NOT_REACHED("multiple wl_subcompositor objects");
 
 		global_sub = g;
 	}
 
-	test_assert_ptr_not_null(global_sub);
+	TEST_ASSERT_PTR_SET(global_sub);
 
-	test_assert_u32_eq(global_sub->version, 1);
+	TEST_ASSERT_U32_EQ(global_sub->version, 1);
 
 	sub = wl_registry_bind(client->wl_registry, global_sub->name,
 			       &wl_subcompositor_interface, 1);
-	test_assert_ptr_not_null(sub);
+	TEST_ASSERT_PTR_SET(sub);
 
 	return sub;
 }
@@ -88,16 +88,16 @@ get_xdg_wm_base(struct client *client)
 			continue;
 
 		if (global)
-			test_assert_not_reached("multiple xdg_wm_base objects");
+			TEST_ASSERT_NOT_REACHED("multiple xdg_wm_base objects");
 
 		global = g;
 	}
 
-	test_assert_ptr_not_null(global);
+	TEST_ASSERT_PTR_SET(global);
 
 	xdg_wm_base = wl_registry_bind(client->wl_registry, global->name,
 				 &xdg_wm_base_interface, 1);
-	test_assert_ptr_not_null(xdg_wm_base);
+	TEST_ASSERT_PTR_SET(xdg_wm_base);
 
 	return xdg_wm_base;
 }
@@ -112,19 +112,19 @@ TEST(test_role_conflict_sub_wlshell)
 	struct xdg_surface *xdg_surface;
 
 	client = create_client_and_test_surface(100, 50, 123, 77);
-	test_assert_ptr_not_null(client);
+	TEST_ASSERT_PTR_SET(client);
 
 	subco = get_subcompositor(client);
 	xdg_wm_base = get_xdg_wm_base(client);
 
 	child = wl_compositor_create_surface(client->wl_compositor);
-	test_assert_ptr_not_null(child);
+	TEST_ASSERT_PTR_SET(child);
 	sub = wl_subcompositor_get_subsurface(subco, child,
 					      client->surface->wl_surface);
-	test_assert_ptr_not_null(sub);
+	TEST_ASSERT_PTR_SET(sub);
 
 	xdg_surface = xdg_wm_base_get_xdg_surface(xdg_wm_base, child);
-	test_assert_ptr_not_null(xdg_surface);
+	TEST_ASSERT_PTR_SET(xdg_surface);
 
 	expect_protocol_error(client, &xdg_wm_base_interface,
 			      XDG_WM_BASE_ERROR_ROLE);
@@ -148,21 +148,21 @@ TEST(test_role_conflict_wlshell_sub)
 	struct xdg_toplevel *xdg_toplevel;
 
 	client = create_client_and_test_surface(100, 50, 123, 77);
-	test_assert_ptr_not_null(client);
+	TEST_ASSERT_PTR_SET(client);
 
 	subco = get_subcompositor(client);
 	xdg_wm_base = get_xdg_wm_base(client);
 
 	child = wl_compositor_create_surface(client->wl_compositor);
-	test_assert_ptr_not_null(child);
+	TEST_ASSERT_PTR_SET(child);
 	xdg_surface = xdg_wm_base_get_xdg_surface(xdg_wm_base, child);
-	test_assert_ptr_not_null(xdg_surface);
+	TEST_ASSERT_PTR_SET(xdg_surface);
 	xdg_toplevel = xdg_surface_get_toplevel(xdg_surface);
-	test_assert_ptr_not_null(xdg_toplevel);
+	TEST_ASSERT_PTR_SET(xdg_toplevel);
 
 	sub = wl_subcompositor_get_subsurface(subco, child,
 					      client->surface->wl_surface);
-	test_assert_ptr_not_null(sub);
+	TEST_ASSERT_PTR_SET(sub);
 
 	expect_protocol_error(client, &wl_subcompositor_interface,
 			      WL_SUBCOMPOSITOR_ERROR_BAD_SURFACE);

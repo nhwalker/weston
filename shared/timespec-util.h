@@ -27,10 +27,11 @@
 #define TIMESPEC_UTIL_H
 
 #include <stdint.h>
-#include <assert.h>
 #include <time.h>
 #include <stdbool.h>
-#include <shared/helpers.h>
+
+#include "helpers.h"
+#include "weston-assert.h"
 
 #define NSEC_PER_SEC 1000000000
 
@@ -162,8 +163,9 @@ static inline void
 timespec_to_proto(const struct timespec *a, uint32_t *tv_sec_hi,
                   uint32_t *tv_sec_lo, uint32_t *tv_nsec)
 {
-	assert(a->tv_sec >= 0);
-	assert(a->tv_nsec >= 0 && a->tv_nsec < NSEC_PER_SEC);
+	WESTON_DASSERT_U32_GE(a->tv_sec, 0);
+	WESTON_DASSERT_U32_GE(a->tv_nsec, 0);
+	WESTON_DASSERT_U32_LT(a->tv_nsec, NSEC_PER_SEC);
 
 	uint64_t sec64 = a->tv_sec;
 
@@ -253,7 +255,8 @@ timespec_eq(const struct timespec *a, const struct timespec *b)
 static inline int64_t
 millihz_to_nsec(uint32_t mhz)
 {
-	assert(mhz > 0);
+	WESTON_DASSERT_U32_GT(mhz, 0);
+
 	return 1000000000000LL / mhz;
 }
 

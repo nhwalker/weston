@@ -34,7 +34,6 @@
 #include <unistd.h>
 #include <errno.h>
 #include <math.h>
-#include <assert.h>
 #include <time.h>
 #include <cairo.h>
 #include <sys/mman.h>
@@ -65,6 +64,7 @@
 
 #include "window.h"
 #include "viewporter-client-protocol.h"
+#include "weston-client-assert.h"
 
 #define ZWP_RELATIVE_POINTER_MANAGER_V1_VERSION 1
 #define ZWP_POINTER_CONSTRAINTS_V1_VERSION 1
@@ -631,7 +631,7 @@ widget_set_image_description_icc(struct widget *widget, int icc_fd,
 	}
 
 	intent_info = render_intent_info_from(intent);
-	assert(intent_info && "error: unknown rendering intent\n");
+	WESTON_DASSERT_PTR_SET(intent_info);
 
 	if (!((display->color_manager_rendering_intents >> intent_info->protocol_intent) & 1)) {
 		str_printf(err_msg,
@@ -679,7 +679,7 @@ widget_set_image_description_icc(struct widget *widget, int icc_fd,
 			   "Image description creation gracefully failed.");
 		return false;
 	}
-	assert(cm_image_desc.status == CM_IMAGE_DESC_READY);
+	WESTON_DASSERT_ENUM_EQ(cm_image_desc.status, CM_IMAGE_DESC_READY);
 
 	if (!surface->cm_surface)
 		surface->cm_surface =
@@ -971,7 +971,7 @@ display_create_surface(struct display *display,
 	if (check_size(rectangle) < 0)
 		return NULL;
 
-	assert(flags & SURFACE_SHM);
+	WESTON_DASSERT_BIT_SET(flags, SURFACE_SHM);
 	return display_create_shm_surface(display, rectangle, flags,
 					  NULL, NULL);
 }
@@ -1058,7 +1058,7 @@ shm_surface_buffer_release(void *data, struct wl_buffer *buffer)
 			break;
 		}
 	}
-	assert(i < MAX_LEAVES && "unknown buffer released");
+	WESTON_DASSERT_INT_LT(i, MAX_LEAVES);
 
 	/* Leave one free leaf with storage, release others */
 	free_found = 0;
@@ -1818,7 +1818,7 @@ widget_get_cairo_surface(struct widget *widget)
 	struct surface *surface = widget->surface;
 	struct window *window = widget->window;
 
-	assert(widget->use_cairo);
+	WESTON_DASSERT_TRUE(widget->use_cairo);
 
 	if (!surface->cairo_surface) {
 		if (surface == window->main_surface)
@@ -3985,7 +3985,7 @@ pointer_surface_frame_callback(void *data, struct wl_callback *callback,
 	cancel_pointer_image_update(input);
 
 	if (callback) {
-		assert(callback == input->cursor_frame_cb);
+		WESTON_DASSERT_PTR_EQ(callback, input->cursor_frame_cb);
 		wl_callback_destroy(callback);
 		input->cursor_frame_cb = NULL;
 		force_frame = false;
@@ -4609,7 +4609,7 @@ window_flush(struct window *window)
 {
 	struct surface *surface;
 
-	assert(!window->redraw_inhibited);
+	WESTON_DASSERT_FALSE(window->redraw_inhibited);
 
 	if (!window->custom) {
 		if (window->xdg_surface)
@@ -4660,7 +4660,7 @@ frame_callback(void *data, struct wl_callback *callback, uint32_t time)
 {
 	struct surface *surface = data;
 
-	assert(callback == surface->frame_cb);
+	WESTON_DASSERT_PTR_EQ(callback, surface->frame_cb);
 	DBG_OBJ(callback, "done\n");
 	wl_callback_destroy(callback);
 	surface->frame_cb = NULL;
@@ -4975,7 +4975,7 @@ window_get_title(struct window *window)
 void
 window_set_appid(struct window *window, const char *appid)
 {
-	assert(!window->appid);
+	WESTON_DASSERT_PTR_NOT_SET(window->appid);
 	window->appid = strdup(appid);
 
 	if (window->xdg_toplevel)
@@ -5406,7 +5406,7 @@ window_create_internal(struct display *display, int custom)
 	surface = surface_create(window);
 	window->main_surface = surface;
 
-	assert(custom || display->xdg_shell);
+	WESTON_DASSERT_TRUE(custom || display->xdg_shell);
 
 	window->custom = custom;
 
@@ -5432,14 +5432,15 @@ window_create(struct display *display)
 		window->xdg_surface =
 			xdg_wm_base_get_xdg_surface(window->display->xdg_shell,
 						    window->main_surface->surface);
-		abort_oom_if_null(window->xdg_surface);
+		CLIENT_ASSERT(window->xdg_surface, "can't create XDG surface");
 
 		xdg_surface_add_listener(window->xdg_surface,
 					 &xdg_surface_listener, window);
 
 		window->xdg_toplevel =
 			xdg_surface_get_toplevel(window->xdg_surface);
-		abort_oom_if_null(window->xdg_toplevel);
+		CLIENT_ASSERT(window->xdg_toplevel,
+			      "can't create XDG toplevel");
 
 		xdg_toplevel_add_listener(window->xdg_toplevel,
 					  &xdg_toplevel_listener, window);
@@ -5654,7 +5655,8 @@ create_menu(struct display *display,
 	menu->widget = window_add_widget(menu->window, menu);
 	menu->frame = frame_create(window->display->theme, 0, 0,
 	                           FRAME_BUTTON_NONE, NULL, NULL);
-	abort_oom_if_null(menu->frame);
+	CLIENT_ASSERT(menu->frame, "can't create frame");
+
 	menu->entries = entries;
 	menu->count = count;
 	menu->release_count = 0;
@@ -5689,7 +5691,8 @@ create_simple_positioner(struct display *display,
 	struct xdg_positioner *positioner;
 
 	positioner = xdg_wm_base_create_positioner(display->xdg_shell);
-	abort_oom_if_null(positioner);
+	CLIENT_ASSERT(positioner, "can't create positioner");
+
 	xdg_positioner_set_anchor_rect(positioner, x, y, 1, 1);
 	xdg_positioner_set_size(positioner, w, h);
 	xdg_positioner_set_anchor(positioner,
@@ -5734,7 +5737,7 @@ window_show_menu(struct display *display,
 	window->xdg_surface =
 		xdg_wm_base_get_xdg_surface(display->xdg_shell,
 					    window->main_surface->surface);
-	abort_oom_if_null(window->xdg_surface);
+	CLIENT_ASSERT(window->xdg_surface, "can't get XDG surface");
 
 	xdg_surface_add_listener(window->xdg_surface,
 				 &xdg_surface_listener, window);
@@ -5747,7 +5750,8 @@ window_show_menu(struct display *display,
 	window->xdg_popup = xdg_surface_get_popup(window->xdg_surface,
 						  parent->xdg_surface,
 						  positioner);
-	abort_oom_if_null(window->xdg_popup);
+	CLIENT_ASSERT(window->xdg_popup, "can't get XDG popup");
+
 	xdg_positioner_destroy(positioner);
 	xdg_popup_grab(window->xdg_popup, input->seat,
 		       display_get_serial(window->display));
@@ -5800,7 +5804,7 @@ window_add_subsurface(struct window *window, void *data,
 		surface->synchronized_default = 0;
 		break;
 	default:
-		assert(!"bad enum subsurface_mode");
+		WESTON_DASSERT_NOT_REACHED("bad enum subsurface_mode");
 	}
 
 	window->resize_needed = 1;
@@ -6332,7 +6336,7 @@ tablet_tool_surface_frame_callback(void *data, struct wl_callback *callback,
 	int i;
 
 	if (callback) {
-		assert(callback == tool->cursor_frame_cb);
+		WESTON_DASSERT_PTR_EQ(callback, tool->cursor_frame_cb);
 		wl_callback_destroy(callback);
 		tool->cursor_frame_cb = NULL;
 	}

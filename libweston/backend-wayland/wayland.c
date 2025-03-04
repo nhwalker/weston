@@ -26,7 +26,6 @@
 
 #include "config.h"
 
-#include <assert.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -58,6 +57,7 @@
 #include "shared/cairo-util.h"
 #include "shared/timespec-util.h"
 #include "shared/xalloc.h"
+#include "shared/weston-assert.h"
 #include "fullscreen-shell-unstable-v1-client-protocol.h"
 #include "xdg-shell-client-protocol.h"
 #include "presentation-time-server-protocol.h"
@@ -404,8 +404,10 @@ wayland_output_get_shm_buffer(struct wayland_output *output)
 	if (output->frame) {
 		frame_interior(output->frame, &area.x, &area.y,
 			       &area.width, &area.height);
-		assert(area.width == output->base.current_mode->width);
-		assert(area.height == output->base.current_mode->height);
+		WESTON_DASSERT_S32_EQ(area.width,
+				      output->base.current_mode->width);
+		WESTON_DASSERT_S32_EQ(area.height,
+				      output->base.current_mode->height);
 	} else {
 		area.x = 0;
 		area.y = 0;
@@ -431,7 +433,7 @@ frame_done(void *data, struct wl_callback *callback, uint32_t time)
 	struct wayland_output *output = data;
 	struct timespec ts;
 
-	assert(callback == output->frame_cb);
+	WESTON_DASSERT_PTR_EQ(callback, output->frame_cb);
 	wl_callback_destroy(callback);
 	output->frame_cb = NULL;
 
@@ -490,7 +492,7 @@ wayland_output_start_repaint_loop(struct weston_output *output_base)
 	struct wayland_backend *wb;
 	struct timespec ts;
 
-	assert(output);
+	WESTON_DASSERT_PTR_SET(output);
 
 	wb = output->backend;
 
@@ -508,7 +510,7 @@ wayland_output_repaint_gl(struct weston_output *output_base)
 	struct weston_compositor *ec;
 	pixman_region32_t damage;
 
-	assert(output);
+	WESTON_DASSERT_PTR_SET(output);
 
 	ec = output->base.compositor;
 
@@ -621,7 +623,7 @@ wayland_output_repaint_pixman(struct weston_output *output_base)
 	struct wayland_shm_buffer *sb;
 	pixman_region32_t damage;
 
-	assert(output);
+	WESTON_DASSERT_PTR_SET(output);
 
 	b = output->backend;
 
@@ -658,7 +660,7 @@ wayland_output_repaint_pixman(struct weston_output *output_base)
 static void
 wayland_backend_destroy_output_surface(struct wayland_output *output)
 {
-	assert(output->parent.surface);
+	WESTON_DASSERT_PTR_SET(output->parent.surface);
 
 	if (output->parent.xdg_toplevel) {
 		xdg_toplevel_destroy(output->parent.xdg_toplevel);
@@ -690,7 +692,7 @@ wayland_output_disable(struct weston_output *base)
 	const struct weston_renderer *renderer = base->compositor->renderer;
 	struct wayland_output *output = to_wayland_output(base);
 
-	assert(output);
+	WESTON_DASSERT_PTR_SET(output);
 
 	if (!output->base.enabled)
 		return 0;
@@ -710,7 +712,7 @@ wayland_output_disable(struct weston_output *base)
 		break;
 #endif
 	default:
-		unreachable("invalid renderer");
+		WESTON_DASSERT_NOT_REACHED("invalid renderer");
 	}
 
 	wayland_backend_destroy_output_surface(output);
@@ -726,7 +728,7 @@ wayland_output_destroy(struct weston_output *base)
 {
 	struct wayland_output *output = to_wayland_output(base);
 
-	assert(output);
+	WESTON_DASSERT_PTR_SET(output);
 
 	wayland_output_disable(&output->base);
 
@@ -1044,7 +1046,7 @@ wayland_output_switch_mode_finish(struct wayland_output *output)
 		break;
 #endif
 	default:
-		unreachable("invalid renderer");
+		WESTON_DASSERT_NOT_REACHED("invalid renderer");
 	}
 
 	weston_output_schedule_repaint(&output->base);
@@ -1109,7 +1111,7 @@ wayland_output_switch_mode_xdg(struct wayland_output *output,
 	if (output->backend->sprawl_across_outputs)
 		return -1;
 
-	assert (&output->mode == output->base.current_mode);
+	WESTON_DASSERT_PTR_EQ(&output->mode, output->base.current_mode);
 
 	output->mode.width = mode->width;
 	output->mode.height = mode->height;
@@ -1136,7 +1138,7 @@ wayland_output_switch_mode(struct weston_output *output_base,
 {
 	struct wayland_output *output = to_wayland_output(output_base);
 
-	assert(output);
+	WESTON_DASSERT_PTR_SET(output);
 
 	if (mode == NULL) {
 		weston_log("mode is NULL.\n");
@@ -1224,7 +1226,7 @@ wayland_backend_create_output_surface(struct wayland_output *output)
 {
 	struct wayland_backend *b = output->backend;
 
-	assert(!output->parent.surface);
+	WESTON_DASSERT_PTR_NOT_SET(output->parent.surface);
 
 	output->parent.surface =
 		wl_compositor_create_surface(b->parent.compositor);
@@ -1269,7 +1271,7 @@ wayland_output_enable(struct weston_output *base)
 	enum mode_status mode_status;
 	int ret = 0;
 
-	assert(output);
+	WESTON_DASSERT_PTR_SET(output);
 
 	b = output->backend;
 
@@ -1304,7 +1306,7 @@ wayland_output_enable(struct weston_output *base)
 		break;
 #endif
 	default:
-		unreachable("invalid renderer");
+		WESTON_DASSERT_NOT_REACHED("invalid renderer");
 	}
 
 	output->base.start_repaint_loop = wayland_output_start_repaint_loop;
@@ -1356,7 +1358,7 @@ wayland_output_attach_head(struct weston_output *output_base,
 	struct wayland_head *head = to_wayland_head(head_base);
 	struct wayland_backend *b;
 
-	assert(output);
+	WESTON_DASSERT_PTR_SET(output);
 
 	if (!head)
 		return -1;
@@ -1386,7 +1388,7 @@ wayland_output_detach_head(struct weston_output *output_base,
 {
 	struct wayland_output *output = to_wayland_output(output_base);
 
-	assert(output);
+	WESTON_DASSERT_PTR_SET(output);
 
 	/* Rely on the disable hook if the output was enabled. We do not
 	 * support cloned heads, so detaching is guaranteed to disable the
@@ -1409,7 +1411,7 @@ wayland_output_create(struct weston_backend *backend, const char *name)
 	char *title;
 
 	/* name can't be NULL. */
-	assert(name);
+	WESTON_DASSERT_PTR_SET(name);
 
 	output = zalloc(sizeof *output);
 	if (output == NULL) {
@@ -1444,7 +1446,7 @@ wayland_head_create(struct wayland_backend *backend, const char *name)
 	struct weston_compositor *compositor = backend->compositor;
 	struct wayland_head *head;
 
-	assert(name);
+	WESTON_DASSERT_PTR_SET(name);
 
 	head = zalloc(sizeof *head);
 	if (!head)
@@ -1488,7 +1490,7 @@ wayland_head_create_for_parent_output(struct wayland_backend *backend,
 	if (!head)
 		return -1;
 
-	assert(!poutput->head);
+	WESTON_DASSERT_PTR_NOT_SET(poutput->head);
 	head->parent_output = poutput;
 	poutput->head = head;
 
@@ -1507,7 +1509,7 @@ wayland_head_destroy(struct weston_head *base)
 {
 	struct wayland_head *head = to_wayland_head(base);
 
-	assert(head);
+	WESTON_DASSERT_PTR_SET(head);
 
 	if (head->parent_output)
 		head->parent_output->head = NULL;
@@ -1527,10 +1529,10 @@ wayland_output_set_size(struct weston_output *base, int width, int height)
 		return -1;
 
 	/* We can only be called once. */
-	assert(!output->base.current_mode);
+	WESTON_DASSERT_PTR_NOT_SET(output->base.current_mode);
 
 	/* Make sure we have scale set. */
-	assert(output->base.current_scale);
+	WESTON_DASSERT_S32_NE(output->base.current_scale, 0);
 
 	if (width < 1) {
 		weston_log("Invalid width \"%d\" for output %s\n",
@@ -2388,7 +2390,7 @@ input_handle_name(void *data, struct wl_seat *seat,
 	struct wayland_input *input = data;
 
 	if (!input->seat_initialized) {
-		assert(!input->name);
+		WESTON_DASSERT_PTR_NOT_SET(input->name);
 		input->name = strdup(name);
 	}
 }
@@ -2405,7 +2407,7 @@ display_finish_add_seat(void *data, struct wl_callback *wl_callback,
 	struct wayland_input *input = data;
 	char *name;
 
-	assert(wl_callback == input->initial_info_cb);
+	WESTON_DASSERT_PTR_EQ(wl_callback, input->initial_info_cb);
 	wl_callback_destroy(input->initial_info_cb);
 	input->initial_info_cb = NULL;
 	input->seat_initialized = true;
@@ -2602,11 +2604,11 @@ output_sync_callback(void *data, struct wl_callback *callback, uint32_t unused)
 {
 	struct wayland_parent_output *output = data;
 
-	assert(output->sync_cb == callback);
+	WESTON_DASSERT_PTR_EQ(output->sync_cb, callback);
 	wl_callback_destroy(callback);
 	output->sync_cb = NULL;
 
-	assert(output->backend->sprawl_across_outputs);
+	WESTON_DASSERT_TRUE(output->backend->sprawl_across_outputs);
 
 	wayland_head_create_for_parent_output(output->backend, output);
 }

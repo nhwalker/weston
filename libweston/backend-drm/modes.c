@@ -175,7 +175,8 @@ get_panel_orientation(struct drm_connector *connector, drmModeObjectPropertiesPt
 	case WDRM_PANEL_ORIENTATION_RIGHT_SIDE_UP:
 		return WL_OUTPUT_TRANSFORM_270;
 	default:
-		assert(!"unknown property value in get_panel_orientation");
+		WESTON_DASSERT_NOT_REACHED("unknown property value in "
+					   "get_panel_orientation");
 	}
 }
 
@@ -833,7 +834,7 @@ drm_output_try_add_mode(struct drm_output *output, const drmModeModeInfo *info)
 	struct drm_device *device = output->device;
 	const drmModeModeInfo *chosen = NULL;
 
-	assert(info);
+	WESTON_DASSERT_PTR_SET(info);
 
 	wl_list_for_each(base, &output->base.mode_list, link) {
 		mode = to_drm_mode(base);
@@ -843,7 +844,7 @@ drm_output_try_add_mode(struct drm_output *output, const drmModeModeInfo *info)
 	}
 
 	if (chosen == info) {
-		assert(mode);
+		WESTON_DASSERT_PTR_SET(mode);
 		drm_output_destroy_mode(device, mode);
 		chosen = NULL;
 	}
@@ -878,7 +879,7 @@ drm_output_update_modelist_from_heads(struct drm_output *output)
 	int i;
 	int ret;
 
-	assert(!output->base.enabled);
+	WESTON_DASSERT_FALSE(output->base.enabled);
 
 	drm_mode_list_destroy(device, &output->base.mode_list);
 

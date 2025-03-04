@@ -54,7 +54,7 @@ static struct client *
 create_client_with_keyboard_focus(void)
 {
 	struct client *cl = create_client_and_test_surface(10, 10, 1, 1);
-	test_assert_ptr_not_null(cl);
+	TEST_ASSERT_PTR_SET(cl);
 
 	weston_test_activate_surface(cl->test->weston_test,
 				     cl->surface->wl_surface);
@@ -84,9 +84,9 @@ TEST(simple_keyboard_test)
 	uint32_t expect_state = 0;
 
 	while (1) {
-		test_assert_u32_eq(keyboard->key, expect_key);
-		test_assert_u32_eq(keyboard->state, expect_state);
-		test_assert_ptr_eq(keyboard->focus, expect_focus);
+		TEST_ASSERT_U32_EQ(keyboard->key, expect_key);
+		TEST_ASSERT_U32_EQ(keyboard->state, expect_state);
+		TEST_ASSERT_PTR_EQ(keyboard->focus, expect_focus);
 
 		if (keyboard->state == WL_KEYBOARD_KEY_STATE_PRESSED) {
 			expect_state = WL_KEYBOARD_KEY_STATE_RELEASED;
@@ -120,12 +120,12 @@ TEST(keyboard_key_event_time)
 		input_timestamps_create_for_keyboard(client);
 
 	send_key(client, &t1, 1, WL_KEYBOARD_KEY_STATE_PRESSED);
-	test_assert_s64_eq(keyboard->key_time_msec, timespec_to_msec(&t1));
-	test_assert_true(timespec_eq(&keyboard->key_time_timespec, &t1));
+	TEST_ASSERT_S64_EQ(keyboard->key_time_msec, timespec_to_msec(&t1));
+	TEST_ASSERT_TRUE(timespec_eq(&keyboard->key_time_timespec, &t1));
 
 	send_key(client, &t2, 1, WL_KEYBOARD_KEY_STATE_RELEASED);
-	test_assert_s64_eq(keyboard->key_time_msec, timespec_to_msec(&t2));
-	test_assert_true(timespec_eq(&keyboard->key_time_timespec, &t2));
+	TEST_ASSERT_S64_EQ(keyboard->key_time_msec, timespec_to_msec(&t2));
+	TEST_ASSERT_TRUE(timespec_eq(&keyboard->key_time_timespec, &t2));
 
 	input_timestamps_destroy(input_ts);
 
@@ -140,14 +140,14 @@ TEST(keyboard_timestamps_stop_after_input_timestamps_object_is_destroyed)
 		input_timestamps_create_for_keyboard(client);
 
 	send_key(client, &t1, 1, WL_KEYBOARD_KEY_STATE_PRESSED);
-	test_assert_s64_eq(keyboard->key_time_msec, timespec_to_msec(&t1));
-	test_assert_true(timespec_eq(&keyboard->key_time_timespec, &t1));
+	TEST_ASSERT_S64_EQ(keyboard->key_time_msec, timespec_to_msec(&t1));
+	TEST_ASSERT_TRUE(timespec_eq(&keyboard->key_time_timespec, &t1));
 
 	input_timestamps_destroy(input_ts);
 
 	send_key(client, &t2, 1, WL_KEYBOARD_KEY_STATE_RELEASED);
-	test_assert_s64_eq(keyboard->key_time_msec, timespec_to_msec(&t2));
-	test_assert_true(timespec_is_zero(&keyboard->key_time_timespec));
+	TEST_ASSERT_S64_EQ(keyboard->key_time_msec, timespec_to_msec(&t2));
+	TEST_ASSERT_TRUE(timespec_is_zero(&keyboard->key_time_timespec));
 
 	client_destroy(client);
 }
@@ -160,8 +160,8 @@ TEST(keyboard_timestamps_stop_after_client_releases_wl_keyboard)
 		input_timestamps_create_for_keyboard(client);
 
 	send_key(client, &t1, 1, WL_KEYBOARD_KEY_STATE_PRESSED);
-	test_assert_s64_eq(keyboard->key_time_msec, timespec_to_msec(&t1));
-	test_assert_true(timespec_eq(&keyboard->key_time_timespec, &t1));
+	TEST_ASSERT_S64_EQ(keyboard->key_time_msec, timespec_to_msec(&t1));
+	TEST_ASSERT_TRUE(timespec_eq(&keyboard->key_time_timespec, &t1));
 
 	wl_keyboard_release(client->input->keyboard->wl_keyboard);
 
@@ -172,7 +172,7 @@ TEST(keyboard_timestamps_stop_after_client_releases_wl_keyboard)
 	 * event and checking for it here may lead to false negatives. */
 	keyboard->input_timestamp = t_other;
 	send_key(client, &t2, 1, WL_KEYBOARD_KEY_STATE_RELEASED);
-	test_assert_true(timespec_eq(&keyboard->input_timestamp, &t_other));
+	TEST_ASSERT_TRUE(timespec_eq(&keyboard->input_timestamp, &t_other));
 
 	input_timestamps_destroy(input_ts);
 

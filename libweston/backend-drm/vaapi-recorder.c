@@ -30,7 +30,6 @@
 #include <stdint.h>
 #include <string.h>
 #include <unistd.h>
-#include <assert.h>
 #include <errno.h>
 
 #include <sys/types.h>
@@ -46,6 +45,7 @@
 #include <va/va_vpp.h>
 
 #include <libweston/libweston.h>
+#include "shared/weston-assert.h"
 #include "vaapi-recorder.h"
 
 #define NAL_REF_IDC_NONE        0
@@ -1147,7 +1147,7 @@ vaapi_recorder_frame(struct vaapi_recorder *r, int prime_fd, int stride)
 
 	/* The mutex is never released while encoding, so this point should
 	 * never be reached if input.valid is true. */
-	assert(!r->input.valid);
+	WESTON_DASSERT_FALSE(r->input.valid);
 
 	r->input.prime_fd = prime_fd;
 	r->input.stride = stride;

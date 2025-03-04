@@ -412,7 +412,7 @@ drm_rotation_from_output_transform(struct drm_plane *plane,
 		drm_reflection = WDRM_PLANE_ROTATION_REFLECT_X;
 		break;
 	default:
-		assert(0 && "bad output transform");
+		WESTON_DASSERT_NOT_REACHED("bad output transform");
 	}
 
 	if (!info->enum_values[drm_rotation].valid)
@@ -494,7 +494,7 @@ drm_property_info_populate(struct drm_device *device,
 		info[i].enum_values =
 			malloc(src[i].num_enum_values *
 			       sizeof(*info[i].enum_values));
-		assert(info[i].enum_values);
+		WESTON_DASSERT_PTR_SET(info[i].enum_values);
 		for (j = 0; j < info[i].num_enum_values; j++) {
 			info[i].enum_values[j].name = src[i].enum_values[j].name;
 			info[i].enum_values[j].valid = false;
@@ -678,8 +678,8 @@ drm_plane_supports_color_encoding(struct drm_plane *plane,
 	const struct drm_property_info *info;
 	const struct drm_property_enum_info *enum_info;
 
-	assert(encoding >= 0);
-	assert(encoding < WDRM_PLANE_COLOR_ENCODING__COUNT);
+	WESTON_DASSERT_U64_GE(encoding, 0);
+	WESTON_DASSERT_U64_LT(encoding, WDRM_PLANE_COLOR_ENCODING__COUNT);
 
 	info = &plane->props[WDRM_PLANE_COLOR_ENCODING];
 	enum_info = &info->enum_values[encoding];
@@ -694,8 +694,8 @@ drm_plane_supports_color_range(struct drm_plane *plane,
 	const struct drm_property_info *info;
 	const struct drm_property_enum_info *enum_info;
 
-	assert(range >= 0);
-	assert(range < WDRM_PLANE_COLOR_RANGE__COUNT);
+	WESTON_DASSERT_U64_GE(range, 0);
+	WESTON_DASSERT_U64_LT(range, WDRM_PLANE_COLOR_RANGE__COUNT);
 
 	info = &plane->props[WDRM_PLANE_COLOR_RANGE];
 	enum_info = &info->enum_values[range];
@@ -711,7 +711,7 @@ drm_output_set_gamma(struct weston_output *output_base,
 	struct drm_output *output = to_drm_output(output_base);
 	struct drm_device *device = output->device;
 
-	assert(output);
+	WESTON_DASSERT_PTR_SET(output);
 
 	/* check */
 	if (output_base->gamma_size != size)
@@ -741,7 +741,7 @@ drm_output_assign_state(struct drm_output_state *state,
 	struct drm_plane_state *plane_state;
 	struct drm_head *head;
 
-	assert(!output->state_last);
+	WESTON_DASSERT_PTR_NOT_SET(output->state_last);
 
 	if (mode == DRM_STATE_APPLY_ASYNC)
 		output->state_last = output->state_cur;
@@ -785,7 +785,7 @@ drm_output_assign_state(struct drm_output_state *state,
 		if (device->atomic_modeset)
 			continue;
 
-		assert(plane->type != WDRM_PLANE_TYPE_OVERLAY);
+		WESTON_DASSERT_ENUM_NE(plane->type, WDRM_PLANE_TYPE_OVERLAY);
 		if (plane->type == WDRM_PLANE_TYPE_PRIMARY)
 			output->page_flip_pending = true;
 	}
@@ -813,8 +813,10 @@ drm_output_set_cursor(struct drm_output_state *output_state)
 		return;
 	}
 
-	assert(state->fb == output->gbm_cursor_fb[output->current_cursor]);
-	assert(!plane->state_cur->output || plane->state_cur->output == output);
+	WESTON_DASSERT_PTR_EQ(state->fb,
+			      output->gbm_cursor_fb[output->current_cursor]);
+	WESTON_DASSERT_TRUE(!plane->state_cur->output ||
+			    plane->state_cur->output == output);
 
 	handle = output->gbm_cursor_handle[output->current_cursor];
 	if (plane->state_cur->fb != state->fb) {
@@ -893,7 +895,7 @@ drm_output_apply_state_legacy(struct drm_output_state *state)
 	int ret = 0;
 
 	wl_list_for_each(head, &output->base.head_list, base.output_link) {
-		assert(n_conn < MAX_CLONED_CONNECTORS);
+		WESTON_DASSERT_INT_LT(n_conn, MAX_CLONED_CONNECTORS);
 		connectors[n_conn++] = head->connector.connector_id;
 	}
 
@@ -938,18 +940,20 @@ drm_output_apply_state_legacy(struct drm_output_state *state)
 
 	/* The legacy SetCrtc API doesn't allow us to do scaling, and the
 	 * legacy PageFlip API doesn't allow us to do clipping either. */
-	assert(scanout_state->src_x == 0);
-	assert(scanout_state->src_y == 0);
-	assert(scanout_state->src_w ==
-		(unsigned) (output->base.current_mode->width << 16));
-	assert(scanout_state->src_h ==
-		(unsigned) (output->base.current_mode->height << 16));
-	assert(scanout_state->dest_x == 0);
-	assert(scanout_state->dest_y == 0);
-	assert(scanout_state->dest_w == scanout_state->src_w >> 16);
-	assert(scanout_state->dest_h == scanout_state->src_h >> 16);
+	WESTON_DASSERT_S32_EQ(scanout_state->src_x, 0);
+	WESTON_DASSERT_S32_EQ(scanout_state->src_y, 0);
+	WESTON_DASSERT_U32_EQ(scanout_state->src_w, (unsigned)
+			      (output->base.current_mode->width << 16));
+	WESTON_DASSERT_U32_EQ(scanout_state->src_h, (unsigned)
+			      (output->base.current_mode->height << 16));
+	WESTON_DASSERT_S32_EQ(scanout_state->dest_x, 0);
+	WESTON_DASSERT_S32_EQ(scanout_state->dest_y, 0);
+	WESTON_DASSERT_U32_EQ(scanout_state->dest_w,
+			      scanout_state->src_w >> 16);
+	WESTON_DASSERT_U32_EQ(scanout_state->dest_h,
+			      scanout_state->src_h >> 16);
 	/* The legacy SetCrtc API doesn't support fences */
-	assert(scanout_state->in_fence_fd == -1);
+	WESTON_DASSERT_INT_EQ(scanout_state->in_fence_fd, -1);
 
 	mode = to_drm_mode(output->base.current_mode);
 	if (device->state_invalid ||
@@ -983,7 +987,7 @@ drm_output_apply_state_legacy(struct drm_output_state *state)
 		goto err;
 	}
 
-	assert(!output->page_flip_pending);
+	WESTON_DASSERT_FALSE(output->page_flip_pending);
 
 	if (output->pageflip_timer)
 		wl_event_source_timer_update(output->pageflip_timer,
@@ -1149,7 +1153,7 @@ get_drm_protection_from_weston(enum weston_hdcp_protection weston_protection,
 		*drm_cp_type = WDRM_HDCP_CONTENT_TYPE1;
 		break;
 	default:
-		assert(0 && "bad weston_hdcp_protection");
+		WESTON_DASSERT_NOT_REACHED("bad weston_hdcp_protection");
 	}
 }
 
@@ -1164,6 +1168,8 @@ drm_connector_set_hdcp_property(struct drm_connector *connector,
 	struct drm_property_enum_info *enum_info;
 	uint64_t prop_val;
 	struct drm_property_info *props = connector->props;
+
+	MAYBE_UNUSED(ret);
 
 	get_drm_protection_from_weston(protection, &drm_protection,
 				       &drm_cp_type);
@@ -1184,7 +1190,7 @@ drm_connector_set_hdcp_property(struct drm_connector *connector,
 	prop_val = enum_info[drm_protection].value;
 	ret = connector_add_prop(req, connector,
 				 WDRM_CONNECTOR_CONTENT_PROTECTION, prop_val);
-	assert(ret == 0);
+	WESTON_DASSERT_INT_EQ(ret, 0);
 
 	if (!drm_connector_has_prop(connector, WDRM_CONNECTOR_HDCP_CONTENT_TYPE))
 		return;
@@ -1193,7 +1199,7 @@ drm_connector_set_hdcp_property(struct drm_connector *connector,
 	prop_val = enum_info[drm_cp_type].value;
 	ret = connector_add_prop(req, connector,
 				 WDRM_CONNECTOR_HDCP_CONTENT_TYPE, prop_val);
-	assert(ret == 0);
+	WESTON_DASSERT_INT_EQ(ret, 0);
 }
 
 static int
@@ -1217,11 +1223,11 @@ drm_connector_set_max_bpc(struct drm_connector *connector,
 		max_bpc = head->inherited_max_bpc;
 	} else {
 		info = &connector->props[WDRM_CONNECTOR_MAX_BPC];
-		assert(info->flags & DRM_MODE_PROP_RANGE);
-		assert(info->num_range_values == 2);
+		WESTON_DASSERT_BIT_SET(info->flags, DRM_MODE_PROP_RANGE);
+		WESTON_DASSERT_UINT_EQ(info->num_range_values, 2);
 		a = info->range_values[0];
 		b = info->range_values[1];
-		assert(a <= b);
+		WESTON_DASSERT_U64_LE(a, b);
 
 		max_bpc = MAX(a, MIN(output->max_bpc, b));
 	}
@@ -1256,8 +1262,8 @@ drm_connector_set_colorspace(struct drm_connector *connector,
 	const struct drm_property_info *info;
 	const struct drm_property_enum_info *enum_info;
 
-	assert(colorspace >= 0);
-	assert(colorspace < WDRM_COLORSPACE__COUNT);
+	WESTON_DASSERT_S64_GE(colorspace, 0);
+	WESTON_DASSERT_S64_LT(colorspace, WDRM_COLORSPACE__COUNT);
 
 	if (!drm_connector_has_prop(connector, WDRM_CONNECTOR_COLORSPACE)) {
 		if (colorspace == WDRM_COLORSPACE_DEFAULT)
@@ -1268,7 +1274,7 @@ drm_connector_set_colorspace(struct drm_connector *connector,
 
 	info = &connector->props[WDRM_CONNECTOR_COLORSPACE];
 	enum_info = &info->enum_values[colorspace];
-	assert(enum_info->valid);
+	WESTON_DASSERT_TRUE(enum_info->valid);
 
 	return connector_add_prop(req, connector,
 				  WDRM_CONNECTOR_COLORSPACE, enum_info->value);
@@ -1289,7 +1295,8 @@ drm_plane_set_color_encoding(struct drm_plane *plane,
 		return -1;
 	}
 
-	assert(drm_plane_supports_color_encoding(plane, color_encoding));
+	WESTON_DASSERT_TRUE(drm_plane_supports_color_encoding(plane,
+							      color_encoding));
 
 	return plane_add_prop(req, plane, WDRM_PLANE_COLOR_ENCODING,
 			      color_encoding);
@@ -1310,7 +1317,7 @@ drm_plane_set_color_range(struct drm_plane *plane,
 		return -1;
 	}
 
-	assert(drm_plane_supports_color_range(plane, color_range));
+	WESTON_DASSERT_TRUE(drm_plane_supports_color_range(plane, color_range));
 
 	return plane_add_prop(req, plane, WDRM_PLANE_COLOR_RANGE, color_range);
 }
@@ -1642,8 +1649,8 @@ drm_pending_state_apply_atomic(struct drm_pending_state *pending_state,
 	wl_list_for_each(output_state, &pending_state->output_list, link) {
 		if (output_state->output->is_virtual)
 			continue;
-		if (mode == DRM_STATE_APPLY_SYNC)
-			assert(output_state->dpms == WESTON_DPMS_OFF);
+		WESTON_DASSERT_IF(mode == DRM_STATE_APPLY_SYNC,
+				  output_state->dpms == WESTON_DPMS_OFF);
 		may_tear &= output_state->tear;
 		ret |= drm_output_apply_state_atomic(output_state, req, &flags);
 	}
@@ -1691,7 +1698,7 @@ drm_pending_state_apply_atomic(struct drm_pending_state *pending_state,
 
 	device->state_invalid = false;
 
-	assert(wl_list_empty(&pending_state->output_list));
+	WESTON_DASSERT_TRUE(wl_list_empty(&pending_state->output_list));
 
 out:
 	drmModeAtomicFree(req);
@@ -1797,7 +1804,7 @@ drm_pending_state_apply(struct drm_pending_state *pending_state)
 
 	device->state_invalid = false;
 
-	assert(wl_list_empty(&pending_state->output_list));
+	WESTON_DASSERT_TRUE(wl_list_empty(&pending_state->output_list));
 
 	drm_pending_state_free(pending_state);
 
@@ -1840,7 +1847,7 @@ drm_pending_state_apply_sync(struct drm_pending_state *pending_state)
 			      link) {
 		int ret;
 
-		assert(output_state->dpms == WESTON_DPMS_OFF);
+		WESTON_DASSERT_ENUM_EQ(output_state->dpms, WESTON_DPMS_OFF);
 		ret = drm_output_apply_state_legacy(output_state);
 		if (ret != 0) {
 			weston_log("Couldn't apply state for output %s\n",
@@ -1850,7 +1857,7 @@ drm_pending_state_apply_sync(struct drm_pending_state *pending_state)
 
 	device->state_invalid = false;
 
-	assert(wl_list_empty(&pending_state->output_list));
+	WESTON_DASSERT_TRUE(wl_list_empty(&pending_state->output_list));
 
 	drm_pending_state_free(pending_state);
 
@@ -1878,10 +1885,12 @@ page_flip_handler(int fd, unsigned int frame,
 			 WP_PRESENTATION_FEEDBACK_KIND_HW_COMPLETION |
 			 WP_PRESENTATION_FEEDBACK_KIND_HW_CLOCK;
 
+	MAYBE_UNUSED(device);
+
 	drm_output_update_msc(output, frame);
 
-	assert(!device->atomic_modeset);
-	assert(output->page_flip_pending);
+	WESTON_DASSERT_FALSE(device->atomic_modeset);
+	WESTON_DASSERT_TRUE(output->page_flip_pending);
 	output->page_flip_pending = false;
 
 	drm_output_update_complete(output, flags, sec, usec);
@@ -1902,7 +1911,7 @@ atomic_flip_handler(int fd, unsigned int frame, unsigned int sec,
 			 WP_PRESENTATION_FEEDBACK_KIND_HW_CLOCK;
 
 	crtc = drm_crtc_find(device, crtc_id);
-	assert(crtc);
+	WESTON_DASSERT_PTR_SET(crtc);
 
 	output = crtc->output;
 
@@ -1926,8 +1935,8 @@ atomic_flip_handler(int fd, unsigned int frame, unsigned int sec,
 	}
 
 	drm_debug(b, "[atomic][CRTC:%u] flip processing started\n", crtc_id);
-	assert(device->atomic_modeset);
-	assert(output->atomic_complete_pending);
+	WESTON_DASSERT_TRUE(device->atomic_modeset);
+	WESTON_DASSERT_TRUE(output->atomic_complete_pending);
 	output->atomic_complete_pending = false;
 
 	drm_output_update_complete(output, flags, sec, usec);

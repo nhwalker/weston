@@ -35,10 +35,10 @@
 #include <unistd.h>
 #include <string.h>
 #include <fcntl.h>
-#include <assert.h>
 
 #include <cairo.h>
 
+#include "shared/weston-assert.h"
 #include "wcap-decode.h"
 
 static void
@@ -72,7 +72,7 @@ rgb_to_yuv(uint32_t format, uint32_t p, int *u, int *v)
 		b = (p >> 16) & 0xff;
 		break;
 	default:
-		assert(0);
+		WESTON_DASSERT_NOT_REACHED();
 	}
 
 	y = (19595 * r + 38469 * g + 7472 * b) >> 16;

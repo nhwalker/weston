@@ -223,19 +223,11 @@ u64_from_u32s(uint32_t hi, uint32_t lo)
 #endif
 
 #if defined(HAVE_UNREACHABLE) || __has_builtin(__builtin_unreachable)
-#define unreachable(str)    \
-do {                        \
-   assert(!str);            \
-   __builtin_unreachable(); \
-} while (0)
+#define UNREACHABLE() __builtin_unreachable()
 #elif defined (_MSC_VER)
-#define unreachable(str)    \
-do {                        \
-   assert(!str);            \
-   __assume(0);             \
-} while (0)
+#define UNREACHABLE() __assume(0)
 #else
-#define unreachable(str) assert(!str)
+#define UNREACHABLE()
 #endif
 
 #if __has_attribute(fallthrough)
@@ -244,6 +236,17 @@ do {                        \
 #else
 #define FALLTHROUGH do {} while(0)
 #endif
+
+/**
+ * Flag x as maybe unused to prevent compilers from emitting warnings on unused
+ * but set variables. This is useful to avoid compiler warnings when NDEBUG is
+ * set (release builds) and assertions are compiled out.
+ *
+ * C23 has the [[maybe_unused]] variable attribute.
+ *
+ * @param a The variable to flag as maybe unused.
+ */
+#define MAYBE_UNUSED(a) (void) a
 
 /**
  * Returns number of bits set in 32-bit value x.

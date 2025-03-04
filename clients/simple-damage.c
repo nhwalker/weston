@@ -30,7 +30,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
-#include <assert.h>
 #include <unistd.h>
 #include <sys/mman.h>
 #include <sys/time.h>
@@ -42,6 +41,7 @@
 #include <libweston/zalloc.h>
 #include "xdg-shell-client-protocol.h"
 #include "viewporter-client-protocol.h"
+#include "weston-client-assert.h"
 
 int print_debug = 0;
 
@@ -316,33 +316,28 @@ create_window(struct display *display, int width, int height,
 		window->viewport = wp_viewporter_get_viewport(display->viewporter,
 							      window->surface);
 
-	if (display->wm_base) {
-		window->xdg_surface =
-			xdg_wm_base_get_xdg_surface(display->wm_base,
-						    window->surface);
+	CLIENT_ASSERT(display->wm_base,
+		      "XDG shell isn't supported by compositor");
 
-		assert(window->xdg_surface);
+	window->xdg_surface = xdg_wm_base_get_xdg_surface(display->wm_base,
+							  window->surface);
+	CLIENT_ASSERT(window->xdg_surface, "can't get XDG surface");
 
-		xdg_surface_add_listener(window->xdg_surface,
-					 &xdg_surface_listener, window);
+	xdg_surface_add_listener(window->xdg_surface, &xdg_surface_listener,
+				 window);
 
-		window->xdg_toplevel =
-			xdg_surface_get_toplevel(window->xdg_surface);
+	window->xdg_toplevel = xdg_surface_get_toplevel(window->xdg_surface);
+	CLIENT_ASSERT(window->xdg_toplevel, "can't get XDG toplevel");
 
-		assert(window->xdg_toplevel);
+	xdg_toplevel_add_listener(window->xdg_toplevel, &xdg_toplevel_listener,
+				  window);
 
-		xdg_toplevel_add_listener(window->xdg_toplevel,
-					  &xdg_toplevel_listener, window);
+	xdg_toplevel_set_title(window->xdg_toplevel, "simple-damage");
+	xdg_toplevel_set_app_id(window->xdg_toplevel,
+				"org.freedesktop.weston.simple-damage");
 
-		xdg_toplevel_set_title(window->xdg_toplevel, "simple-damage");
-		xdg_toplevel_set_app_id(window->xdg_toplevel,
-					"org.freedesktop.weston.simple-damage");
-
-		window->wait_for_configure = true;
-		wl_surface_commit(window->surface);
-	} else {
-		assert(0);
-	}
+	window->wait_for_configure = true;
+	wl_surface_commit(window->surface);
 
 	/* Initialise damage to full surface, so the padding gets painted */
 	if (window->flags & WINDOW_FLAG_USE_DAMAGE_BUFFER) {
@@ -783,12 +778,10 @@ create_display(int version)
 	struct display *display;
 
 	display = zalloc(sizeof *display);
-	if (display == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(1);
-	}
+	CLIENT_ASSERT(display, "can't allocate memory");
+
 	display->display = wl_display_connect(NULL);
-	assert(display->display);
+	CLIENT_ASSERT(display->display, "can't connect to Wayland compositor");
 
 	display->compositor_version = version;
 	display->formats = 0;
@@ -796,17 +789,13 @@ create_display(int version)
 	wl_registry_add_listener(display->registry,
 				 &registry_listener, display);
 	wl_display_roundtrip(display->display);
-	if (display->shm == NULL) {
-		fprintf(stderr, "No wl_shm global\n");
-		exit(1);
-	}
+
+	CLIENT_ASSERT(display->shm, "wl_shm isn't supported by compositor");
 
 	wl_display_roundtrip(display->display);
 
-	if (!(display->formats & (1 << WL_SHM_FORMAT_XRGB8888))) {
-		fprintf(stderr, "WL_SHM_FORMAT_XRGB32 not available\n");
-		exit(1);
-	}
+	CLIENT_ASSERT(display->formats & (1 << WL_SHM_FORMAT_XRGB8888),
+		      "WL_SHM_FORMAT_XRGB32 isn't available");
 
 	return display;
 }

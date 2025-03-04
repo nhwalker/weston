@@ -28,12 +28,12 @@
 
 #include <libweston/weston-log.h>
 #include "shared/helpers.h"
+#include "shared/weston-assert.h"
 #include <libweston/libweston.h>
 
 #include "weston-log-internal.h"
 #include "weston-debug-server-protocol.h"
 
-#include <assert.h>
 #include <unistd.h>
 #include <stdarg.h>
 #include <string.h>
@@ -144,9 +144,12 @@ weston_log_subscription_create_pending(struct weston_log_subscriber *owner,
 				       const char *scope_name,
 				       struct weston_log_context *log_ctx)
 {
-	assert(owner);
-	assert(scope_name);
-	struct weston_log_subscription *sub = zalloc(sizeof(*sub));
+	struct weston_log_subscription *sub;
+
+	WESTON_DASSERT_PTR_SET(owner);
+	WESTON_DASSERT_PTR_SET(scope_name);
+
+	sub = zalloc(sizeof(*sub));
 
 	if (!sub)
 		return;
@@ -168,7 +171,8 @@ weston_log_subscription_create_pending(struct weston_log_subscriber *owner,
 static void
 weston_log_subscription_destroy_pending(struct weston_log_subscription *sub)
 {
-	assert(sub);
+	WESTON_DASSERT_PTR_SET(sub);
+
 	/* pending subsriptions do not have a source */
 	wl_list_remove(&sub->source_link);
 	free(sub->scope_name);
@@ -215,7 +219,8 @@ void
 weston_log_subscription_set_data(struct weston_log_subscription *sub, void *data)
 {
 	/* don't allow data to already be set */
-	assert(!sub->data);
+	WESTON_DASSERT_PTR_NOT_SET(sub->data);
+
 	sub->data = data;
 }
 
@@ -248,9 +253,10 @@ weston_log_subscription_create(struct weston_log_subscriber *owner,
 			       struct weston_log_scope *scope)
 {
 	struct weston_log_subscription *sub;
-	assert(owner);
-	assert(scope);
-	assert(scope->name);
+
+	WESTON_DASSERT_PTR_SET(owner);
+	WESTON_DASSERT_PTR_SET(scope);
+	WESTON_DASSERT_PTR_SET(scope->name);
 
 	sub = zalloc(sizeof(*sub));
 	if (!sub)
@@ -275,7 +281,7 @@ weston_log_subscription_create(struct weston_log_subscriber *owner,
 void
 weston_log_subscription_destroy(struct weston_log_subscription *sub)
 {
-	assert(sub);
+	WESTON_DASSERT_PTR_SET(sub);
 
 	if (sub->owner->destroy_subscription)
 		sub->owner->destroy_subscription(sub->owner);
@@ -307,10 +313,10 @@ void
 weston_log_subscription_add(struct weston_log_scope *scope,
 			    struct weston_log_subscription *sub)
 {
-	assert(scope);
-	assert(sub);
+	WESTON_DASSERT_PTR_SET(scope);
+	WESTON_DASSERT_PTR_SET(sub);
 	/* don't allow subscriptions to have a source already! */
-	assert(!sub->source);
+	WESTON_DASSERT_PTR_NOT_SET(sub->source);
 
 	sub->source = scope;
 	wl_list_insert(&scope->subscription_list, &sub->source_link);
@@ -323,7 +329,8 @@ weston_log_subscription_add(struct weston_log_scope *scope,
 void
 weston_log_subscription_remove(struct weston_log_subscription *sub)
 {
-	assert(sub);
+	WESTON_DASSERT_PTR_SET(sub);
+
 	if (sub->source)
 		wl_list_remove(&sub->source_link);
 	sub->source = NULL;
@@ -432,7 +439,7 @@ weston_log_ctx_destroy(struct weston_log_context *log_ctx)
 
 	/* We can't destroy the log context if there's still a compositor
 	 * that depends on it. This is an user error */
-	 assert(wl_list_empty(&log_ctx->compositor_destroy_listener.link));
+	WESTON_DASSERT_TRUE(wl_list_empty(&log_ctx->compositor_destroy_listener.link));
 
 	weston_log_ctx_disable_debug_protocol(log_ctx);
 
@@ -491,7 +498,9 @@ WL_EXPORT void
 weston_compositor_enable_debug_protocol(struct weston_compositor *compositor)
 {
 	struct weston_log_context *log_ctx = compositor->weston_log_ctx;
-	assert(log_ctx);
+
+	WESTON_DASSERT_PTR_SET(log_ctx);
+
 	if (log_ctx->global)
 		return;
 
@@ -1008,9 +1017,9 @@ weston_log_subscribe(struct weston_log_context *log_ctx,
 		     struct weston_log_subscriber *subscriber,
 		     const char *scope_name)
 {
-	assert(log_ctx);
-	assert(subscriber);
-	assert(scope_name);
+	WESTON_DASSERT_PTR_SET(log_ctx);
+	WESTON_DASSERT_PTR_SET(subscriber);
+	WESTON_DASSERT_PTR_SET(scope_name);
 
 	struct weston_log_scope *scope;
 
@@ -1048,8 +1057,8 @@ weston_log_subscription_iterate(struct weston_log_scope *scope,
 	else
 		node = list->next;
 
-	assert(node);
-	assert(!sub_iter || node != &sub_iter->source_link);
+	WESTON_DASSERT_PTR_SET(node);
+	WESTON_DASSERT_TRUE(!sub_iter || node != &sub_iter->source_link);
 
 	/* if we're at the end */
 	if (node == list)
@@ -1079,7 +1088,7 @@ weston_log_scopes_iterate(struct weston_log_context *log_ctx,
         struct wl_list *list;
         struct wl_list *node;
 
-        assert(log_ctx);
+        WESTON_DASSERT_PTR_SET(log_ctx);
 
         list = &log_ctx->scope_list;
 
@@ -1089,8 +1098,8 @@ weston_log_scopes_iterate(struct weston_log_context *log_ctx,
                 node = list->next;
         }
 
-	assert(node);
-	assert(!nscope || node != &nscope->compositor_link);
+	WESTON_DASSERT_PTR_SET(node);
+	WESTON_DASSERT_TRUE(!nscope || node != &nscope->compositor_link);
 
         if (node == list)
                 return NULL;

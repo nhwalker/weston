@@ -30,13 +30,13 @@
 #include <errno.h>
 #include <string.h>
 #include <time.h>
-#include <assert.h>
 
 #include <libweston/libweston.h>
 #include <libweston/weston-log.h>
 #include "timeline.h"
 #include "weston-log-internal.h"
 #include "weston-trace.h"
+#include "shared/weston-assert.h"
 
 /**
  * Timeline itself is not a subscriber but a scope (a producer of data), and it
@@ -259,7 +259,7 @@ emit_weston_output(struct timeline_emit_context *ctx, void *obj)
 	sub_obj = weston_timeline_subscription_output_ensure(tl_sub, output);
 	emit_weston_output_print_id(sub, sub_obj, output->name);
 
-	assert(sub_obj->id != 0);
+	WESTON_DASSERT_UINT_NE(sub_obj->id, 0);
 	fprintf(ctx->cur, "\"wo\":%u", sub_obj->id);
 
 	return 1;
@@ -283,12 +283,12 @@ check_weston_surface_description(struct weston_log_subscription *sub,
 		parent_obj = check_weston_surface_description(sub, mains, tm_sub);
 
 	sub_obj = weston_timeline_subscription_surface_ensure(tm_sub, s);
-	assert(sub_obj->id != 0);
+	WESTON_DASSERT_UINT_NE(sub_obj->id, 0);
 	if (!weston_timeline_check_object_refresh(sub_obj))
 		return sub_obj;
 
 	if (mains != s) {
-		assert(parent_obj);
+		WESTON_DASSERT_PTR_SET(parent_obj);
 
 		if (snprintf(mainstr, sizeof(mainstr), ", \"main_surface\":%u",
 			     parent_obj->id) < 0)
@@ -422,7 +422,7 @@ tlp_to_string(enum timeline_point_name tlp)
 	case TLP_RENDERER_GPU_END:
 		return "renderer_gpu_end";
 	}
-	assert(!"not reached");
+	WESTON_DASSERT_NOT_REACHED();
 }
 
 /** Disseminates the message to all subscriptions of the scope \c

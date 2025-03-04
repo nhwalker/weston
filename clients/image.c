@@ -35,13 +35,13 @@
 #include <math.h>
 #include <time.h>
 #include <cairo.h>
-#include <assert.h>
 #include <errno.h>
 #include <linux/input.h>
 
 #include <wayland-client.h>
 
 #include "window.h"
+#include "weston-client-assert.h"
 #include "shared/cairo-util.h"
 #include "shared/helpers.h"
 #include "shared/image-loader.h"
@@ -115,9 +115,10 @@ cli_ri_table[] = {
 static double
 get_scale(struct image *image)
 {
-	assert(image->matrix.xy == 0.0 &&
-	       image->matrix.yx == 0.0 &&
-	       image->matrix.xx == image->matrix.yy);
+	WESTON_DASSERT_F64_EQ(image->matrix.xy, 0.0);
+	WESTON_DASSERT_F64_EQ(image->matrix.yx, 0.0);
+	WESTON_DASSERT_F64_EQ(image->matrix.xx, image->matrix.yy);
+
 	return image->matrix.xx;
 }
 
@@ -499,7 +500,7 @@ image_create(struct display *display, const char *filename,
 	widget_set_axis_handler(image->image_widget, image_axis_handler);
 
 	wimage = load_cairo_surface_get_user_data(image->image);
-	assert(wimage);
+	WESTON_DASSERT_PTR_SET(wimage);
 	if (wimage->icc_profile_data && render_intent != -1) {
 		verbose_print("Image contains ICC file embedded, let's try to use the Wayland\n" \
 			      "color-management protocol to set the surface image description\n" \

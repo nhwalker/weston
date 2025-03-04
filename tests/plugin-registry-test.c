@@ -64,21 +64,21 @@ static const struct my_api {
 static void
 init_tests(struct weston_compositor *compositor)
 {
-	test_assert_ptr_null(weston_plugin_api_get(compositor, MY_API_NAME,
+	TEST_ASSERT_PTR_NOT_SET(weston_plugin_api_get(compositor, MY_API_NAME,
 						   sizeof(my_test_api)));
 
-	test_assert_int_eq(weston_plugin_api_register(compositor, MY_API_NAME,
+	TEST_ASSERT_INT_EQ(weston_plugin_api_register(compositor, MY_API_NAME,
 						      &my_test_api,
 						      sizeof(my_test_api)), 0);
 
-	test_assert_int_eq(weston_plugin_api_register(compositor, MY_API_NAME,
+	TEST_ASSERT_INT_EQ(weston_plugin_api_register(compositor, MY_API_NAME,
 						      &my_test_api,
 						      sizeof(my_test_api)), -2);
 
-	test_assert_ptr_eq(weston_plugin_api_get(compositor, MY_API_NAME,
+	TEST_ASSERT_PTR_EQ(weston_plugin_api_get(compositor, MY_API_NAME,
 						 sizeof(my_test_api)), &my_test_api);
 
-	test_assert_int_eq(weston_plugin_api_register(compositor, "another",
+	TEST_ASSERT_INT_EQ(weston_plugin_api_register(compositor, "another",
 						      &my_test_api,
 						      sizeof(my_test_api)), 0);
 }
@@ -91,15 +91,15 @@ PLUGIN_TEST(plugin_registry_test)
 
 	init_tests(compositor);
 
-	test_assert_ptr_eq(weston_plugin_api_get(compositor, MY_API_NAME, sz),
+	TEST_ASSERT_PTR_EQ(weston_plugin_api_get(compositor, MY_API_NAME, sz),
 			   &my_test_api);
 
-	test_assert_ptr_eq(weston_plugin_api_get(compositor, MY_API_NAME, sz - 4),
+	TEST_ASSERT_PTR_EQ(weston_plugin_api_get(compositor, MY_API_NAME, sz - 4),
 			   &my_test_api);
 
-	test_assert_ptr_null(weston_plugin_api_get(compositor, MY_API_NAME, sz + 4));
+	TEST_ASSERT_PTR_NOT_SET(weston_plugin_api_get(compositor, MY_API_NAME, sz + 4));
 
 	api = weston_plugin_api_get(compositor, MY_API_NAME, sz);
-	test_assert_ptr_not_null(api);
-	test_assert_ptr_eq(api->func2, dummy_func);
+	TEST_ASSERT_PTR_SET(api);
+	TEST_ASSERT_PTR_EQ(api->func2, dummy_func);
 }

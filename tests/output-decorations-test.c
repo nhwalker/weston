@@ -77,7 +77,7 @@ TEST(output_decorations)
 	img = image_convert_to_a8r8g8b8(shot->image);
 
 	match = verify_image(img, "output-decorations", 0, NULL, 0);
-	test_assert_true(match);
+	TEST_ASSERT_TRUE(match);
 
 	pixman_image_unref(img);
 	buffer_destroy(shot);

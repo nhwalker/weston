@@ -31,7 +31,6 @@
 #include <string.h>
 #include <stdbool.h>
 #include <getopt.h>
-#include <assert.h>
 #include <unistd.h>
 #include <sys/mman.h>
 #include <signal.h>
@@ -47,6 +46,7 @@
 #include <wayland-client.h>
 #include <wayland-cursor.h>
 #include <libweston/zalloc.h>
+#include "weston-client-assert.h"
 #include "xdg-shell-client-protocol.h"
 #include "linux-dmabuf-unstable-v1-client-protocol.h"
 #include "weston-direct-display-client-protocol.h"
@@ -493,8 +493,9 @@ create_dmabuf_buffer(struct display *display, struct buffer *buffer)
 		if (layout->v4l_fourcc == display->format.format) {
 			/* If disjoint planes are missing, there is nothing to
 			 * salvage. */
-			if (layout->plane_layout == DISJOINT)
-				assert(num_planes == layout->num_planes);
+			CLIENT_ASSERT(layout->plane_layout != DISJOINT ||
+				      num_planes == layout->num_planes,
+				      "disjoint planes are missing");
 
 			/* Is this a case where we need to add 1 or 2 missing
 			 * planes? */
@@ -595,7 +596,7 @@ queue_initial_buffers(struct display *display,
 			return 0;
 		}
 
-		assert(!buffer->buffer);
+		WESTON_DASSERT_PTR_NOT_SET(buffer->buffer);
 		if (!buffer_export(display, index, buffer->dmabuf_fds))
 			return 0;
 
@@ -784,44 +785,37 @@ create_window(struct display *display, uint32_t win_flags)
 	window->display = display;
 	window->surface = wl_compositor_create_surface(display->compositor);
 
-	if (display->wm_base) {
-		if (display->viewporter) {
-			window->viewport =
-				wp_viewporter_get_viewport(display->viewporter,
-							   window->surface);
-		}
+	CLIENT_ASSERT(display->wm_base,
+		      "XDG shell isn't supported by compositor");
 
-		window->xdg_surface =
-			xdg_wm_base_get_xdg_surface(display->wm_base,
-						    window->surface);
+	if (display->viewporter)
+		window->viewport = wp_viewporter_get_viewport(display->viewporter,
+							      window->surface);
 
-		assert(window->xdg_surface);
+	window->xdg_surface = xdg_wm_base_get_xdg_surface(display->wm_base,
+							  window->surface);
+	CLIENT_ASSERT(window->xdg_surface, "can't get XDG surface");
 
-		xdg_surface_add_listener(window->xdg_surface,
-					 &xdg_surface_listener, window);
+	xdg_surface_add_listener(window->xdg_surface, &xdg_surface_listener,
+				 window);
 
-		window->xdg_toplevel =
-			xdg_surface_get_toplevel(window->xdg_surface);
+	window->xdg_toplevel = xdg_surface_get_toplevel(window->xdg_surface);
+	CLIENT_ASSERT(window->xdg_toplevel, "can't get XDG toplevel");
 
-		assert(window->xdg_toplevel);
+	xdg_toplevel_add_listener(window->xdg_toplevel, &xdg_toplevel_listener,
+				  window);
 
-		xdg_toplevel_add_listener(window->xdg_toplevel,
-					  &xdg_toplevel_listener, window);
-
-		xdg_toplevel_set_title(window->xdg_toplevel, "simple-dmabuf-v4l");
-		xdg_toplevel_set_app_id(window->xdg_toplevel,
+	xdg_toplevel_set_title(window->xdg_toplevel, "simple-dmabuf-v4l");
+	xdg_toplevel_set_app_id(window->xdg_toplevel,
 				"org.freedesktop.weston.simple-dmabuf-v4l");
 
-		if (win_flags & WIN_FLAG_FULLSCREEN)
-			xdg_toplevel_set_fullscreen(window->xdg_toplevel, NULL);
-		if (win_flags & WIN_FLAG_FULLSCREEN_CURSOR)
-			window->fullscreen_cursor = true;
+	if (win_flags & WIN_FLAG_FULLSCREEN)
+		xdg_toplevel_set_fullscreen(window->xdg_toplevel, NULL);
+	if (win_flags & WIN_FLAG_FULLSCREEN_CURSOR)
+		window->fullscreen_cursor = true;
 
-		window->wait_for_configure = true;
-		wl_surface_commit(window->surface);
-	} else {
-		assert(0);
-	}
+	window->wait_for_configure = true;
+	wl_surface_commit(window->surface);
 
 	return window;
 }
@@ -877,7 +871,7 @@ redraw(void *data, struct wl_callback *callback, uint32_t time)
 	/* A robust application would just postpone redraw until it has queued
 	 * a buffer.
 	 */
-	assert(num_busy < NUM_BUFFERS);
+	CLIENT_ASSERT(num_busy < NUM_BUFFERS);
 
 	index = dequeue(window->display);
 	if (index < 0) {
@@ -887,7 +881,7 @@ redraw(void *data, struct wl_callback *callback, uint32_t time)
 	}
 
 	buffer = &window->buffers[index];
-	assert(!buffer->busy);
+	CLIENT_ASSERT(!buffer->busy);
 
 	wl_surface_attach(window->surface, buffer->buffer, 0, 0);
 	wl_surface_damage(window->surface, 0, 0, INT32_MAX, INT32_MAX);
@@ -1155,12 +1149,10 @@ create_display(uint32_t requested_format, uint32_t opt_flags)
 	struct display *display;
 
 	display = zalloc(sizeof *display);
-	if (display == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(1);
-	}
+	CLIENT_ASSERT(display, "can't allocate memory");
+
 	display->display = wl_display_connect(NULL);
-	assert(display->display);
+	CLIENT_ASSERT(display->display, "can't connect to Wayland compositor");
 
 	display->drm_format = requested_format;
 
@@ -1168,10 +1160,8 @@ create_display(uint32_t requested_format, uint32_t opt_flags)
 	wl_registry_add_listener(display->registry,
 	                         &registry_listener, display);
 	wl_display_roundtrip(display->display);
-	if (display->dmabuf == NULL) {
-		fprintf(stderr, "No zwp_linux_dmabuf global\n");
-		exit(1);
-	}
+	CLIENT_ASSERT(display->dmabuf,
+		      "zwp_linux_dmabuf isn't supported by compositor");
 
 	wl_display_roundtrip(display->display);
 

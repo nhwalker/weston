@@ -25,7 +25,6 @@
 
 #include "config.h"
 
-#include <assert.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -79,13 +78,13 @@ end:
 void
 assert_compositor_thread(struct rdp_backend *b)
 {
-	assert(b->compositor_tid == gettid());
+	WESTON_DASSERT_S64_EQ(b->compositor_tid, gettid());
 }
 
 void
 assert_not_compositor_thread(struct rdp_backend *b)
 {
-	assert(b->compositor_tid != gettid());
+	WESTON_DASSERT_S64_NE(b->compositor_tid, gettid());
 }
 
 bool
@@ -138,7 +137,7 @@ rdp_dispatch_task(int fd, uint32_t mask, void *arg)
 
 	pthread_mutex_lock(&peerCtx->loop_task_list_mutex);
 	/* dequeue the first task which is at last, so use reverse. */
-	assert(!wl_list_empty(&peerCtx->loop_task_list));
+	WESTON_DASSERT_FALSE(wl_list_empty(&peerCtx->loop_task_list));
 	wl_list_for_each_reverse_safe(task, tmp, &peerCtx->loop_task_list, link) {
 		wl_list_remove(&task->link);
 		break;
@@ -163,17 +162,17 @@ rdp_initialize_dispatch_task_event_source(RdpPeerContext *peerCtx)
 		goto error_mutex;
 	}
 
-	assert(peerCtx->loop_task_event_source_fd == -1);
+	WESTON_DASSERT_INT_EQ(peerCtx->loop_task_event_source_fd, -1);
 	peerCtx->loop_task_event_source_fd = eventfd(0, EFD_SEMAPHORE | EFD_CLOEXEC);
 	if (peerCtx->loop_task_event_source_fd == -1) {
 		weston_log("%s: eventfd(EFD_SEMAPHORE) failed. %s\n", __func__, strerror(errno));
 		goto error_event_source_fd;
 	}
 
-	assert(wl_list_empty(&peerCtx->loop_task_list));
+	WESTON_DASSERT_TRUE(wl_list_empty(&peerCtx->loop_task_list));
 
 	loop = wl_display_get_event_loop(b->compositor->wl_display);
-	assert(peerCtx->loop_task_event_source == NULL);
+	WESTON_DASSERT_PTR_NOT_SET(peerCtx->loop_task_event_source);
 
 	ret = rdp_event_loop_add_fd(loop,
 				    peerCtx->loop_task_event_source_fd,
@@ -215,7 +214,7 @@ rdp_destroy_dispatch_task_event_source(RdpPeerContext *peerCtx)
 		 * inform them to clean them up. */
 		task->func(true /* freeOnly */, task);
 	}
-	assert(wl_list_empty(&peerCtx->loop_task_list));
+	WESTON_DASSERT_TRUE(wl_list_empty(&peerCtx->loop_task_list));
 
 	if (peerCtx->loop_task_event_source_fd != -1) {
 		close(peerCtx->loop_task_event_source_fd);

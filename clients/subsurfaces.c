@@ -31,7 +31,6 @@
 #include <string.h>
 #include <cairo.h>
 #include <math.h>
-#include <assert.h>
 #include <errno.h>
 
 #include <linux/input.h>
@@ -46,6 +45,7 @@
 #include "shared/xalloc.h"
 #include <libweston/zalloc.h>
 #include "window.h"
+#include "weston-client-assert.h"
 
 #if 0
 #define DBG(fmt, ...) \
@@ -219,24 +219,24 @@ egl_state_create(struct wl_display *display)
 	EGLBoolean ret;
 
 	egl = zalloc(sizeof *egl);
-	assert(egl);
+	CLIENT_ASSERT(egl, "error: can't allocate memory");
 
 	egl->dpy =
 		weston_platform_get_egl_display(EGL_PLATFORM_WAYLAND_KHR,
 						display, NULL);
-	assert(egl->dpy);
+	CLIENT_ASSERT(egl->dpy, "error: can't connect to Wayland compositor");
 
 	ret = eglInitialize(egl->dpy, &major, &minor);
-	assert(ret == EGL_TRUE);
+	CLIENT_ASSERT(ret == EGL_TRUE, "error: can't initialize EGL");
 	ret = eglBindAPI(EGL_OPENGL_ES_API);
-	assert(ret == EGL_TRUE);
+	CLIENT_ASSERT(ret == EGL_TRUE, "error can't bind OpenGL ES API");
 
 	ret = eglChooseConfig(egl->dpy, config_attribs, &egl->conf, 1, &n);
-	assert(ret && n == 1);
+	CLIENT_ASSERT(ret && n == 1, "error: can't choose EGL config");
 
 	egl->ctx = eglCreateContext(egl->dpy, egl->conf,
 				    EGL_NO_CONTEXT, context_attribs);
-	assert(egl->ctx);
+	CLIENT_ASSERT(egl->ctx, "error: can't create GL context");
 	egl_print_config_info(egl);
 
 	return egl;
@@ -286,7 +286,8 @@ create_shader(const char *source, GLenum shader_type)
 	GLint status;
 
 	shader = glCreateShader(shader_type);
-	assert(shader != 0);
+	if (!shader)
+		return 0;
 
 	glShaderSource(shader, 1, (const char **) &source, NULL);
 	glCompileShader(shader);
@@ -299,7 +300,7 @@ create_shader(const char *source, GLenum shader_type)
 		fprintf(stderr, "Error: compiling %s: %.*s\n",
 			shader_type == GL_VERTEX_SHADER ? "vertex" : "fragment",
 			len, log);
-		exit(1);
+		return 0;
 	}
 
 	return shader;
@@ -313,7 +314,9 @@ triangle_init_gl(struct triangle_gl_state *trigl)
 	GLint status;
 
 	frag = create_shader(frag_shader_text, GL_FRAGMENT_SHADER);
+	CLIENT_ASSERT(frag, "error: can't create fragment shader");
 	vert = create_shader(vert_shader_text, GL_VERTEX_SHADER);
+	CLIENT_ASSERT(vert, "error: can't create vertex shader");
 
 	program = glCreateProgram();
 	glAttachShader(program, frag);
@@ -401,7 +404,7 @@ triangle_frame_callback(void *data, struct wl_callback *callback,
 	struct triangle *tri = data;
 
 	DBG("%stime %u\n", callback ? "" : "artificial ", time);
-	assert(callback == tri->frame_cb);
+	WESTON_DASSERT_PTR_EQ(callback, tri->frame_cb);
 	tri->time = time;
 
 	if (callback)
@@ -433,7 +436,7 @@ triangle_create_egl_surface(struct triangle *tri, int width, int height)
 
 	ret = eglMakeCurrent(tri->egl->dpy, tri->egl_surface,
 			     tri->egl_surface, tri->egl->ctx);
-	assert(ret == EGL_TRUE);
+	CLIENT_ASSERT(ret == EGL_TRUE, "error: can't make GL context current");
 
 	egl_make_swapbuffers_nonblock(tri->egl);
 	triangle_init_gl(&tri->gl);

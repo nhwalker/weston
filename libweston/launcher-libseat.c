@@ -32,7 +32,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
-#include <assert.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -43,6 +42,7 @@
 #include <libweston/libweston.h>
 #include <libweston/weston-log.h>
 #include "weston-log-internal.h"
+#include "shared/weston-assert.h"
 #include "backend.h"
 #include "launcher-impl.h"
 
@@ -241,7 +241,7 @@ seat_open(struct weston_launcher **out, struct weston_compositor *compositor,
 	wl_list_init(&wl->devices);
 
 	libseat_debug_scope = compositor->libseat_debug;
-	assert(libseat_debug_scope);
+	WESTON_DASSERT_PTR_SET(libseat_debug_scope);
 	libseat_set_log_handler(log_libseat);
 
 	/* includes (all) other log levels available <= LOG_LEVEL_DEBUG */

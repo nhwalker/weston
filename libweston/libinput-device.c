@@ -35,7 +35,6 @@
 #include <linux/input.h>
 #include <unistd.h>
 #include <fcntl.h>
-#include <assert.h>
 #include <libinput.h>
 
 #include <libweston/libweston.h>
@@ -233,7 +232,8 @@ normalize_scroll(struct libinput_event_pointer *pointer_event,
 							      axis);
 		break;
 	default:
-		assert(!"unhandled event source in normalize_scroll");
+		WESTON_DASSERT_NOT_REACHED("unhandled event source in "
+					   "normalize_scroll");
 	}
 
 	return value;
@@ -348,7 +348,7 @@ touch_get_calibration_head_name(struct weston_touch_device *device)
 	if (!output)
 		return NULL;
 
-	assert(output->enabled);
+	WESTON_DASSERT_TRUE(output->enabled);
 	if (evdev_device->output_name)
 		return evdev_device->output_name;
 
@@ -358,7 +358,7 @@ touch_get_calibration_head_name(struct weston_touch_device *device)
 	wl_list_for_each(head, &output->head_list, output_link)
 		return head->name;
 
-	assert(0);
+	WESTON_DASSERT_NOT_REACHED();
 	return NULL;
 }
 

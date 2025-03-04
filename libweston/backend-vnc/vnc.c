@@ -29,7 +29,6 @@
 
 #include "config.h"
 
-#include <assert.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -566,7 +565,7 @@ vnc_output_update_cursor(struct vnc_output *output)
 
 	fb = nvnc_fb_new(buffer->width, buffer->height, DRM_FORMAT_ARGB8888,
 			 buffer->width);
-	assert(fb);
+	WESTON_ASSERT_PTR_SET(fb);
 
 	src = wl_shm_buffer_get_data(buffer->shm_buffer);
 	dst = nvnc_fb_get_addr(fb);
@@ -607,7 +606,7 @@ vnc_output_assign_cursor_plane(struct vnc_output *output)
 	if (format != WL_SHM_FORMAT_ARGB8888)
 		return;
 
-	assert(pointer_pnode);
+	WESTON_DASSERT_PTR_SET(pointer_pnode);
 
 	weston_paint_node_move_to_plane(pointer_pnode, &output->cursor_plane);
 
@@ -681,7 +680,7 @@ vnc_rb_discarded_cb(weston_renderbuffer_t rb, void *data)
 {
 	struct vnc_buffer *buffer = (struct vnc_buffer *) data;
 
-	assert(nvnc_get_userdata(buffer->fb) == buffer);
+	WESTON_DASSERT_PTR_EQ(nvnc_get_userdata(buffer->fb), buffer);
 
 	nvnc_set_userdata(buffer->fb, NULL, NULL);
 	vnc_buffer_destroy(buffer);
@@ -729,7 +728,7 @@ vnc_update_buffer(struct nvnc_display *display, struct pixman_region32 *damage)
 	struct nvnc_fb *fb;
 
 	fb = nvnc_fb_pool_acquire(output->fb_pool);
-	assert(fb);
+	WESTON_ASSERT_PTR_SET(fb);
 
 	buffer = nvnc_get_userdata(fb);
 	if (!buffer) {
@@ -809,7 +808,7 @@ vnc_output_enable(struct weston_output *base)
 	struct vnc_backend *backend;
 	struct wl_event_loop *loop;
 
-	assert(output);
+	WESTON_DASSERT_PTR_SET(output);
 
 	backend = output->backend;
 	backend->output = output;
@@ -845,7 +844,7 @@ vnc_output_enable(struct weston_output *base)
 		break;
 	}
 	default:
-		unreachable("cannot have auto renderer at runtime");
+		WESTON_DASSERT_NOT_REACHED("invalid renderer");
 	}
 
 	loop = wl_display_get_event_loop(backend->compositor->wl_display);
@@ -872,7 +871,7 @@ vnc_output_disable(struct weston_output *base)
 	struct vnc_output *output = to_vnc_output(base);
 	struct vnc_backend *backend;
 
-	assert(output);
+	WESTON_DASSERT_PTR_SET(output);
 
 	backend = output->backend;
 
@@ -891,7 +890,7 @@ vnc_output_disable(struct weston_output *base)
 		renderer->gl->output_destroy(&output->base);
 		break;
 	default:
-		unreachable("cannot have auto renderer at runtime");
+		WESTON_DASSERT_NOT_REACHED("invalid renderer");
 	}
 
 	wl_event_source_remove(output->finish_frame_timer);
@@ -908,7 +907,7 @@ vnc_output_destroy(struct weston_output *base)
 	struct vnc_output *output = to_vnc_output(base);
 
 	/* Can only be called on outputs created by vnc_create_output() */
-	assert(output);
+	WESTON_DASSERT_PTR_SET(output);
 
 	vnc_output_disable(&output->base);
 	weston_output_release(&output->base);
@@ -1013,7 +1012,7 @@ vnc_output_repaint(struct weston_output *base)
 	struct vnc_backend *backend = output->backend;
 	pixman_region32_t damage;
 
-	assert(output);
+	WESTON_DASSERT_PTR_SET(output);
 
 	if (wl_list_empty(&output->peers))
 		weston_output_power_off(base);
@@ -1061,7 +1060,7 @@ vnc_output_assign_planes(struct weston_output *base)
 {
 	struct vnc_output *output = to_vnc_output(base);
 
-	assert(output);
+	WESTON_DASSERT_PTR_SET(output);
 
 	if (wl_list_empty(&output->peers))
 		return;
@@ -1077,7 +1076,7 @@ vnc_switch_mode(struct weston_output *base, struct weston_mode *target_mode)
 	struct vnc_output *output = to_vnc_output(base);
 	struct weston_size fb_size;
 
-	assert(output);
+	WESTON_DASSERT_PTR_SET(output);
 
 	weston_output_set_single_mode(base, target_mode);
 
@@ -1109,7 +1108,7 @@ vnc_output_set_size(struct weston_output *base, int width, int height,
 	struct weston_mode init_mode;
 
 	/* We can only be called once. */
-	assert(!output->base.current_mode);
+	WESTON_DASSERT_PTR_NOT_SET(output->base.current_mode);
 
 	wl_list_init(&output->peers);
 

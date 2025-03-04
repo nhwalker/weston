@@ -25,12 +25,13 @@
 
 #include "config.h"
 
-#include <assert.h>
 #include <string.h>
 #include <stdlib.h>
 
 #include <libweston/libweston.h>
 #include <libweston/plugin-registry.h>
+
+#include "shared/weston-assert.h"
 
 struct weston_plugin_api {
 	struct wl_list link;     /**< in weston_compositor::plugin_api_list */
@@ -69,9 +70,9 @@ weston_plugin_api_register(struct weston_compositor *compositor,
 {
 	struct weston_plugin_api *wpa;
 
-	assert(api_name);
-	assert(strlen(api_name) > 0);
-	assert(vtable);
+	WESTON_DASSERT_PTR_SET(api_name);
+	WESTON_DASSERT_INT_GT(strlen(api_name), 0);
+	WESTON_DASSERT_PTR_SET(vtable);
 
 	if (!api_name || !vtable || strlen(api_name) == 0)
 		return -1;
@@ -138,7 +139,8 @@ weston_plugin_api_get(struct weston_compositor *compositor,
 {
 	struct weston_plugin_api *wpa;
 
-	assert(api_name);
+	WESTON_DASSERT_PTR_SET(api_name);
+
 	if (!api_name)
 		return NULL;
 

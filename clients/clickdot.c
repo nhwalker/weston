@@ -31,7 +31,6 @@
 #include <string.h>
 #include <cairo.h>
 #include <math.h>
-#include <assert.h>
 #include <unistd.h>
 #include <time.h>
 #include <errno.h>

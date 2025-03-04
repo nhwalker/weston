@@ -267,6 +267,6 @@ TEST_P(matrix_inversion_precision, matrices)
 	if (err > tm->err_limit) {
 		testlog("Error is too high for matrix\n");
 		print_matrix(&tm->M);
-		test_assert_true(false);
+		TEST_ASSERT_TRUE(false);
 	}
 }

@@ -44,13 +44,13 @@ drm_plane_state_alloc(struct drm_output_state *state_output,
 {
 	struct drm_plane_state *state = zalloc(sizeof(*state));
 
-	assert(state);
+	WESTON_ASSERT_PTR_SET(state);
 	state->output_state = state_output;
 	state->plane = plane;
 	state->in_fence_fd = -1;
 	state->rotation = drm_rotation_from_output_transform(plane,
 							     WL_OUTPUT_TRANSFORM_NORMAL);
-	assert(state->rotation);
+	WESTON_DASSERT_U32_NE(state->rotation, 0);
 	state->zpos = DRM_PLANE_ZPOS_INVALID_PLANE;
 	state->alpha = (plane->alpha_max < DRM_PLANE_ALPHA_OPAQUE) ?
 		       plane->alpha_max : DRM_PLANE_ALPHA_OPAQUE;
@@ -125,8 +125,8 @@ drm_plane_state_duplicate(struct drm_output_state *state_output,
 	struct drm_plane_state *dst = zalloc(sizeof(*dst));
 	struct drm_plane_state *old, *tmp;
 
-	assert(src);
-	assert(dst);
+	WESTON_DASSERT_PTR_SET(src);
+	WESTON_ASSERT_PTR_SET(dst);
 	*dst = *src;
 	/* We don't want to copy this, because damage is transient, and only
 	 * lasts for the duration of a single repaint.
@@ -142,7 +142,7 @@ drm_plane_state_duplicate(struct drm_output_state *state_output,
 		/* Duplicating a plane state into the same output state, so
 		 * it can replace itself with an identical copy of itself,
 		 * makes no sense. */
-		assert(old != src);
+		WESTON_DASSERT_TRUE(old != src);
 		if (old->plane == dst->plane)
 			drm_plane_state_free(old, false);
 	}
@@ -170,8 +170,8 @@ drm_plane_state_duplicate(struct drm_output_state *state_output,
 		weston_buffer_release_reference(&dst->fb_ref.release,
 						src->fb_ref.release.buffer_release);
 	} else {
-		assert(!src->fb_ref.buffer.buffer);
-		assert(!src->fb_ref.release.buffer_release);
+		WESTON_DASSERT_PTR_NOT_SET(src->fb_ref.buffer.buffer);
+		WESTON_DASSERT_PTR_NOT_SET(src->fb_ref.release.buffer_release);
 	}
 	dst->output_state = state_output;
 	dst->complete = false;
@@ -234,7 +234,7 @@ drm_plane_state_coords_for_paint_node(struct drm_plane_state *state,
 	if (!drm_paint_node_transform_supported(node, state->plane))
 		return false;
 
-	assert(node->valid_transform);
+	WESTON_DASSERT_TRUE(node->valid_transform);
 	state->rotation = drm_rotation_from_output_transform(state->plane, node->transform);
 
 	/* Update the base weston_plane co-ordinates. */
@@ -377,7 +377,7 @@ drm_output_state_alloc(struct drm_output *output)
 {
 	struct drm_output_state *state = zalloc(sizeof(*state));
 
-	assert(state);
+	WESTON_ASSERT_PTR_SET(state);
 	state->output = output;
 	state->dpms = WESTON_DPMS_OFF;
 	state->protection = WESTON_HDCP_DISABLE;
@@ -404,7 +404,7 @@ drm_output_state_duplicate(struct drm_output_state *src,
 	struct drm_output_state *dst = malloc(sizeof(*dst));
 	struct drm_plane_state *ps;
 
-	assert(dst);
+	WESTON_ASSERT_PTR_SET(dst);
 
 	/* Copy the whole structure, then individually modify the
 	 * pending_state, as well as the list link into our pending

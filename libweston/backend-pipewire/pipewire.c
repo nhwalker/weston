@@ -29,7 +29,6 @@
 
 #include "config.h"
 
-#include <assert.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -376,7 +375,7 @@ pipewire_output_enable(struct weston_output *base)
 		ret = pipewire_output_enable_gl(output);
 		break;
 	default:
-		unreachable("Valid renderer should have been selected");
+		WESTON_DASSERT_NOT_REACHED("invalid renderer");
 	}
 
 	if (ret < 0)
@@ -401,7 +400,7 @@ err:
 		pipewire_output_disable_gl(output);
 		break;
 	default:
-		unreachable("Valid renderer should have been selected");
+		WESTON_DASSERT_NOT_REACHED("invalid renderer");
 	}
 
 
@@ -429,7 +428,7 @@ pipewire_output_disable(struct weston_output *base)
 		pipewire_output_disable_gl(output);
 		break;
 	default:
-		unreachable("Valid renderer should have been selected");
+		WESTON_DASSERT_NOT_REACHED("invalid renderer");
 	}
 
 	wl_event_source_remove(output->finish_frame_timer);
@@ -442,7 +441,7 @@ pipewire_output_destroy(struct weston_output *base)
 {
 	struct pipewire_output *output = to_pipewire_output(base);
 
-	assert(output);
+	WESTON_DASSERT_PTR_SET(output);
 
 	pipewire_output_disable(&output->base);
 	weston_output_release(&output->base);
@@ -992,7 +991,7 @@ pipewire_output_repaint(struct weston_output *base)
 	pixman_region32_t damage;
 	bool submit_scheduled = false;
 
-	assert(output);
+	WESTON_DASSERT_PTR_SET(output);
 
 	pixman_region32_init(&damage);
 
@@ -1072,7 +1071,9 @@ pipewire_switch_mode(struct weston_output *base, struct weston_mode *target_mode
 	struct weston_mode *local_mode;
 	struct weston_size fb_size;
 
-	assert(output);
+	MAYBE_UNUSED(output);
+
+	WESTON_DASSERT_PTR_SET(output);
 
 	local_mode = pipewire_ensure_matching_mode(base, target_mode);
 
@@ -1101,7 +1102,7 @@ pipewire_output_set_size(struct weston_output *base, int width, int height)
 	int framerate = -1;
 
 	/* We can only be called once. */
-	assert(!output->base.current_mode);
+	WESTON_DASSERT_PTR_NOT_SET(output->base.current_mode);
 
 	wl_list_for_each(head, &output->base.head_list, output_link) {
 		pw_head = to_pipewire_head(head);

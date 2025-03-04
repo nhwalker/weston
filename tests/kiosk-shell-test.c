@@ -180,9 +180,9 @@ create_xdg_surface(struct xdg_client *xdg_client)
 {
 	struct xdg_surface_data *xdg_surface = xzalloc(sizeof(*xdg_surface));
 
-	test_assert_ptr_not_null(xdg_surface);
+	TEST_ASSERT_PTR_SET(xdg_surface);
 	xdg_surface->surface = create_test_surface(xdg_client->client);
-	test_assert_ptr_not_null(xdg_surface->surface);
+	TEST_ASSERT_PTR_SET(xdg_surface->surface);
 
 	xdg_surface->xdg_surface =
 		xdg_wm_base_get_xdg_surface(xdg_client->xdg_wm_base,
@@ -209,7 +209,7 @@ xdg_surface_make_toplevel(struct xdg_surface_data *xdg_surface,
 {
 	xdg_surface->xdg_toplevel =
 		xdg_surface_get_toplevel(xdg_surface->xdg_surface);
-	test_assert_ptr_not_null(xdg_surface->xdg_toplevel);
+	TEST_ASSERT_PTR_SET(xdg_surface->xdg_toplevel);
 	xdg_toplevel_add_listener(xdg_surface->xdg_toplevel,
 				  &xdg_toplevel_listener, xdg_surface);
 	xdg_toplevel_set_app_id(xdg_surface->xdg_toplevel, app_id);
@@ -221,7 +221,7 @@ xdg_surface_wait_configure(struct xdg_surface_data *xdg_surface)
 {
 	wl_surface_commit(xdg_surface->surface->wl_surface);
 	wl_display_roundtrip(xdg_surface->surface->client->wl_display);
-	test_assert_u32_gt(xdg_surface->configure.serial, 0);
+	TEST_ASSERT_U32_GT(xdg_surface->configure.serial, 0);
 }
 
 static void
@@ -235,7 +235,7 @@ xdg_surface_commit_solid(struct xdg_surface_data *xdg_surface,
 
 	buf = create_shm_buffer_a8r8g8b8(xdg_surface->surface->client,
 					 width, height);
-	test_assert_ptr_not_null(buf);
+	TEST_ASSERT_PTR_SET(buf);
 	xdg_surface->surface->buffer = buf;
 
 	color_rgb888(&color, r, g, b);
@@ -262,14 +262,14 @@ create_xdg_client(void)
 {
 	struct xdg_client *xdg_client = xzalloc(sizeof(*xdg_client));
 
-	test_assert_ptr_not_null(xdg_client);
+	TEST_ASSERT_PTR_SET(xdg_client);
 	xdg_client->client = create_client();
-	test_assert_ptr_not_null(xdg_client->client);
+	TEST_ASSERT_PTR_SET(xdg_client->client);
 
 	xdg_client->xdg_wm_base = bind_to_singleton_global(xdg_client->client,
 							   &xdg_wm_base_interface,
 							   5);
-	test_assert_ptr_not_null(xdg_client->xdg_wm_base);
+	TEST_ASSERT_PTR_SET(xdg_client->xdg_wm_base);
 	xdg_wm_base_add_listener(xdg_client->xdg_wm_base, &xdg_wm_base_listener,
 				 xdg_client);
 
@@ -301,24 +301,24 @@ DECLARE_LIST_ITERATOR(view_from_surface, struct weston_surface, views,
 static void assert_resource_is_proxy(struct wet_testsuite_data *suite_data,
 				     struct wl_resource *r, void *p)
 {
-	test_assert_ptr_not_null(r);
-	test_assert_ptr_eq(wl_resource_get_client(r), suite_data->wl_client);
-	test_assert_u32_eq(wl_resource_get_id(r),
+	TEST_ASSERT_PTR_SET(r);
+	TEST_ASSERT_PTR_EQ(wl_resource_get_client(r), suite_data->wl_client);
+	TEST_ASSERT_U32_EQ(wl_resource_get_id(r),
 			   wl_proxy_get_id((struct wl_proxy *) p));
 }
 
 static void assert_surface_matches(struct wet_testsuite_data *suite_data,
 				   struct weston_surface *s, struct surface *c)
 {
-	test_assert_ptr_not_null(s);
-	test_assert_ptr_not_null(c);
+	TEST_ASSERT_PTR_SET(s);
+	TEST_ASSERT_PTR_SET(c);
 
 	assert_resource_is_proxy(suite_data, s->resource, c->wl_surface);
-	test_assert_s32_eq(s->width, c->width);
-	test_assert_s32_eq(s->height, c->height);
+	TEST_ASSERT_S32_EQ(s->width, c->width);
+	TEST_ASSERT_S32_EQ(s->height, c->height);
 
-	test_assert_ptr_not_null(s->buffer_ref.buffer);
-	test_assert_ptr_not_null(c->buffer);
+	TEST_ASSERT_PTR_SET(s->buffer_ref.buffer);
+	TEST_ASSERT_PTR_SET(c->buffer);
 	assert_resource_is_proxy(suite_data, s->buffer_ref.buffer->resource,
 				 c->buffer->proxy);
 }
@@ -329,8 +329,8 @@ static void assert_output_matches(struct wet_testsuite_data *suite_data,
 	struct weston_head *head;
 	bool found_client_resource = false;
 
-	test_assert_ptr_not_null(s);
-	test_assert_ptr_not_null(c);
+	TEST_ASSERT_PTR_SET(s);
+	TEST_ASSERT_PTR_SET(c);
 
 	wl_list_for_each(head, &s->head_list, output_link) {
 		struct wl_resource *res;
@@ -343,10 +343,10 @@ static void assert_output_matches(struct wet_testsuite_data *suite_data,
 			}
 		}
 	}
-	test_assert_true(found_client_resource);
+	TEST_ASSERT_TRUE(found_client_resource);
 
-	test_assert_s32_eq(s->width, c->width);
-	test_assert_s32_eq(s->height, c->height);
+	TEST_ASSERT_S32_EQ(s->width, c->width);
+	TEST_ASSERT_S32_EQ(s->height, c->height);
 }
 
 static void *
@@ -356,10 +356,10 @@ get_server_res_from_proxy(struct wet_testsuite_data *suite_data,
 	uint32_t id = wl_proxy_get_id((struct wl_proxy *) p);
 	struct wl_resource *res;
 
-	test_assert_ptr_not_null(p);
-	test_assert_u32_gt(id, 0);
+	TEST_ASSERT_PTR_SET(p);
+	TEST_ASSERT_U32_GT(id, 0);
 	res = wl_client_get_object(suite_data->wl_client, id);
-	test_assert_ptr_not_null(res);
+	TEST_ASSERT_PTR_SET(res);
 	return wl_resource_get_user_data(res);
 }
 
@@ -369,15 +369,16 @@ assert_surface_is_background(struct wet_testsuite_data *suite_data,
 {
 	char lbl[128];
 
-	test_assert_ptr_null(surface->resource);
-	test_assert_ptr_not_null(surface->buffer_ref.buffer);
-	test_assert_enum(surface->buffer_ref.buffer->type, WESTON_BUFFER_SOLID);
-	test_assert_ptr_not_null(surface->output);
-	test_assert_s32_eq(surface->width, surface->output->width);
-	test_assert_s32_eq(surface->height, surface->output->height);
-	test_assert_ptr_not_null(surface->get_label);
-	test_assert_int_ne(surface->get_label(surface, lbl, sizeof(lbl)), 0);
-	test_assert_str_eq(lbl, "kiosk shell background surface");
+	TEST_ASSERT_PTR_NOT_SET(surface->resource);
+	TEST_ASSERT_PTR_SET(surface->buffer_ref.buffer);
+	TEST_ASSERT_ENUM_EQ(surface->buffer_ref.buffer->type,
+			    WESTON_BUFFER_SOLID);
+	TEST_ASSERT_PTR_SET(surface->output);
+	TEST_ASSERT_S32_EQ(surface->width, surface->output->width);
+	TEST_ASSERT_S32_EQ(surface->height, surface->output->height);
+	TEST_ASSERT_PTR_SET(surface->get_label);
+	TEST_ASSERT_INT_NE(surface->get_label(surface, lbl, sizeof(lbl)), 0);
+	TEST_ASSERT_STR_EQ(lbl, "kiosk shell background surface");
 }
 
 TEST(two_surface_switching)
@@ -387,20 +388,20 @@ TEST(two_surface_switching)
 	struct xdg_surface_data *xdg_surface1, *xdg_surface2;
 	struct input *input;
 
-	test_assert_ptr_not_null(xdg_client);
+	TEST_ASSERT_PTR_SET(xdg_client);
 
 	/* move the pointer clearly away from our screenshooting area */
 	weston_test_move_pointer(xdg_client->client->test->weston_test,
 				 0, 1, 0, 2, 30);
 
 	xdg_surface1 = create_xdg_surface(xdg_client);
-	test_assert_ptr_not_null(xdg_surface1);
+	TEST_ASSERT_PTR_SET(xdg_surface1);
 	xdg_surface_make_toplevel(xdg_surface1, "weston.test.kiosk", "one");
 	xdg_surface_wait_configure(xdg_surface1);
-	test_assert_true(xdg_surface1->configure.fullscreen);
-	test_assert_int_eq(xdg_surface1->configure.width,
+	TEST_ASSERT_TRUE(xdg_surface1->configure.fullscreen);
+	TEST_ASSERT_INT_EQ(xdg_surface1->configure.width,
 			   xdg_client->client->output->width);
-	test_assert_int_eq(xdg_surface1->configure.height,
+	TEST_ASSERT_INT_EQ(xdg_surface1->configure.height,
 			   xdg_client->client->output->height);
 
 	client_push_breakpoint(xdg_client->client, suite_data,
@@ -420,42 +421,42 @@ TEST(two_surface_switching)
 		struct weston_desktop_surface *wds =
 			weston_surface_get_desktop_surface(surface);
 
-		test_assert_enum(breakpoint->template_->breakpoint,
-				 WESTON_TEST_BREAKPOINT_POST_REPAINT);
+		TEST_ASSERT_ENUM_EQ(breakpoint->template_->breakpoint,
+				    WESTON_TEST_BREAKPOINT_POST_REPAINT);
 		assert_output_matches(suite_data, output,
 				      xdg_client->client->output);
-		test_assert_ptr_not_null(pnode);
-		test_assert_ptr_not_null(surface);
-		test_assert_ptr_not_null(wds);
-		test_assert_ptr_not_null(view);
-		test_assert_ptr_not_null(buffer);
+		TEST_ASSERT_PTR_SET(pnode);
+		TEST_ASSERT_PTR_SET(surface);
+		TEST_ASSERT_PTR_SET(wds);
+		TEST_ASSERT_PTR_SET(view);
+		TEST_ASSERT_PTR_SET(buffer);
 
 		/* check that our surface is top of the paint node list */
 		assert_surface_matches(suite_data, surface, xdg_surface1->surface);
-		test_assert_str_eq(weston_desktop_surface_get_title(wds), "one");
-		test_assert_true(weston_view_is_mapped(view));
-		test_assert_true(weston_surface_is_mapped(surface));
+		TEST_ASSERT_STR_EQ(weston_desktop_surface_get_title(wds), "one");
+		TEST_ASSERT_TRUE(weston_view_is_mapped(view));
+		TEST_ASSERT_TRUE(weston_surface_is_mapped(surface));
 
 		/* the background should be under that */
 		pnode = next_pnode_from_z(output, pnode);
-		test_assert_ptr_not_null(pnode);
+		TEST_ASSERT_PTR_SET(pnode);
 		assert_surface_is_background(suite_data, pnode->view->surface);
 	}
 
 	wl_display_roundtrip(xdg_client->client->wl_display);
 	input = container_of(xdg_client->client->inputs.next, struct input, link);
-	test_assert_ptr_not_null(input);
-	test_assert_ptr_not_null(input->keyboard);
-	test_assert_ptr_eq(input->keyboard->focus, xdg_surface1->surface);
+	TEST_ASSERT_PTR_SET(input);
+	TEST_ASSERT_PTR_SET(input->keyboard);
+	TEST_ASSERT_PTR_EQ(input->keyboard->focus, xdg_surface1->surface);
 
 	xdg_surface2 = create_xdg_surface(xdg_client);
-	test_assert_ptr_not_null(xdg_surface2);
+	TEST_ASSERT_PTR_SET(xdg_surface2);
 	xdg_surface_make_toplevel(xdg_surface2, "weston.test.kiosk", "two");
 	xdg_surface_wait_configure(xdg_surface2);
-	test_assert_true(xdg_surface2->configure.fullscreen);
-	test_assert_int_eq(xdg_surface2->configure.width,
+	TEST_ASSERT_TRUE(xdg_surface2->configure.fullscreen);
+	TEST_ASSERT_INT_EQ(xdg_surface2->configure.width,
 			   xdg_client->client->output->width);
-	test_assert_int_eq(xdg_surface2->configure.height,
+	TEST_ASSERT_INT_EQ(xdg_surface2->configure.height,
 			   xdg_client->client->output->height);
 
 	client_push_breakpoint(xdg_client->client, suite_data,
@@ -475,30 +476,30 @@ TEST(two_surface_switching)
 		struct weston_desktop_surface *wds =
 			weston_surface_get_desktop_surface(surface);
 
-		test_assert_enum(breakpoint->template_->breakpoint,
-				 WESTON_TEST_BREAKPOINT_POST_REPAINT);
+		TEST_ASSERT_ENUM_EQ(breakpoint->template_->breakpoint,
+				    WESTON_TEST_BREAKPOINT_POST_REPAINT);
 		assert_output_matches(suite_data, output,
 				      xdg_client->client->output);
-		test_assert_ptr_not_null(pnode);
-		test_assert_ptr_not_null(surface);
-		test_assert_ptr_not_null(wds);
-		test_assert_ptr_not_null(view);
-		test_assert_ptr_not_null(buffer);
+		TEST_ASSERT_PTR_SET(pnode);
+		TEST_ASSERT_PTR_SET(surface);
+		TEST_ASSERT_PTR_SET(wds);
+		TEST_ASSERT_PTR_SET(view);
+		TEST_ASSERT_PTR_SET(buffer);
 
 		/* check that our surface is top of the paint node list */
 		assert_surface_matches(suite_data, surface, xdg_surface2->surface);
-		test_assert_str_eq(weston_desktop_surface_get_title(wds), "two");
-		test_assert_true(weston_surface_is_mapped(surface));
-		test_assert_true(weston_view_is_mapped(view));
+		TEST_ASSERT_STR_EQ(weston_desktop_surface_get_title(wds), "two");
+		TEST_ASSERT_TRUE(weston_surface_is_mapped(surface));
+		TEST_ASSERT_TRUE(weston_view_is_mapped(view));
 
 		/* the background should be under that */
 		pnode = next_pnode_from_z(output, pnode);
-		test_assert_ptr_not_null(pnode);
+		TEST_ASSERT_PTR_SET(pnode);
 		assert_surface_is_background(suite_data, pnode->view->surface);
 	}
 
 	wl_display_roundtrip(xdg_client->client->wl_display);
-	test_assert_ptr_eq(input->keyboard->focus, xdg_surface2->surface);
+	TEST_ASSERT_PTR_EQ(input->keyboard->focus, xdg_surface2->surface);
 	destroy_xdg_surface(xdg_surface2);
 
 	client_push_breakpoint(xdg_client->client, suite_data,
@@ -516,26 +517,26 @@ TEST(two_surface_switching)
 		struct weston_desktop_surface *wds =
 			weston_surface_get_desktop_surface(surface);
 
-		test_assert_enum(breakpoint->template_->breakpoint,
-				 WESTON_TEST_BREAKPOINT_POST_REPAINT);
+		TEST_ASSERT_ENUM_EQ(breakpoint->template_->breakpoint,
+				    WESTON_TEST_BREAKPOINT_POST_REPAINT);
 		assert_output_matches(suite_data, output,
 				      xdg_client->client->output);
-		test_assert_ptr_not_null(pnode);
-		test_assert_ptr_not_null(surface);
-		test_assert_ptr_not_null(wds);
-		test_assert_ptr_not_null(view);
-		test_assert_ptr_not_null(buffer);
+		TEST_ASSERT_PTR_SET(pnode);
+		TEST_ASSERT_PTR_SET(surface);
+		TEST_ASSERT_PTR_SET(wds);
+		TEST_ASSERT_PTR_SET(view);
+		TEST_ASSERT_PTR_SET(buffer);
 
 		/* check that our surface is top of the paint node list */
 		assert_surface_matches(suite_data, surface, xdg_surface1->surface);
-		test_assert_ptr_not_null(surface->resource);
-		test_assert_true(weston_view_is_mapped(view));
-		test_assert_true(weston_surface_is_mapped(surface));
-		test_assert_str_eq(weston_desktop_surface_get_title(wds), "one");
+		TEST_ASSERT_PTR_SET(surface->resource);
+		TEST_ASSERT_TRUE(weston_view_is_mapped(view));
+		TEST_ASSERT_TRUE(weston_surface_is_mapped(surface));
+		TEST_ASSERT_STR_EQ(weston_desktop_surface_get_title(wds), "one");
 	}
 
 	wl_display_roundtrip(xdg_client->client->wl_display);
-	test_assert_ptr_eq(input->keyboard->focus, xdg_surface1->surface);
+	TEST_ASSERT_PTR_EQ(input->keyboard->focus, xdg_surface1->surface);
 
 	destroy_xdg_surface(xdg_surface1);
 	xdg_client_destroy(xdg_client);
@@ -548,8 +549,8 @@ TEST(top_surface_present_in_output_repaint)
 	struct xdg_client *xdg_client = create_xdg_client();
 	struct xdg_surface_data *xdg_surface = create_xdg_surface(xdg_client);
 
-	test_assert_ptr_not_null(xdg_client);
-	test_assert_ptr_not_null(xdg_surface);
+	TEST_ASSERT_PTR_SET(xdg_client);
+	TEST_ASSERT_PTR_SET(xdg_surface);
 
 	/* move the pointer clearly away from our screenshooting area */
 	weston_test_move_pointer(xdg_client->client->test->weston_test,
@@ -557,10 +558,10 @@ TEST(top_surface_present_in_output_repaint)
 
 	xdg_surface_make_toplevel(xdg_surface, "weston.test.kiosk", "one");
 	xdg_surface_wait_configure(xdg_surface);
-	test_assert_true(xdg_surface->configure.fullscreen);
-	test_assert_int_eq(xdg_surface->configure.width,
+	TEST_ASSERT_TRUE(xdg_surface->configure.fullscreen);
+	TEST_ASSERT_INT_EQ(xdg_surface->configure.width,
 			   xdg_client->client->output->width);
-	test_assert_int_eq(xdg_surface->configure.height,
+	TEST_ASSERT_INT_EQ(xdg_surface->configure.height,
 			   xdg_client->client->output->height);
 
 	client_push_breakpoint(xdg_client->client, suite_data,
@@ -578,18 +579,18 @@ TEST(top_surface_present_in_output_repaint)
 		struct weston_surface *surface = view->surface;
 		struct weston_buffer *buffer = surface->buffer_ref.buffer;
 
-		test_assert_enum(breakpoint->template_->breakpoint,
-				 WESTON_TEST_BREAKPOINT_POST_REPAINT);
+		TEST_ASSERT_ENUM_EQ(breakpoint->template_->breakpoint,
+				    WESTON_TEST_BREAKPOINT_POST_REPAINT);
 		assert_output_matches(suite_data, output, xdg_client->client->output);
-		test_assert_ptr_not_null(pnode);
-		test_assert_ptr_not_null(surface);
-		test_assert_ptr_not_null(view);
-		test_assert_ptr_not_null(buffer);
+		TEST_ASSERT_PTR_SET(pnode);
+		TEST_ASSERT_PTR_SET(surface);
+		TEST_ASSERT_PTR_SET(view);
+		TEST_ASSERT_PTR_SET(buffer);
 
 		/* check that our surface is top of the paint node list */
 		assert_surface_matches(suite_data, surface, xdg_surface->surface);
-		test_assert_true(weston_view_is_mapped(view));
-		test_assert_true(weston_surface_is_mapped(surface));
+		TEST_ASSERT_TRUE(weston_view_is_mapped(view));
+		TEST_ASSERT_TRUE(weston_surface_is_mapped(surface));
 	}
 
 	destroy_xdg_surface(xdg_surface);
@@ -602,8 +603,8 @@ TEST(test_surface_unmaps_on_null)
 	struct xdg_client *xdg_client = create_xdg_client();
 	struct xdg_surface_data *xdg_surface = create_xdg_surface(xdg_client);;
 
-	test_assert_ptr_not_null(xdg_client);
-	test_assert_ptr_not_null(xdg_surface);
+	TEST_ASSERT_PTR_SET(xdg_client);
+	TEST_ASSERT_PTR_SET(xdg_surface);
 
 	/* move the pointer clearly away from our screenshooting area */
 	weston_test_move_pointer(xdg_client->client->test->weston_test,
@@ -611,10 +612,10 @@ TEST(test_surface_unmaps_on_null)
 
 	xdg_surface_make_toplevel(xdg_surface, "weston.test.kiosk", "one");
 	xdg_surface_wait_configure(xdg_surface);
-	test_assert_true(xdg_surface->configure.fullscreen);
-	test_assert_int_eq(xdg_surface->configure.width,
+	TEST_ASSERT_TRUE(xdg_surface->configure.fullscreen);
+	TEST_ASSERT_INT_EQ(xdg_surface->configure.width,
 			   xdg_client->client->output->width);
-	test_assert_int_eq(xdg_surface->configure.height,
+	TEST_ASSERT_INT_EQ(xdg_surface->configure.height,
 			   xdg_client->client->output->height);
 
 	client_push_breakpoint(xdg_client->client, suite_data,
@@ -632,16 +633,16 @@ TEST(test_surface_unmaps_on_null)
 		struct weston_surface *surface = view->surface;
 
 		/* Check that our surface is being shown on top */
-		test_assert_enum(breakpoint->template_->breakpoint,
-				 WESTON_TEST_BREAKPOINT_POST_REPAINT);
-		test_assert_ptr_not_null(pnode);
-		test_assert_ptr_not_null(surface);
-		test_assert_ptr_not_null(view);
+		TEST_ASSERT_ENUM_EQ(breakpoint->template_->breakpoint,
+				    WESTON_TEST_BREAKPOINT_POST_REPAINT);
+		TEST_ASSERT_PTR_SET(pnode);
+		TEST_ASSERT_PTR_SET(surface);
+		TEST_ASSERT_PTR_SET(view);
 		assert_surface_matches(suite_data, surface, xdg_surface->surface);
 		assert_output_matches(suite_data, surface->output,
 				      xdg_client->client->output);
-		test_assert_true(weston_view_is_mapped(view));
-		test_assert_true(weston_surface_is_mapped(surface));
+		TEST_ASSERT_TRUE(weston_view_is_mapped(view));
+		TEST_ASSERT_TRUE(weston_surface_is_mapped(surface));
 	}
 
 	wl_surface_attach(xdg_surface->surface->wl_surface, NULL, 0, 0);
@@ -660,26 +661,26 @@ TEST(test_surface_unmaps_on_null)
 		struct weston_surface *surface = view->surface;
 		struct weston_buffer *buffer = surface->buffer_ref.buffer;
 
-		test_assert_enum(breakpoint->template_->breakpoint,
-				 WESTON_TEST_BREAKPOINT_POST_REPAINT);
+		TEST_ASSERT_ENUM_EQ(breakpoint->template_->breakpoint,
+				    WESTON_TEST_BREAKPOINT_POST_REPAINT);
 
 		/* Check that the background is being shown on top. */
-		test_assert_ptr_not_null(pnode);
-		test_assert_ptr_not_null(surface);
-		test_assert_ptr_not_null(view);
-		test_assert_ptr_not_null(buffer);
+		TEST_ASSERT_PTR_SET(pnode);
+		TEST_ASSERT_PTR_SET(surface);
+		TEST_ASSERT_PTR_SET(view);
+		TEST_ASSERT_PTR_SET(buffer);
 		assert_surface_is_background(suite_data, surface);
 
 		/* Check that kiosk-shell's view of our surface has been
 		 * unmapped, and that there aren't any more views. */
 		surface = get_server_res_from_proxy(suite_data,
 						    xdg_surface->surface->wl_surface);
-		test_assert_false(weston_surface_is_mapped(surface));
-		test_assert_ptr_null(surface->buffer_ref.buffer);
-		test_assert_ptr_null(surface->output);
+		TEST_ASSERT_FALSE(weston_surface_is_mapped(surface));
+		TEST_ASSERT_PTR_NOT_SET(surface->buffer_ref.buffer);
+		TEST_ASSERT_PTR_NOT_SET(surface->output);
 		view = next_view_from_surface(surface, NULL);
-		test_assert_false(weston_view_is_mapped(view));
-		test_assert_ptr_null(next_view_from_surface(surface, view));
+		TEST_ASSERT_FALSE(weston_view_is_mapped(view));
+		TEST_ASSERT_PTR_NOT_SET(next_view_from_surface(surface, view));
 	}
 
 	destroy_xdg_surface(xdg_surface);

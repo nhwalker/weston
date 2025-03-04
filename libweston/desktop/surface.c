@@ -24,7 +24,6 @@
 #include "config.h"
 
 #include <string.h>
-#include <assert.h>
 
 #include <wayland-server.h>
 
@@ -33,6 +32,7 @@
 
 #include <libweston/desktop.h>
 #include "internal.h"
+#include "shared/weston-assert.h"
 
 struct weston_desktop_view {
 	struct wl_list link;
@@ -90,7 +90,7 @@ weston_desktop_surface_update_view_position(struct weston_desktop_surface *surfa
 	if (!parent) {
 		struct weston_coord_global pos;
 
-		assert(!surface->use_geometry);
+		WESTON_DASSERT_FALSE(surface->use_geometry);
 
 		pos.c = weston_coord(x, y);
 		wl_list_for_each(view, &surface->view_list, link)
@@ -265,7 +265,7 @@ weston_desktop_surface_create(struct weston_desktop *desktop,
 			      const struct weston_desktop_surface_implementation *implementation,
 			      void *implementation_data)
 {
-	assert(implementation->destroy != NULL);
+	WESTON_DASSERT_PTR_SET(implementation->destroy);
 
 	struct weston_desktop_surface *surface;
 
@@ -639,7 +639,7 @@ weston_desktop_surface_get_pid(struct weston_desktop_surface *surface)
 		/* wl_client should always be valid, because only in the
 		 * xwayland case it wouldn't be, but in that case we won't
 		 * reach here, as the pid is initialized to 0. */
-		assert(wl_client);
+		WESTON_DASSERT_PTR_SET(wl_client);
 		wl_client_get_credentials(wl_client, &pid, NULL, NULL);
 	}
 	return pid;
@@ -802,7 +802,7 @@ weston_desktop_surface_set_relative_to(struct weston_desktop_surface *surface,
 	struct weston_desktop_view *view, *parent_view;
 	struct wl_list *link, *tmp;
 
-	assert(parent);
+	WESTON_DASSERT_PTR_SET(parent);
 
 	surface->pos_offset = offset.c;
 	surface->use_geometry = use_geometry;

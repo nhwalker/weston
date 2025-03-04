@@ -27,7 +27,6 @@
 #include "config.h"
 
 #include <libweston/libweston.h>
-#include <assert.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -57,7 +56,7 @@ weston_color_profile_ref(struct weston_color_profile *cprof)
 	if (!cprof)
 		return NULL;
 
-	assert(cprof->ref_count > 0);
+	WESTON_DASSERT_INT_GT(cprof->ref_count, 0);
 	cprof->ref_count++;
 	return cprof;
 }
@@ -73,7 +72,7 @@ weston_color_profile_unref(struct weston_color_profile *cprof)
 	if (!cprof)
 		return;
 
-	assert(cprof->ref_count > 0);
+	WESTON_DASSERT_INT_GT(cprof->ref_count, 0);
 	if (--cprof->ref_count > 0)
 		return;
 
@@ -201,7 +200,7 @@ weston_color_transform_ref(struct weston_color_transform *xform)
 	if (!xform)
 		return NULL;
 
-	assert(xform->ref_count > 0);
+	WESTON_DASSERT_INT_GT(xform->ref_count, 0);
 	xform->ref_count++;
 	return xform;
 }
@@ -217,7 +216,7 @@ weston_color_transform_unref(struct weston_color_transform *xform)
 	if (!xform)
 		return;
 
-	assert(xform->ref_count > 0);
+	WESTON_DASSERT_INT_GT(xform->ref_count, 0);
 	if (--xform->ref_count > 0)
 		return;
 
@@ -380,8 +379,8 @@ weston_paint_node_ensure_color_transform(struct weston_paint_node *pnode)
 
 	wl_list_for_each(it, &surface->paint_node_list, surface_link) {
 		if (it->output == output) {
-			assert(it->surf_xform_valid == false);
-			assert(it->surf_xform.transform == NULL);
+			WESTON_DASSERT_FALSE(it->surf_xform_valid);
+			WESTON_DASSERT_PTR_NOT_SET(it->surf_xform.transform);
 			weston_surface_color_transform_copy(&it->surf_xform,
 							    &surf_xform);
 			it->surf_xform_valid = ok;

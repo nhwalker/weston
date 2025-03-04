@@ -25,7 +25,6 @@
 
 #include "config.h"
 
-#include <assert.h>
 #include <errno.h>
 #include <poll.h>
 #include <stddef.h>
@@ -69,7 +68,7 @@ weston_linux_sync_file_read_timestamp(int fd, struct timespec *ts)
 	struct sync_file_info file_info = { { 0 } };
 	struct sync_fence_info fence_info = { { 0 } };
 
-	assert(ts != NULL);
+	WESTON_DASSERT_PTR_SET(ts);
 
 	file_info.sync_fence_info = (uint64_t)(uintptr_t)&fence_info;
 	file_info.num_fences = 1;

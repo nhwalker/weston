@@ -35,7 +35,6 @@
 #include <stdint.h>
 #include <limits.h>
 #include <stdarg.h>
-#include <assert.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/wait.h>
@@ -99,6 +98,8 @@
 
 #define DEFAULT_REPAINT_WINDOW 7 /* milliseconds */
 
+static struct weston_compositor *compositor_instance = NULL;
+
 static void
 weston_output_transform_scale_init(struct weston_output *output,
 				   uint32_t transform, uint32_t scale);
@@ -126,7 +127,7 @@ weston_view_dirty_paint_nodes(struct weston_view *view)
 	struct weston_paint_node *node;
 
 	wl_list_for_each(node, &view->paint_node_list, view_link) {
-		assert(node->surface == view->surface);
+		WESTON_DASSERT_PTR_EQ(node->surface, view->surface);
 		node->status |= PAINT_NODE_VIEW_DIRTY;
 
 		/* We currently only place single surfaces on non-primary
@@ -156,7 +157,7 @@ weston_surface_dirty_paint_nodes(struct weston_surface *surface,
 	struct weston_paint_node *node;
 
 	wl_list_for_each(node, &surface->paint_node_list, surface_link) {
-		assert(node->surface == surface);
+		WESTON_DASSERT_PTR_EQ(node->surface, surface);
 
 		node->status |= status;
 	}
@@ -168,7 +169,7 @@ weston_output_dirty_paint_nodes(struct weston_output *output)
 	struct weston_paint_node *node;
 
 	wl_list_for_each(node, &output->paint_node_list, output_link) {
-		assert(node->output == output);
+		WESTON_DASSERT_PTR_EQ(node->output, output);
 
 		node->status |= PAINT_NODE_OUTPUT_DIRTY;
 	}
@@ -331,7 +332,7 @@ paint_node_update_late(struct weston_paint_node *pnode)
 				      &pnode->damage, &pnode->visible);
 
 	if (plane_dirty) {
-		assert(pnode->plane_next);
+		WESTON_DASSERT_PTR_SET(pnode->plane_next);
 
 		pnode->plane = pnode->plane_next;
 		pnode->plane_next = NULL;
@@ -349,7 +350,7 @@ paint_node_update_late(struct weston_paint_node *pnode)
 	/* Nothing should be able to flip "early" bits between
 	 * the early and late updates.
 	 */
-	assert(pnode->status == PAINT_NODE_CLEAN);
+	WESTON_DASSERT_ENUM_EQ(pnode->status, PAINT_NODE_CLEAN);
 }
 
 static struct weston_paint_node *
@@ -360,7 +361,7 @@ weston_paint_node_create(struct weston_surface *surface,
 	struct weston_paint_node *pnode;
 	struct weston_paint_node *existing_node;
 
-	assert(view->surface == surface);
+	WESTON_DASSERT_PTR_EQ(view->surface, surface);
 
 	pnode = zalloc(sizeof *pnode);
 	if (!pnode)
@@ -371,7 +372,7 @@ weston_paint_node_create(struct weston_surface *surface,
 	 * same surf_xform state.
 	 */
 	wl_list_for_each(existing_node, &surface->paint_node_list, surface_link) {
-		assert(existing_node->surface == surface);
+		WESTON_DASSERT_PTR_EQ(existing_node->surface, surface);
 		if (existing_node->output != output)
 			continue;
 
@@ -408,7 +409,7 @@ weston_paint_node_create(struct weston_surface *surface,
 static void
 weston_paint_node_destroy(struct weston_paint_node *pnode)
 {
-	assert(pnode->view->surface == pnode->surface);
+	WESTON_DASSERT_PTR_EQ(pnode->view->surface, pnode->surface);
 
 	paint_node_damage_below(pnode);
 
@@ -416,7 +417,8 @@ weston_paint_node_destroy(struct weston_paint_node *pnode)
 	wl_list_remove(&pnode->view_link);
 	wl_list_remove(&pnode->output_link);
 	wl_list_remove(&pnode->z_order_link);
-	assert(pnode->surf_xform_valid || !pnode->surf_xform.transform);
+	WESTON_DASSERT_TRUE(pnode->surf_xform_valid ||
+			    !pnode->surf_xform.transform);
 	weston_surface_color_transform_fini(&pnode->surf_xform);
 	pixman_region32_fini(&pnode->damage);
 	pixman_region32_fini(&pnode->visible);
@@ -689,8 +691,7 @@ weston_view_create_internal(struct weston_surface *surface)
 	struct weston_view *view;
 
 	view = zalloc(sizeof *view);
-	if (view == NULL)
-		return NULL;
+	WESTON_ASSERT_PTR_SET(view);
 
 	view->surface = surface;
 
@@ -732,7 +733,6 @@ weston_view_create_subsurfaces(struct weston_view *parent_view,
 	struct weston_view *child_view;
 
 	child_view = weston_view_create_internal(child_surface);
-	assert(child_view);
 
 	weston_view_set_transform_parent(child_view, parent_view);
 	weston_view_set_rel_position(child_view, sub->position.offset);
@@ -852,8 +852,8 @@ weston_presentation_feedback_present_list(struct wl_list *list,
 {
 	struct weston_presentation_feedback *feedback, *tmp;
 
-	assert(!(flags & WP_PRESENTATION_FEEDBACK_INVALID) ||
-	       wl_list_empty(list));
+	WESTON_DASSERT_TRUE(!(flags & WP_PRESENTATION_FEEDBACK_INVALID) ||
+			    wl_list_empty(list));
 
 	wl_list_for_each_safe(feedback, tmp, list, link)
 		weston_presentation_feedback_present(feedback, output,
@@ -1063,8 +1063,8 @@ weston_coord_surface_to_global(const struct weston_view *view,
 {
 	struct weston_coord_global out;
 
-	assert(!view->transform.dirty);
-	assert(view->surface == coord.coordinate_space_id);
+	WESTON_DASSERT_FALSE(view->transform.dirty);
+	WESTON_DASSERT_PTR_EQ(view->surface, coord.coordinate_space_id);
 
 	out.c = weston_matrix_transform_coord(&view->transform.matrix,
 					      coord.c);
@@ -1077,7 +1077,7 @@ weston_coord_global_to_surface(const struct weston_view *view,
 {
 	struct weston_coord_surface out;
 
-	assert(!view->transform.dirty);
+	WESTON_DASSERT_FALSE(view->transform.dirty);
 	out.c = weston_matrix_transform_coord(&view->transform.inverse,
 					      coord.c);
 	out.coordinate_space_id = view->surface;
@@ -1090,7 +1090,7 @@ weston_coord_surface_to_buffer(const struct weston_surface *surface,
 {
 	struct weston_coord_buffer tmp;
 
-	assert(surface == coord.coordinate_space_id);
+	WESTON_DASSERT_PTR_EQ(surface, coord.coordinate_space_id);
 
 	tmp.c = weston_matrix_transform_coord(&surface->surface_to_buffer_matrix,
 					      coord.c);
@@ -1266,7 +1266,7 @@ WL_EXPORT void
 weston_paint_node_move_to_plane(struct weston_paint_node *pnode,
 				struct weston_plane *plane)
 {
-	assert(plane);
+	WESTON_DASSERT_PTR_SET(plane);
 
 	if (pnode->plane == plane)
 		return;
@@ -1302,7 +1302,7 @@ weston_surface_send_enter_leave(struct weston_surface *surface,
 	struct wl_resource *wloutput;
 	struct wl_client *client;
 
-	assert(enter != leave);
+	WESTON_DASSERT_TRUE(enter != leave);
 
 	client = wl_resource_get_client(surface->resource);
 	wl_resource_for_each(wloutput, &head->resource_list) {
@@ -1330,7 +1330,6 @@ weston_surface_set_color_profile(struct weston_surface *surface,
 				 struct weston_color_profile *cprof,
 				 const struct weston_render_intent_info *render_intent)
 {
-	struct weston_color_manager *cm = surface->compositor->color_manager;
 	struct weston_paint_node *pnode;
 
 	/* Nothing to do. */
@@ -1339,9 +1338,9 @@ weston_surface_set_color_profile(struct weston_surface *surface,
 		return;
 
 	if (!!cprof ^ !!render_intent)
-		weston_assert_not_reached(cm->compositor,
-					  "received valid cprof and NULL render intent, " \
-					  "or vice versa; invalid for this function");
+		WESTON_DASSERT_NOT_REACHED("received valid cprof and NULL "
+					   "render intent, or vice versa; "
+					   "invalid for this function");
 
 	/* Remove outdated cached color transformations */
 	wl_list_for_each(pnode, &surface->paint_node_list, surface_link) {
@@ -2078,8 +2077,9 @@ WL_EXPORT void
 weston_view_set_rel_position(struct weston_view *view,
 			     struct weston_coord_surface offset)
 {
-	assert(view->geometry.parent);
-	assert(offset.coordinate_space_id == view->geometry.parent->surface);
+	WESTON_DASSERT_PTR_SET(view->geometry.parent);
+	WESTON_DASSERT_PTR_EQ(offset.coordinate_space_id,
+			      view->geometry.parent->surface);
 
 	if (view->geometry.pos_offset.x == offset.c.x &&
 	    view->geometry.pos_offset.y == offset.c.y)
@@ -2093,8 +2093,9 @@ WL_EXPORT void
 weston_view_set_position(struct weston_view *view,
 			 struct weston_coord_global pos)
 {
-	assert(view->surface->committed != subsurface_committed);
-	assert(!view->geometry.parent);
+	WESTON_DASSERT_PTR_NE(view->surface->committed,
+			      subsurface_committed);
+	WESTON_DASSERT_PTR_NOT_SET(view->geometry.parent);
 
 	if (view->geometry.pos_offset.x == pos.c.x &&
 	    view->geometry.pos_offset.y == pos.c.y)
@@ -2113,8 +2114,9 @@ weston_view_set_position_with_offset(struct weston_view *view,
 	struct weston_coord_surface origin_s;
 	struct weston_coord_global origin_g, newpos;
 
-	assert(view->surface->committed != subsurface_committed);
-	assert(!view->geometry.parent);
+	WESTON_DASSERT_PTR_NE(view->surface->committed,
+			      subsurface_committed);
+	WESTON_DASSERT_PTR_NOT_SET(view->geometry.parent);
 
 	/* We need up to date transform matrices */
 	weston_view_set_position(view, pos);
@@ -2135,7 +2137,7 @@ weston_view_get_pos_offset_rel(struct weston_view *view)
 {
 	struct weston_coord_surface out;
 
-	assert(view->geometry.parent);
+	WESTON_DASSERT_PTR_SET(view->geometry.parent);
 
 	out.c = view->geometry.pos_offset;
 	out.coordinate_space_id = view->geometry.parent->surface;
@@ -2148,8 +2150,8 @@ weston_view_get_pos_offset_global(struct weston_view *view)
 {
 	struct weston_coord_global out;
 
-	assert(view->surface->committed != subsurface_committed);
-	assert(!view->geometry.parent);
+	WESTON_DASSERT_PTR_NE(view->surface->committed, subsurface_committed);
+	WESTON_DASSERT_PTR_NOT_SET(view->geometry.parent);
 
 	out.c = view->geometry.pos_offset;
 
@@ -2377,7 +2379,7 @@ weston_view_matches_output_entirely(struct weston_view *ev,
 	pixman_box32_t *extents =
 		pixman_region32_extents(&ev->transform.boundingbox);
 
-	assert(!ev->transform.dirty);
+	WESTON_DASSERT_FALSE(ev->transform.dirty);
 
 	if (extents->x1 != (int32_t)output->pos.c.x ||
 	    extents->y1 != (int32_t)output->pos.c.y ||
@@ -2397,7 +2399,7 @@ weston_view_find_paint_node(struct weston_view *view,
 	struct weston_paint_node *pnode;
 
 	wl_list_for_each(pnode, &view->paint_node_list, view_link) {
-		assert(pnode->surface == view->surface);
+		WESTON_DASSERT_PTR_EQ(pnode->surface, view->surface);
 		if (pnode->output == output)
 			return pnode;
 	}
@@ -2479,7 +2481,7 @@ WL_EXPORT void
 weston_surface_set_size(struct weston_surface *surface,
 			int32_t width, int32_t height)
 {
-	assert(!surface->resource);
+	WESTON_DASSERT_PTR_NOT_SET(surface->resource);
 	surface_set_size(surface, width, height);
 }
 
@@ -2495,7 +2497,7 @@ convert_size_by_transform_scale(int32_t *width_out, int32_t *height_out,
 				uint32_t transform,
 				int32_t scale)
 {
-	assert(scale > 0);
+	WESTON_DASSERT_S32_GT(scale, 0);
 
 	switch (transform) {
 	case WL_OUTPUT_TRANSFORM_NORMAL:
@@ -2513,7 +2515,7 @@ convert_size_by_transform_scale(int32_t *width_out, int32_t *height_out,
 		*height_out = width / scale;
 		break;
 	default:
-		assert(0 && "invalid transform");
+		WESTON_DASSERT_NOT_REACHED("invalid transform");
 	}
 }
 
@@ -2556,7 +2558,7 @@ bool
 weston_view_takes_input_at_point(struct weston_view *view,
 				 struct weston_coord_surface pos)
 {
-	assert(pos.coordinate_space_id == view->surface);
+	WESTON_DASSERT_PTR_EQ(pos.coordinate_space_id, view->surface);
 
 	if (!pixman_region32_contains_point(&view->surface->input,
 					    pos.c.x, pos.c.y, NULL))
@@ -2678,7 +2680,7 @@ weston_view_unmap(struct weston_view *view)
 
 static void weston_surface_start_mapping(struct weston_surface *surface)
 {
-	assert(surface->is_mapped == false);
+	WESTON_DASSERT_FALSE(surface->is_mapped);
 
 	surface->is_mapping = true;
 	surface->is_mapped = true;
@@ -2692,7 +2694,7 @@ weston_surface_map(struct weston_surface *surface)
 	if (weston_surface_is_mapped(surface))
 		return;
 
-	assert(!weston_surface_to_subsurface(surface));
+	WESTON_DASSERT_PTR_NOT_SET(weston_surface_to_subsurface(surface));
 
 	weston_surface_start_mapping(surface);
 }
@@ -2717,9 +2719,8 @@ weston_view_destroy(struct weston_view *view)
 
 	wl_signal_emit_mutable(&view->destroy_signal, view);
 
-	assert(wl_list_empty(&view->geometry.child_list));
-
-	assert(wl_list_empty(&view->paint_node_list));
+	WESTON_DASSERT_TRUE(wl_list_empty(&view->geometry.child_list));
+	WESTON_DASSERT_TRUE(wl_list_empty(&view->paint_node_list));
 
 	if (!wl_list_empty(&view->link))
 		view->surface->compositor->view_list_needs_rebuild = true;
@@ -2745,8 +2746,8 @@ weston_view_destroy(struct weston_view *view)
 WL_EXPORT struct weston_surface *
 weston_surface_ref(struct weston_surface *surface)
 {
-	assert(surface->ref_count < INT32_MAX &&
-	       surface->ref_count > 0);
+	WESTON_DASSERT_S32_LT(surface->ref_count, INT32_MAX);
+	WESTON_DASSERT_S32_GT(surface->ref_count, 0);
 
 	surface->ref_count++;
 	return surface;
@@ -2764,16 +2765,16 @@ weston_surface_unref(struct weston_surface *surface)
 	if (!surface)
 		return;
 
-	assert(surface->ref_count > 0);
+	WESTON_DASSERT_S32_GT(surface->ref_count, 0);
 	if (--surface->ref_count > 0)
 		return;
 
-	assert(surface->resource == NULL);
+	WESTON_DASSERT_PTR_NOT_SET(surface->resource);
 
 	wl_signal_emit_mutable(&surface->destroy_signal, surface);
 
-	assert(wl_list_empty(&surface->subsurface_list_pending));
-	assert(wl_list_empty(&surface->subsurface_list));
+	WESTON_DASSERT_TRUE(wl_list_empty(&surface->subsurface_list_pending));
+	WESTON_DASSERT_TRUE(wl_list_empty(&surface->subsurface_list));
 
 	if (surface->dmabuf_feedback)
 		weston_dmabuf_feedback_destroy(surface->dmabuf_feedback);
@@ -2832,7 +2833,7 @@ destroy_surface(struct wl_resource *resource)
 {
 	struct weston_surface *surface = wl_resource_get_user_data(resource);
 
-	assert(surface);
+	WESTON_DASSERT_PTR_SET(surface);
 
 	/* Set the resource to NULL, since we don't want to leave a
 	 * dangling pointer if the surface was refcounted and survives
@@ -2934,7 +2935,8 @@ weston_buffer_from_resource(struct weston_compositor *ec,
 			pixel_format_get_info(dmabuf->attributes.format);
 		/* dmabuf import should assure we don't create a buffer with an
 		 * unknown format */
-		assert(buffer->pixel_format && !buffer->pixel_format->hide_from_clients);
+		WESTON_DASSERT_PTR_SET(buffer->pixel_format);
+		WESTON_DASSERT_FALSE(buffer->pixel_format->hide_from_clients);
 		buffer->format_modifier = dmabuf->attributes.modifier;
 		if (dmabuf->attributes.flags & ZWP_LINUX_BUFFER_PARAMS_V1_FLAGS_Y_INVERT)
 			buffer->buffer_origin = ORIGIN_BOTTOM_LEFT;
@@ -2967,7 +2969,7 @@ weston_buffer_from_resource(struct weston_compositor *ec,
 
 	/* Don't accept any formats we can't reason about: the importer should
 	 * make sure this never happens */
-	assert(buffer->pixel_format);
+	WESTON_DASSERT_PTR_SET(buffer->pixel_format);
 
 	return buffer;
 
@@ -2984,7 +2986,8 @@ weston_buffer_reference(struct weston_buffer_reference *ref,
 {
 	struct weston_buffer_reference old_ref = *ref;
 
-	assert(buffer != NULL || type == BUFFER_WILL_NOT_BE_ACCESSED);
+	WESTON_DASSERT_TRUE(buffer != NULL ||
+			    type == BUFFER_WILL_NOT_BE_ACCESSED);
 
 	if (buffer == ref->buffer && type == ref->type)
 		return;
@@ -3007,21 +3010,21 @@ weston_buffer_reference(struct weston_buffer_reference *ref,
 	ref = NULL; /* will no longer be accessed */
 
 	if (old_ref.type == BUFFER_MAY_BE_ACCESSED) {
-		assert(old_ref.buffer->busy_count > 0);
+		WESTON_DASSERT_U32_GT(old_ref.buffer->busy_count, 0);
 		old_ref.buffer->busy_count--;
 
 		/* If the wl_buffer lives, then hold on to the weston_buffer,
 		 * but send a release event to the client */
 		if (old_ref.buffer->busy_count == 0 &&
 		    old_ref.buffer->resource) {
-			assert(wl_resource_get_client(old_ref.buffer->resource));
+			WESTON_DASSERT_PTR_SET(wl_resource_get_client(old_ref.buffer->resource));
 			wl_buffer_send_release(old_ref.buffer->resource);
 		}
 	} else if (old_ref.type == BUFFER_WILL_NOT_BE_ACCESSED) {
-		assert(old_ref.buffer->passive_count > 0);
+		WESTON_DASSERT_U32_GT(old_ref.buffer->passive_count, 0);
 		old_ref.buffer->passive_count--;
 	} else {
-		assert(!"unknown buffer ref type");
+		WESTON_DASSERT_NOT_REACHED("unknown buffer ref type");
 	}
 
 	/* If the wl_buffer has gone and this was the last ref, destroy the
@@ -3042,7 +3045,8 @@ weston_buffer_release_reference_handle_destroy(struct wl_listener *listener,
 		container_of(listener, struct weston_buffer_release_reference,
 			     destroy_listener);
 
-	assert((struct wl_resource *)data == ref->buffer_release->resource);
+	WESTON_DASSERT_PTR_EQ((struct wl_resource *) data,
+			      ref->buffer_release->resource);
 	ref->buffer_release = NULL;
 }
 
@@ -3143,8 +3147,8 @@ weston_surface_attach_solid(struct weston_surface *surface,
 {
 	struct weston_buffer *buffer = buffer_ref->buffer;
 
-	assert(buffer);
-	assert(buffer->type == WESTON_BUFFER_SOLID);
+	WESTON_DASSERT_PTR_SET(buffer);
+	WESTON_DASSERT_ENUM_EQ(buffer->type, WESTON_BUFFER_SOLID);
 	weston_buffer_reference(&surface->buffer_ref, buffer,
 				BUFFER_MAY_BE_ACCESSED);
 
@@ -3163,10 +3167,11 @@ weston_surface_attach_solid(struct weston_surface *surface,
 WL_EXPORT void
 weston_buffer_destroy_solid(struct weston_buffer_reference *buffer_ref)
 {
-	assert(buffer_ref);
-	assert(buffer_ref->buffer);
-	assert(buffer_ref->type == BUFFER_MAY_BE_ACCESSED);
-	assert(buffer_ref->buffer->type == WESTON_BUFFER_SOLID);
+	WESTON_DASSERT_PTR_SET(buffer_ref);
+	WESTON_DASSERT_PTR_SET(buffer_ref->buffer);
+	WESTON_DASSERT_ENUM_EQ(buffer_ref->type, BUFFER_MAY_BE_ACCESSED);
+	WESTON_DASSERT_ENUM_EQ(buffer_ref->buffer->type, WESTON_BUFFER_SOLID);
+
 	weston_buffer_reference(buffer_ref, NULL, BUFFER_WILL_NOT_BE_ACCESSED);
 	free(buffer_ref);
 }
@@ -3360,7 +3365,7 @@ paint_node_add_damage(struct weston_paint_node *node)
 	struct weston_view *view = node->view;
 	pixman_region32_t damage;
 
-	assert(!view->transform.dirty);
+	WESTON_DASSERT_FALSE(view->transform.dirty);
 
 	if (node->draw_solid)
 		return;
@@ -3402,7 +3407,7 @@ paint_node_flush_surface_damage(struct weston_paint_node *pnode)
 		goto out;
 
 	wl_list_for_each(walk_node, &surface->paint_node_list, surface_link) {
-		assert(walk_node->surface == surface);
+		WESTON_DASSERT_PTR_EQ(walk_node->surface, surface);
 
 		paint_node_add_damage(walk_node);
 	}
@@ -3419,7 +3424,7 @@ static void
 view_update_visible(struct weston_view *view,
                              pixman_region32_t *opaque)
 {
-	assert(!view->transform.dirty);
+	WESTON_DASSERT_FALSE(view->transform.dirty);
 
 	pixman_region32_subtract(&view->visible, &view->transform.boundingbox,
 				 opaque);
@@ -3542,7 +3547,7 @@ view_list_add_subsurface_view(struct weston_compositor *compositor,
 		}
 	}
 
-	assert(view);
+	WESTON_DASSERT_PTR_SET(view);
 
 	weston_view_update_transform(view);
 	view->is_mapped = true;
@@ -3791,13 +3796,13 @@ weston_output_repaint(struct weston_output *output, struct timespec *now)
 	 *
 	 * Ensure we have scene graph contents here.
 	 */
-	assert(!wl_list_empty(&output->paint_node_z_order_list) &&
-	       "empty scene graph at repaint");
+	WESTON_DASSERT_FALSE(wl_list_empty(&output->paint_node_z_order_list));
 
 	wl_list_for_each(pnode, &output->paint_node_z_order_list,
 			 z_order_link) {
-		assert(pnode->view->output_mask & (1u << pnode->output->id));
-		assert(pnode->output == output);
+		WESTON_DASSERT_BIT_SET(pnode->view->output_mask,
+				       1ull << pnode->output->id);
+		WESTON_DASSERT_PTR_EQ(pnode->output, output);
 	}
 
 	/* Find the highest protection desired for an output */
@@ -3976,7 +3981,9 @@ output_repaint_timer_arm(struct weston_compositor *compositor)
 WL_EXPORT void
 weston_output_schedule_repaint_restart(struct weston_output *output)
 {
-	assert(output->repaint_status == REPAINT_AWAITING_COMPLETION);
+	WESTON_DASSERT_ENUM_EQ(output->repaint_status,
+			       REPAINT_AWAITING_COMPLETION);
+
 	/* The device was busy so try again one frame later */
 	timespec_add_nsec(&output->next_repaint, &output->next_repaint,
 			  millihz_to_nsec(output->current_mode->refresh));
@@ -4105,16 +4112,17 @@ weston_output_finish_frame(struct weston_output *output,
 	struct timespec vblank_monotonic;
 	int64_t msec_rel;
 
-	assert(output->repaint_status == REPAINT_AWAITING_COMPLETION);
+	WESTON_DASSERT_ENUM_EQ(output->repaint_status,
+			       REPAINT_AWAITING_COMPLETION);
 
 	/*
 	 * If timestamp of latest vblank is given, it must always go forwards.
 	 * If not given, INVALID flag must be set.
 	 */
-	if (stamp)
-		assert(timespec_sub_to_nsec(stamp, &output->frame_time) >= 0);
-	else
-		assert(presented_flags & WP_PRESENTATION_FEEDBACK_INVALID);
+	WESTON_DASSERT_IF(stamp,
+			  timespec_sub_to_nsec(stamp, &output->frame_time) >= 0);
+	WESTON_DASSERT_IF(!stamp, presented_flags &
+			  WP_PRESENTATION_FEEDBACK_INVALID);
 
 	weston_compositor_read_presentation_clock(compositor, &now);
 
@@ -4196,7 +4204,8 @@ WL_EXPORT void
 weston_output_repaint_failed(struct weston_output *output)
 {
 	weston_log("Clearing repaint status.\n");
-	assert(output->repaint_status == REPAINT_AWAITING_COMPLETION);
+	WESTON_DASSERT_ENUM_EQ(output->repaint_status,
+			       REPAINT_AWAITING_COMPLETION);
 	output->repaint_status = REPAINT_NOT_SCHEDULED;
 }
 
@@ -4207,7 +4216,8 @@ idle_repaint(void *data)
 	struct weston_compositor *compositor = output->compositor;
 	int ret;
 
-	assert(output->repaint_status == REPAINT_BEGIN_FROM_IDLE);
+	WESTON_DASSERT_ENUM_EQ(output->repaint_status,
+			       REPAINT_BEGIN_FROM_IDLE);
 	output->repaint_status = REPAINT_AWAITING_COMPLETION;
 	output->idle_repaint_source = NULL;
 
@@ -4439,7 +4449,7 @@ weston_output_schedule_repaint(struct weston_output *output)
 		return;
 
 	output->repaint_status = REPAINT_BEGIN_FROM_IDLE;
-	assert(!output->idle_repaint_source);
+	WESTON_DASSERT_PTR_NOT_SET(output->idle_repaint_source);
 	output->idle_repaint_source = wl_event_loop_add_idle(loop, idle_repaint,
 							     output);
 	TL_POINT(compositor, TLP_CORE_REPAINT_ENTER_LOOP, TLP_OUTPUT(output), TLP_END);
@@ -4726,8 +4736,10 @@ weston_surface_is_pending_viewport_source_valid(
 		height_from_buffer = surface->height_from_buffer;
 	}
 
-	assert((width_from_buffer == 0) == (height_from_buffer == 0));
-	assert(width_from_buffer >= 0 && height_from_buffer >= 0);
+	WESTON_DASSERT_INT_EQ(width_from_buffer == 0,
+			      height_from_buffer == 0);
+	WESTON_DASSERT_INT_GE(width_from_buffer, 0);
+	WESTON_DASSERT_INT_GE(height_from_buffer, 0);
 
 	/* No buffer: viewport is irrelevant. */
 	if (width_from_buffer == 0 || height_from_buffer == 0)
@@ -4764,7 +4776,8 @@ weston_surface_is_pending_viewport_dst_size_int(
 		&surface->pending.buffer_viewport;
 
 	if (vp->surface.width != -1) {
-		assert(vp->surface.width > 0 && vp->surface.height > 0);
+		WESTON_DASSERT_S32_GT(vp->surface.width, 0);
+		WESTON_DASSERT_S32_GT(vp->surface.height, 0);
 		return true;
 	}
 
@@ -4861,8 +4874,8 @@ weston_surface_commit_state(struct weston_surface *surface,
 		status |= weston_surface_attach(surface, state, status);
 	}
 	weston_surface_state_set_buffer(state, NULL);
-	assert(state->acquire_fence_fd == -1);
-	assert(state->buffer_release_ref.buffer_release == NULL);
+	WESTON_DASSERT_INT_EQ(state->acquire_fence_fd, -1);
+	WESTON_DASSERT_PTR_NOT_SET(state->buffer_release_ref.buffer_release);
 
 	if (status & WESTON_SURFACE_DIRTY_SIZE) {
 		weston_surface_build_buffer_matrix(surface,
@@ -4994,7 +5007,7 @@ surface_commit(struct wl_client *client, struct wl_resource *resource)
 	enum weston_surface_status status;
 
 	if (!weston_surface_is_pending_viewport_source_valid(surface)) {
-		assert(surface->viewport_resource);
+		WESTON_DASSERT_PTR_SET(surface->viewport_resource);
 
 		wl_resource_post_error(surface->viewport_resource,
 			WP_VIEWPORT_ERROR_OUT_OF_BUFFER,
@@ -5004,7 +5017,7 @@ surface_commit(struct wl_client *client, struct wl_resource *resource)
 	}
 
 	if (!weston_surface_is_pending_viewport_dst_size_int(surface)) {
-		assert(surface->viewport_resource);
+		WESTON_DASSERT_PTR_SET(surface->viewport_resource);
 
 		wl_resource_post_error(surface->viewport_resource,
 			WP_VIEWPORT_ERROR_BAD_SIZE,
@@ -5014,7 +5027,7 @@ surface_commit(struct wl_client *client, struct wl_resource *resource)
 	}
 
 	if (surface->pending.acquire_fence_fd >= 0) {
-		assert(surface->synchronization_resource);
+		WESTON_DASSERT_PTR_SET(surface->synchronization_resource);
 
 		if (!surface->pending.buffer) {
 			fd_clear(&surface->pending.acquire_fence_fd);
@@ -5037,7 +5050,7 @@ surface_commit(struct wl_client *client, struct wl_resource *resource)
 
 	if (surface->pending.buffer_release_ref.buffer_release &&
 	    !surface->pending.buffer) {
-		assert(surface->synchronization_resource);
+		WESTON_DASSERT_PTR_SET(surface->synchronization_resource);
 
 		wl_resource_post_error(surface->synchronization_resource,
 			ZWP_LINUX_SURFACE_SYNCHRONIZATION_V1_ERROR_NO_BUFFER,
@@ -5309,8 +5322,8 @@ weston_subsurface_commit_to_cache(struct weston_subsurface *sub)
 	}
 	sub->cached.desired_protection = surface->pending.desired_protection;
 	sub->cached.protection_mode = surface->pending.protection_mode;
-	assert(surface->pending.acquire_fence_fd == -1);
-	assert(surface->pending.buffer_release_ref.buffer_release == NULL);
+	WESTON_DASSERT_INT_EQ(surface->pending.acquire_fence_fd, -1);
+	WESTON_DASSERT_PTR_NOT_SET(surface->pending.buffer_release_ref.buffer_release);
 	sub->cached.buf_offset = weston_coord_surface_add(sub->cached.buf_offset,
 							  surface->pending.buf_offset);
 
@@ -5441,7 +5454,7 @@ subsurface_committed(struct weston_surface *surface,
 {
 	struct weston_view *view;
 
-	assert(new_origin.coordinate_space_id == surface);
+	WESTON_DASSERT_PTR_EQ(new_origin.coordinate_space_id, surface);
 
 	wl_list_for_each(view, &surface->views, surface_link) {
 		struct weston_coord_surface tmp;
@@ -5507,7 +5520,7 @@ weston_surface_set_role(struct weston_surface *surface,
 			struct wl_resource *error_resource,
 			uint32_t error_code)
 {
-	assert(role_name);
+	WESTON_DASSERT_PTR_SET(role_name);
 
 	if (surface->role_name == NULL ||
 	    surface->role_name == role_name ||
@@ -5691,7 +5704,7 @@ subsurface_set_position(struct wl_client *client,
 	if (!sub)
 		return;
 
-	assert(sub->parent);
+	WESTON_DASSERT_PTR_SET(sub->parent);
 
 	sub->position.offset = weston_coord_surface(x, y, sub->parent);
 	sub->position.changed = true;
@@ -5729,7 +5742,7 @@ subsurface_sibling_check(struct weston_subsurface *sub,
 		return NULL;
 	}
 
-	assert(sibling->parent == sub->parent);
+	WESTON_DASSERT_PTR_EQ(sibling->parent, sub->parent);
 
 	return sibling;
 }
@@ -5826,7 +5839,7 @@ subsurface_handle_surface_destroy(struct wl_listener *listener, void *data)
 	struct weston_subsurface *sub =
 		container_of(listener, struct weston_subsurface,
 			     surface_destroy_listener);
-	assert(data == sub->surface);
+	WESTON_DASSERT_PTR_EQ(data, sub->surface);
 
 	/* The protocol object (wl_resource) is left inert. */
 	if (sub->resource)
@@ -5841,8 +5854,8 @@ subsurface_handle_parent_destroy(struct wl_listener *listener, void *data)
 	struct weston_subsurface *sub =
 		container_of(listener, struct weston_subsurface,
 			     parent_destroy_listener);
-	assert(data == sub->parent);
-	assert(sub->surface != sub->parent);
+	WESTON_DASSERT_PTR_EQ(data, sub->parent);
+	WESTON_DASSERT_PTR_NE(sub->surface, sub->parent);
 
 	weston_subsurface_unlink_parent(sub);
 }
@@ -5879,7 +5892,7 @@ weston_subsurface_link_parent(struct weston_subsurface *sub,
 	wl_list_insert(&parent->subsurface_list_pending,
 		       &sub->parent_link_pending);
 
-	assert(wl_list_empty(&sub->surface->views));
+	WESTON_DASSERT_TRUE(wl_list_empty(&sub->surface->views));
 
 	wl_list_for_each(pv, &parent->views, surface_link) {
 		struct weston_view *sv = weston_view_create(sub->surface);
@@ -5906,12 +5919,13 @@ weston_subsurface_destroy(struct weston_subsurface *sub)
 {
 	struct weston_view *view, *next;
 
-	assert(sub->surface);
+	WESTON_DASSERT_PTR_SET(sub->surface);
 
 	if (sub->resource) {
-		assert(weston_surface_to_subsurface(sub->surface) == sub);
-		assert(sub->parent_destroy_listener.notify ==
-		       subsurface_handle_parent_destroy);
+		WESTON_DASSERT_PTR_EQ(weston_surface_to_subsurface(sub->surface),
+				      sub);
+		WESTON_DASSERT_PTR_EQ(sub->parent_destroy_listener.notify,
+				      subsurface_handle_parent_destroy);
 
 		wl_list_for_each_safe(view, next, &sub->surface->views, surface_link)
 			weston_view_destroy(view);
@@ -5928,7 +5942,7 @@ weston_subsurface_destroy(struct weston_subsurface *sub)
 		weston_surface_set_label_func(sub->surface, NULL);
 	} else {
 		/* the dummy weston_subsurface for the parent itself */
-		assert(sub->parent_destroy_listener.notify == NULL);
+		WESTON_DASSERT_PTR_NOT_SET(sub->parent_destroy_listener.notify);
 		wl_list_remove(&sub->parent_link);
 		wl_list_remove(&sub->parent_link_pending);
 	}
@@ -6457,8 +6471,8 @@ weston_head_remove_global(struct weston_head *head)
 WL_EXPORT struct weston_head *
 weston_head_from_resource(struct wl_resource *resource)
 {
-	assert(wl_resource_instance_of(resource, &wl_output_interface,
-				       &output_interface));
+	WESTON_DASSERT_TRUE(wl_resource_instance_of(resource, &wl_output_interface,
+						    &output_interface));
 
 	return wl_resource_get_user_data(resource);
 }
@@ -6571,8 +6585,8 @@ WL_EXPORT void
 weston_compositor_add_head(struct weston_compositor *compositor,
 			   struct weston_head *head)
 {
-	assert(wl_list_empty(&head->compositor_link));
-	assert(head->name);
+	WESTON_DASSERT_TRUE(wl_list_empty(&head->compositor_link));
+	WESTON_DASSERT_PTR_SET(head->name);
 
 	wl_list_insert(compositor->head_list.prev, &head->compositor_link);
 	head->compositor = compositor;
@@ -6631,16 +6645,16 @@ weston_compositor_iterate_heads(struct weston_compositor *compositor,
 	struct wl_list *list = &compositor->head_list;
 	struct wl_list *node;
 
-	assert(compositor);
-	assert(!iter || iter->compositor == compositor);
+	WESTON_DASSERT_PTR_SET(compositor);
+	WESTON_DASSERT_TRUE(!iter || iter->compositor == compositor);
 
 	if (iter)
 		node = iter->compositor_link.next;
 	else
 		node = list->next;
 
-	assert(node);
-	assert(!iter || node != &iter->compositor_link);
+	WESTON_DASSERT_PTR_SET(node);
+	WESTON_DASSERT_TRUE(!iter || node != &iter->compositor_link);
 
 	if (node == list)
 		return NULL;
@@ -6677,16 +6691,16 @@ weston_output_iterate_heads(struct weston_output *output,
 	struct wl_list *list = &output->head_list;
 	struct wl_list *node;
 
-	assert(output);
-	assert(!iter || iter->output == output);
+	WESTON_DASSERT_PTR_SET(output);
+	WESTON_DASSERT_TRUE(!iter || iter->output == output);
 
 	if (iter)
 		node = iter->output_link.next;
 	else
 		node = list->next;
 
-	assert(node);
-	assert(!iter || node != &iter->output_link);
+	WESTON_DASSERT_PTR_SET(node);
+	WESTON_DASSERT_TRUE(!iter || node != &iter->output_link);
 
 	if (node == list)
 		return NULL;
@@ -6846,7 +6860,7 @@ weston_head_release(struct weston_head *head)
 
 	wl_list_remove(&head->compositor_link);
 
-	assert(head->display_info == NULL);
+	WESTON_DASSERT_PTR_NOT_SET(head->display_info);
 }
 
 /** Propagate device information changes
@@ -7087,8 +7101,7 @@ WL_EXPORT void
 weston_head_set_supported_eotf_mask(struct weston_head *head,
 				    uint32_t eotf_mask)
 {
-	weston_assert_legal_bits(head->compositor,
-				 eotf_mask, WESTON_EOTF_MODE_ALL_MASK);
+	WESTON_DASSERT_LEGAL_BITS(eotf_mask, WESTON_EOTF_MODE_ALL_MASK);
 
 	if (head->supported_eotf_mask == eotf_mask)
 		return;
@@ -7113,8 +7126,8 @@ WL_EXPORT void
 weston_head_set_supported_colorimetry_mask(struct weston_head *head,
 					   uint32_t colorimetry_mask)
 {
-	weston_assert_legal_bits(head->compositor,
-				 colorimetry_mask, WESTON_COLORIMETRY_MODE_ALL_MASK);
+	WESTON_DASSERT_LEGAL_BITS(colorimetry_mask,
+				  WESTON_COLORIMETRY_MODE_ALL_MASK);
 
 	if (head->supported_colorimetry_mask == colorimetry_mask)
 		return;
@@ -7128,9 +7141,8 @@ WL_EXPORT void
 weston_head_set_supported_vrr_modes_mask(struct weston_head *head,
                                          uint32_t vrr_mode_mask)
 {
-	weston_assert_legal_bits(head->compositor,
-				 vrr_mode_mask,
-				 WESTON_VRR_MODE_ALL_MASK);
+	WESTON_DASSERT_LEGAL_BITS(vrr_mode_mask,
+				  WESTON_VRR_MODE_ALL_MASK);
 
 	if (head->supported_vrr_mode_mask == vrr_mode_mask)
 		return;
@@ -7425,7 +7437,7 @@ weston_output_transform_scale_init(struct weston_output *output, uint32_t transf
 {
 	output->transform = transform;
 	output->native_scale = scale;
-	assert(output->current_scale > 0);
+	WESTON_DASSERT_S32_GT(output->current_scale, 0);
 
 	convert_size_by_transform_scale(&output->width, &output->height,
 					output->current_mode->width,
@@ -7551,10 +7563,10 @@ weston_compositor_add_output(struct weston_compositor *compositor,
 	struct weston_view *view, *next;
 	struct weston_head *head;
 
-	assert(!output->enabled);
+	WESTON_DASSERT_FALSE(output->enabled);
 
 	/* Verify we haven't reached the limit of 32 available output IDs */
-	assert(ffs(~compositor->output_id_pool) > 0);
+	WESTON_DASSERT_INT_GT(ffs(~compositor->output_id_pool), 0);
 
 	/* Invert the output id pool and look for the lowest numbered
 	 * switch (the least significant bit).  Take that bit's position
@@ -7681,7 +7693,7 @@ weston_output_set_color_outcome(struct weston_output *output)
 	struct weston_color_manager *cm = output->compositor->color_manager;
 	struct weston_output_color_outcome *colorout;
 
-	assert(output->color_profile);
+	WESTON_DASSERT_PTR_SET(output->color_profile);
 
 	colorout = cm->create_output_color_outcome(cm, output);
 	if (!colorout) {
@@ -7752,8 +7764,8 @@ weston_compositor_remove_output(struct weston_output *output)
 	struct weston_view *view;
 	struct weston_head *head;
 
-	assert(output->destroying);
-	assert(output->enabled);
+	WESTON_DASSERT_TRUE(output->destroying);
+	WESTON_DASSERT_TRUE(output->enabled);
 
 	weston_plane_release(&output->primary_plane);
 
@@ -7766,7 +7778,7 @@ weston_compositor_remove_output(struct weston_output *output)
 			      &output->paint_node_list, output_link) {
 		weston_paint_node_destroy(pnode);
 	}
-	assert(wl_list_empty(&output->paint_node_z_order_list));
+	WESTON_DASSERT_TRUE(wl_list_empty(&output->paint_node_z_order_list));
 
 	/*
 	 * Use view_list in case the output did not go through repaint
@@ -8002,7 +8014,7 @@ WL_EXPORT void
 weston_output_set_eotf_mode(struct weston_output *output,
 			    enum weston_eotf_mode eotf_mode)
 {
-	weston_assert_false(output->compositor, output->enabled);
+	WESTON_DASSERT_FALSE(output->enabled);
 
 	output->eotf_mode = eotf_mode;
 }
@@ -8052,7 +8064,7 @@ WL_EXPORT void
 weston_output_set_colorimetry_mode(struct weston_output *output,
 				   enum weston_colorimetry_mode colorimetry_mode)
 {
-	weston_assert_false(output->compositor, output->enabled);
+	WESTON_DASSERT_FALSE(output->enabled);
 
 	output->colorimetry_mode = colorimetry_mode;
 }
@@ -8084,7 +8096,8 @@ weston_output_get_colorimetry_mode(const struct weston_output *output)
 WL_EXPORT const struct weston_hdr_metadata_type1 *
 weston_output_get_hdr_metadata_type1(const struct weston_output *output)
 {
-	assert(output->color_outcome);
+	WESTON_DASSERT_PTR_SET(output->color_outcome);
+
 	return &output->color_outcome->hdr_meta;
 }
 
@@ -8108,7 +8121,7 @@ WL_EXPORT void
 weston_output_set_color_characteristics(struct weston_output *output,
 					const struct weston_color_characteristics *cc)
 {
-	assert(!output->enabled);
+	WESTON_DASSERT_FALSE(output->enabled);
 
 	if (cc)
 		output->color_characteristics = *cc;
@@ -8139,7 +8152,7 @@ weston_output_set_single_mode(struct weston_output *output,
 	struct weston_mode *iter, *local = NULL, *mode;
 
 	wl_list_for_each(iter, &output->mode_list, link) {
-		assert(!local);
+		WESTON_DASSERT_PTR_NOT_SET(local);
 
 		if ((iter->width == target->width) &&
 		    (iter->height == target->height) &&
@@ -8245,8 +8258,8 @@ WL_EXPORT void
 weston_compositor_add_pending_output(struct weston_output *output,
 				     struct weston_compositor *compositor)
 {
-	assert(output->disable);
-	assert(output->enable);
+	WESTON_DASSERT_TRUE(output->disable);
+	WESTON_DASSERT_TRUE(output->enable);
 
 	wl_list_remove(&output->link);
 	wl_list_insert(compositor->pending_output_list.prev, &output->link);
@@ -8340,15 +8353,15 @@ weston_output_enable(struct weston_output *output)
 	}
 
 	wl_list_for_each(head, &output->head_list, output_link) {
-		assert(head->make);
-		assert(head->model);
+		WESTON_DASSERT_PTR_SET(head->make);
+		WESTON_DASSERT_PTR_SET(head->model);
 	}
 
 	/* Make sure the scale is set up */
-	assert(output->current_scale);
+	WESTON_DASSERT_S32_NE(output->current_scale, 0);
 
 	/* Make sure we have a transform set */
-	assert(output->transform != UINT32_MAX);
+	WESTON_DASSERT_U32_NE(output->transform, UINT32_MAX);
 
 	output->original_scale = output->current_scale;
 
@@ -8379,7 +8392,7 @@ weston_output_enable(struct weston_output *output)
 		return -1;
 
 	output->capture_info = weston_output_capture_info_create();
-	assert(output->capture_info);
+	WESTON_DASSERT_PTR_SET(output->capture_info);
 
 	/* Backends want to stack planes on top of the primary,
 	 * so we'd better set this up now.
@@ -8458,7 +8471,7 @@ weston_output_disable(struct weston_output *output)
 	if (output->enabled) {
 		weston_compositor_remove_output(output);
 
-		assert(wl_list_empty(&output->paint_node_list));
+		WESTON_DASSERT_TRUE(wl_list_empty(&output->paint_node_list));
 	}
 
 	output->destroying = 0;
@@ -8554,11 +8567,11 @@ weston_output_release(struct weston_output *output)
 
 	/* We always have a color profile set, as weston_output_init() sets the
 	 * output cprof to the stock sRGB one. */
-	assert(output->color_profile);
+	WESTON_DASSERT_PTR_SET(output->color_profile);
 	weston_color_profile_unref(output->color_profile);
 	output->color_profile = NULL;
 
-	assert(output->color_outcome == NULL);
+	WESTON_DASSERT_PTR_NOT_SET(output->color_outcome);
 
 	pixman_region32_fini(&output->region);
 	wl_list_remove(&output->link);
@@ -8616,7 +8629,7 @@ weston_compositor_create_output(struct weston_compositor *compositor,
 {
 	struct weston_output *output;
 
-	assert(head->backend->create_output);
+	WESTON_DASSERT_PTR_SET(head->backend->create_output);
 
 	if (weston_compositor_find_output_by_name(compositor, name)) {
 		weston_log("Warning: attempted to create an output with a "
@@ -8978,8 +8991,8 @@ viewport_set_source(struct wl_client *client,
 		return;
 	}
 
-	assert(surface->viewport_resource == resource);
-	assert(surface->resource);
+	WESTON_DASSERT_PTR_EQ(surface->viewport_resource, resource);
+	WESTON_DASSERT_PTR_SET(surface->resource);
 
 	if (src_width == wl_fixed_from_int(-1) &&
 	    src_height == wl_fixed_from_int(-1) &&
@@ -9028,7 +9041,7 @@ viewport_set_destination(struct wl_client *client,
 		return;
 	}
 
-	assert(surface->viewport_resource == resource);
+	WESTON_DASSERT_PTR_EQ(surface->viewport_resource, resource);
 
 	if (dst_width == -1 && dst_height == -1) {
 		/* unset destination size */
@@ -9335,7 +9348,7 @@ output_repaint_status_text(struct weston_output *output)
 		return "awaiting completion";
 	}
 
-	assert(!"output_repaint_status_text missing enum");
+	WESTON_DASSERT_NOT_REACHED("output_repaint_status_text missing enum");
 	return NULL;
 }
 
@@ -9520,8 +9533,10 @@ weston_compositor_print_scene_graph(struct weston_compositor *ec)
 	size_t len;
 	int err;
 
+	MAYBE_UNUSED(err);
+
 	fp = open_memstream(&ret, &len);
-	assert(fp);
+	WESTON_ASSERT_PTR_SET(fp);
 
 	weston_compositor_read_presentation_clock(ec, &now);
 	fprintf(fp, "Weston scene graph at %ld.%09ld:\n\n",
@@ -9533,7 +9548,7 @@ weston_compositor_print_scene_graph(struct weston_compositor *ec)
 		int x, y;
 
 		fprintf(fp, "Output %d (%s):\n", output->id, output->name);
-		assert(output->enabled);
+		WESTON_DASSERT_TRUE(output->enabled);
 
 		x = output->pos.c.x;
 		y = output->pos.c.y;
@@ -9587,7 +9602,7 @@ weston_compositor_print_scene_graph(struct weston_compositor *ec)
 	}
 
 	err = fclose(fp);
-	assert(err == 0);
+	WESTON_DASSERT_INT_EQ(err, 0);
 
 	return ret;
 }
@@ -9629,7 +9644,8 @@ weston_compositor_get_test_data(struct weston_compositor *ec)
 
 /** Create the compositor.
  *
- * This functions creates and initializes a compositor instance.
+ * This functions creates and initializes a compositor instance. Only one
+ * instance can be created.
  *
  * \param display The Wayland display to be used.
  * \param user_data A pointer to an object that can later be retrieved
@@ -9648,7 +9664,7 @@ weston_compositor_create(struct wl_display *display,
 	struct weston_compositor *ec;
 	struct wl_event_loop *loop;
 
-	if (!log_ctx)
+	if (compositor_instance || !log_ctx)
 		return NULL;
 
 	ec = zalloc(sizeof *ec);
@@ -9787,11 +9803,20 @@ weston_compositor_create(struct wl_display *display,
 		weston_compositor_add_log_scope(ec, "libseat-debug",
 						"libseat debug messages\n",
 						NULL, NULL, NULL);
+
+	compositor_instance = ec;
+
 	return ec;
 
 fail:
 	free(ec);
 	return NULL;
+}
+
+WL_EXPORT struct weston_compositor *
+weston_compositor_get_instance(void)
+{
+	return compositor_instance;
 }
 
 /** weston_compositor_shutdown
@@ -9981,7 +10006,7 @@ weston_compositor_read_presentation_clock(
 	 * Make sure weston_compositor_backends_loaded() was called.
 	 * We use CLOCK_REALTIME to mean 'uninitialized'.
 	 */
-	assert(compositor->presentation_clock != CLOCK_REALTIME);
+	WESTON_DASSERT_ENUM_NE(compositor->presentation_clock, CLOCK_REALTIME);
 
 	ret = clock_gettime(compositor->presentation_clock, ts);
 	if (ret < 0) {
@@ -10245,7 +10270,7 @@ weston_compositor_destroy(struct weston_compositor *compositor)
 	weston_compositor_destroy_backends(compositor);
 
 	/* The backend is responsible for destroying the heads. */
-	assert(wl_list_empty(&compositor->head_list));
+	WESTON_DASSERT_TRUE(wl_list_empty(&compositor->head_list));
 
 	weston_plugin_api_destroy_list(compositor);
 
@@ -10270,6 +10295,8 @@ weston_compositor_destroy(struct weston_compositor *compositor)
 	}
 
 	free(compositor);
+
+	compositor_instance = NULL;
 }
 
 /** Instruct the compositor to exit.
@@ -10475,12 +10502,12 @@ weston_buffer_send_server_error(struct weston_buffer *buffer,
 	struct wl_resource *display_resource;
 	uint32_t id;
 
-	assert(buffer->resource);
+	WESTON_DASSERT_PTR_SET(buffer->resource);
 	id = wl_resource_get_id(buffer->resource);
 	client = wl_resource_get_client(buffer->resource);
 	display_resource = wl_client_get_object(client, 1);
 
-	assert(display_resource);
+	WESTON_DASSERT_PTR_SET(display_resource);
 	wl_resource_post_error(display_resource,
 			       WL_DISPLAY_ERROR_INVALID_OBJECT,
 			       "server error with "
@@ -10615,6 +10642,6 @@ weston_output_finish_frame_from_timer(struct weston_output *output)
 WL_EXPORT enum weston_compositor_backend
 weston_get_backend_type(struct weston_backend *backend)
 {
-	assert(backend);
+	WESTON_DASSERT_PTR_SET(backend);
 	return backend->backend_type;
 }

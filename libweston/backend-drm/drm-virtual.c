@@ -77,8 +77,9 @@ drm_virtual_crtc_create(struct drm_device *device, struct drm_output *output)
 static void
 drm_virtual_crtc_destroy(struct drm_crtc *crtc)
 {
-	assert(crtc->link.prev == POISON_PTR);
-	assert(crtc->link.next == POISON_PTR);
+	WESTON_DASSERT_PTR_EQ(crtc->link.prev, POISON_PTR);
+	WESTON_DASSERT_PTR_EQ(crtc->link.next, POISON_PTR);
+
 	free(crtc);
 }
 
@@ -184,7 +185,7 @@ drm_virtual_output_submit_frame(struct drm_output *output,
 {
 	int fd, ret;
 
-	assert(fb->num_planes == 1);
+	WESTON_DASSERT_INT_EQ(fb->num_planes, 1);
 	ret = drmPrimeHandleToFD(fb->fd, fb->handles[0], DRM_CLOEXEC, &fd);
 	if (ret) {
 		weston_log("drmPrimeHandleFD failed, errno=%d\n", errno);
@@ -211,7 +212,7 @@ drm_virtual_output_repaint(struct weston_output *output_base)
 	struct drm_pending_state *pending_state;
 	struct drm_device *device;
 
-	assert(output->is_virtual);
+	WESTON_DASSERT_TRUE(output->is_virtual);
 
 	device = output->device;
 	pending_state = device->repaint_data;
@@ -225,7 +226,7 @@ drm_virtual_output_repaint(struct weston_output *output_base)
 		return -1;
 	}
 
-	assert(!output->state_last);
+	WESTON_DASSERT_PTR_NOT_SET(output->state_last);
 
 	/* If planes have been disabled in the core, we might not have
 	 * hit assign_planes at all, so might not have valid output state
@@ -267,7 +268,7 @@ drm_virtual_output_destroy(struct weston_output *base)
 {
 	struct drm_output *output = to_drm_output(base);
 
-	assert(output->is_virtual);
+	WESTON_DASSERT_TRUE(output->is_virtual);
 
 	if (output->base.enabled)
 		drm_virtual_output_deinit(&output->base);
@@ -289,7 +290,7 @@ drm_virtual_output_enable(struct weston_output *output_base)
 	struct drm_device *device = output->device;
 	struct drm_backend *b = device->backend;
 
-	assert(output->is_virtual);
+	WESTON_DASSERT_TRUE(output->is_virtual);
 
 	if (output_base->compositor->renderer->type == WESTON_RENDERER_PIXMAN) {
 		weston_log("Not support pixman renderer on Virtual output\n");
@@ -335,7 +336,7 @@ drm_virtual_output_disable(struct weston_output *base)
 {
 	struct drm_output *output = to_drm_output(base);
 
-	assert(output->is_virtual);
+	WESTON_DASSERT_TRUE(output->is_virtual);
 
 	if (output->base.enabled)
 		drm_virtual_output_deinit(&output->base);

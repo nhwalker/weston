@@ -5,6 +5,7 @@ project('weston',
 		'warning_level=3',
 		'c_std=gnu11',
 		'b_lundef=true',
+		'b_ndebug=if-release',
 	],
 	meson_version: '>= 0.63.0',
 	license: 'MIT/Expat',
@@ -87,7 +88,7 @@ add_project_arguments(global_cpp_args, language: 'cpp')
 
 optional_libc_funcs = [
 	'mkostemp', 'strchrnul', 'initgroups', 'posix_fallocate',
-	'memfd_create', 'unreachable',
+	'memfd_create',
 ]
 foreach func : optional_libc_funcs
 	if cc.has_function(func)

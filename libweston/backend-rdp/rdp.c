@@ -25,7 +25,6 @@
 
 #include "config.h"
 
-#include <assert.h>
 #include <drm_fourcc.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -294,7 +293,7 @@ rdp_output_repaint(struct weston_output *output_base)
 	struct rdp_peers_item *peer;
 	pixman_region32_t damage;
 
-	assert(output);
+	WESTON_DASSERT_PTR_SET(output);
 
 	pixman_region32_init(&damage);
 
@@ -475,7 +474,7 @@ rdp_renderer_output_destroy(struct weston_output *base)
 		rdr->gl->output_destroy(base);
 		break;
 	default:
-		unreachable("cannot have auto renderer at runtime");
+		WESTON_DASSERT_NOT_REACHED("invalid renderer");
 	}
 }
 
@@ -487,7 +486,7 @@ rdp_output_enable(struct weston_output *base)
 	struct rdp_backend *b;
 	struct wl_event_loop *loop;
 
-	assert(output);
+	WESTON_DASSERT_PTR_SET(output);
 
 	b = output->backend;
 
@@ -523,7 +522,7 @@ rdp_output_enable(struct weston_output *base)
 		break;
 	}
 	default:
-		unreachable("cannot have auto renderer at runtime");
+		WESTON_DASSERT_NOT_REACHED("invalid renderer");
 	}
 
 	output->buffer = rdp_buffer_create(output);
@@ -543,7 +542,7 @@ rdp_output_disable(struct weston_output *base)
 {
 	struct rdp_output *output = to_rdp_output(base);
 
-	assert(output);
+	WESTON_DASSERT_PTR_SET(output);
 
 	if (!output->base.enabled)
 		return 0;
@@ -561,7 +560,7 @@ rdp_output_destroy(struct weston_output *base)
 {
 	struct rdp_output *output = to_rdp_output(base);
 
-	assert(output);
+	WESTON_DASSERT_PTR_SET(output);
 
 	rdp_output_disable(&output->base);
 	weston_output_release(&output->base);
@@ -637,7 +636,7 @@ rdp_head_destroy(struct weston_head *base)
 {
 	struct rdp_head *head = to_rdp_head(base);
 
-	assert(head);
+	WESTON_DASSERT_PTR_SET(head);
 
 	weston_head_release(&head->base);
 	free(head);
@@ -1291,7 +1290,7 @@ rdp_validate_button_state(RdpPeerContext *peerContext, bool pressed, uint32_t *b
 	}
 
 	index = *button - BTN_LEFT;
-	assert(index < ARRAY_LENGTH(peerContext->button_state));
+	WESTON_DASSERT_U32_LT(index, ARRAY_LENGTH(peerContext->button_state));
 
 	if (pressed == peerContext->button_state[index]) {
 		rdp_debug_verbose(b, "%s: inconsistent button state button:%d (index:%d) pressed:%d\n",

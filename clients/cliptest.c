@@ -48,7 +48,6 @@
 #include <pixman.h>
 #include <cairo.h>
 #include <float.h>
-#include <assert.h>
 #include <errno.h>
 
 #include <linux/input.h>

@@ -26,7 +26,6 @@
 
 #include "config.h"
 
-#include <assert.h>
 #include <string.h>
 
 #include <libweston/libweston.h>
@@ -109,7 +108,7 @@ color_transform_destroy_handler(struct wl_listener *l, void *data)
 	struct gl_renderer_color_transform *gl_xform;
 
 	gl_xform = wl_container_of(l, gl_xform, destroy_listener);
-	assert(gl_xform->owner == data);
+	WESTON_DASSERT_PTR_EQ(gl_xform->owner, data);
 
 	gl_renderer_color_transform_destroy(gl_xform);
 }
@@ -406,12 +405,15 @@ gl_shader_config_set_color_transform(struct gl_renderer *gr,
 				gl_xform->mapping.lut3d.scale;
 		sconf->color_mapping.lut3d.scale_offset[1] =
 				gl_xform->mapping.lut3d.offset;
-		assert(sconf->color_mapping.lut3d.scale_offset[0] > 0.0);
-		assert(sconf->color_mapping.lut3d.scale_offset[1] > 0.0);
+		WESTON_DASSERT_F32_GT(sconf->color_mapping.lut3d.scale_offset[0],
+				      0.0);
+		WESTON_DASSERT_F32_GT(sconf->color_mapping.lut3d.scale_offset[1],
+				      0.0);
 		ret = true;
 		break;
 	case SHADER_COLOR_MAPPING_MATRIX:
-		assert(sconf->req.color_mapping == SHADER_COLOR_MAPPING_MATRIX);
+		WESTON_DASSERT_ENUM_EQ(sconf->req.color_mapping,
+				       SHADER_COLOR_MAPPING_MATRIX);
 		ARRAY_COPY(sconf->color_mapping.matrix, gl_xform->mapping.mat.matrix);
 		ret = true;
 		break;

@@ -30,11 +30,11 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#include <assert.h>
 #include <errno.h>
 
 #include <libweston/config-parser.h>
 #include "string-helpers.h"
+#include "weston-assert.h"
 
 static bool
 handle_option(const struct weston_option *option, char *value)
@@ -56,7 +56,7 @@ handle_option(const struct weston_option *option, char *value)
 		* (char **) option->data = strdup(value);
 		return true;
 	default:
-		assert(0);
+		WESTON_DASSERT_NOT_REACHED();
 		return false;
 	}
 }
@@ -105,7 +105,7 @@ long_option_with_arg(const struct weston_option *options, int count, char *arg,
 		/* Since long_option() should handle all booleans, we should
 		 * never reach this
 		 */
-		assert(options[k].type != WESTON_OPTION_BOOLEAN);
+		WESTON_DASSERT_ENUM_NE(options[k].type, WESTON_OPTION_BOOLEAN);
 
 		return handle_option(options + k, param);
 	}

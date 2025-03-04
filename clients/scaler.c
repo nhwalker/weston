@@ -27,13 +27,13 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#include <assert.h>
 #include <errno.h>
 #include <cairo.h>
 
 #include <linux/input.h>
 
 #include "window.h"
+#include "weston-client-assert.h"
 #include "viewporter-client-protocol.h"
 
 #define BUFFER_SCALE 2
@@ -111,7 +111,7 @@ set_my_viewport(struct box *box)
 					    dst_width, dst_height);
 		break;
 	default:
-		assert(!"not reached");
+		WESTON_DASSERT_NOT_REACHED();
 	}
 }
 

@@ -97,7 +97,7 @@ capture_source_handle_format(void *data,
 {
 	struct capturer *capt = data;
 
-	test_assert_ptr_eq(capt->source, proxy);
+	TEST_ASSERT_PTR_EQ(capt->source, proxy);
 
 	capt->events.format = true;
 	capt->drm_format = drm_format;
@@ -110,7 +110,7 @@ capture_source_handle_size(void *data,
 {
 	struct capturer *capt = data;
 
-	test_assert_ptr_eq(capt->source, proxy);
+	TEST_ASSERT_PTR_EQ(capt->source, proxy);
 
 	capt->events.size = true;
 	capt->width = width;
@@ -123,8 +123,8 @@ capture_source_handle_complete(void *data,
 {
 	struct capturer *capt = data;
 
-	test_assert_ptr_eq(capt->source, proxy);
-	test_assert_enum(capt->state, CAPTURE_TASK_PENDING);
+	TEST_ASSERT_PTR_EQ(capt->source, proxy);
+	TEST_ASSERT_ENUM_EQ(capt->state, CAPTURE_TASK_PENDING);
 	capt->state = CAPTURE_TASK_COMPLETE;
 	capt->events.reply = true;
 }
@@ -135,8 +135,8 @@ capture_source_handle_retry(void *data,
 {
 	struct capturer *capt = data;
 
-	test_assert_ptr_eq(capt->source, proxy);
-	test_assert_enum(capt->state, CAPTURE_TASK_PENDING);
+	TEST_ASSERT_PTR_EQ(capt->source, proxy);
+	TEST_ASSERT_ENUM_EQ(capt->state, CAPTURE_TASK_PENDING);
 	capt->state = CAPTURE_TASK_RETRY;
 	capt->events.reply = true;
 }
@@ -148,8 +148,8 @@ capture_source_handle_failed(void *data,
 {
 	struct capturer *capt = data;
 
-	test_assert_ptr_eq(capt->source, proxy);
-	test_assert_enum(capt->state, CAPTURE_TASK_PENDING);
+	TEST_ASSERT_PTR_EQ(capt->source, proxy);
+	TEST_ASSERT_ENUM_EQ(capt->state, CAPTURE_TASK_PENDING);
 	capt->state = CAPTURE_TASK_FAILED;
 	capt->events.reply = true;
 
@@ -211,22 +211,22 @@ TEST(simple_shot)
 			       WESTON_CAPTURE_V1_SOURCE_FRAMEBUFFER);
 	client_roundtrip(client);
 
-	test_assert_true(capt->events.format);
-	test_assert_true(capt->events.size);
-	test_assert_enum(capt->state, CAPTURE_TASK_PENDING);
-	test_assert_u32_eq(capt->drm_format, fix->expected_drm_format);
-	test_assert_int_gt(capt->width, 0);
-	test_assert_int_gt(capt->height, 0);
-	test_assert_false(capt->events.reply);
+	TEST_ASSERT_TRUE(capt->events.format);
+	TEST_ASSERT_TRUE(capt->events.size);
+	TEST_ASSERT_ENUM_EQ(capt->state, CAPTURE_TASK_PENDING);
+	TEST_ASSERT_U32_EQ(capt->drm_format, fix->expected_drm_format);
+	TEST_ASSERT_INT_GT(capt->width, 0);
+	TEST_ASSERT_INT_GT(capt->height, 0);
+	TEST_ASSERT_FALSE(capt->events.reply);
 
 	buf = create_shm_buffer(client, capt->width, capt->height,
 				fix->expected_drm_format);
 
 	weston_capture_source_v1_capture(capt->source, buf->proxy);
 	while (!capt->events.reply)
-		test_assert_int_ge(wl_display_dispatch(client->wl_display), 0);
+		TEST_ASSERT_INT_GE(wl_display_dispatch(client->wl_display), 0);
 
-	test_assert_enum(capt->state, CAPTURE_TASK_COMPLETE);
+	TEST_ASSERT_ENUM_EQ(capt->state, CAPTURE_TASK_COMPLETE);
 
 	capturer_destroy(capt);
 	buffer_destroy(buf);
@@ -249,24 +249,24 @@ TEST(retry_on_wrong_format)
 			       WESTON_CAPTURE_V1_SOURCE_FRAMEBUFFER);
 	client_roundtrip(client);
 
-	test_assert_true(capt->events.format);
-	test_assert_true(capt->events.size);
-	test_assert_enum(capt->state, CAPTURE_TASK_PENDING);
+	TEST_ASSERT_TRUE(capt->events.format);
+	TEST_ASSERT_TRUE(capt->events.size);
+	TEST_ASSERT_ENUM_EQ(capt->state, CAPTURE_TASK_PENDING);
 
 	/* Fix this test if triggered. */
-	test_assert_u32_ne(capt->drm_format, drm_format);
+	TEST_ASSERT_U32_NE(capt->drm_format, drm_format);
 
-	test_assert_int_gt(capt->width, 0);
-	test_assert_int_gt(capt->height, 0);
-	test_assert_false(capt->events.reply);
+	TEST_ASSERT_INT_GT(capt->width, 0);
+	TEST_ASSERT_INT_GT(capt->height, 0);
+	TEST_ASSERT_FALSE(capt->events.reply);
 
 	buf = create_shm_buffer(client, capt->width, capt->height, drm_format);
 
 	weston_capture_source_v1_capture(capt->source, buf->proxy);
 	while (!capt->events.reply)
-		test_assert_int_ge(wl_display_dispatch(client->wl_display), 0);
+		TEST_ASSERT_INT_GE(wl_display_dispatch(client->wl_display), 0);
 
-	test_assert_enum(capt->state, CAPTURE_TASK_RETRY);
+	TEST_ASSERT_ENUM_EQ(capt->state, CAPTURE_TASK_RETRY);
 
 	capturer_destroy(capt);
 	buffer_destroy(buf);
@@ -288,21 +288,21 @@ TEST(retry_on_wrong_size)
 			       WESTON_CAPTURE_V1_SOURCE_FRAMEBUFFER);
 	client_roundtrip(client);
 
-	test_assert_true(capt->events.format);
-	test_assert_true(capt->events.size);
-	test_assert_enum(capt->state, CAPTURE_TASK_PENDING);
-	test_assert_int_gt(capt->width, 5);
-	test_assert_int_gt(capt->height, 5);
-	test_assert_false(capt->events.reply);
+	TEST_ASSERT_TRUE(capt->events.format);
+	TEST_ASSERT_TRUE(capt->events.size);
+	TEST_ASSERT_ENUM_EQ(capt->state, CAPTURE_TASK_PENDING);
+	TEST_ASSERT_INT_GT(capt->width, 5);
+	TEST_ASSERT_INT_GT(capt->height, 5);
+	TEST_ASSERT_FALSE(capt->events.reply);
 
 	buf = create_shm_buffer(client, capt->width - 3, capt->height - 3,
 				capt->drm_format);
 
 	weston_capture_source_v1_capture(capt->source, buf->proxy);
 	while (!capt->events.reply)
-		test_assert_int_ge(wl_display_dispatch(client->wl_display), 0);
+		TEST_ASSERT_INT_GE(wl_display_dispatch(client->wl_display), 0);
 
-	test_assert_enum(capt->state, CAPTURE_TASK_RETRY);
+	TEST_ASSERT_ENUM_EQ(capt->state, CAPTURE_TASK_RETRY);
 
 	capturer_destroy(capt);
 	buffer_destroy(buf);
@@ -325,18 +325,18 @@ TEST(writeback_on_headless_fails)
 			       WESTON_CAPTURE_V1_SOURCE_WRITEBACK);
 	client_roundtrip(client);
 
-	test_assert_false(capt->events.format);
-	test_assert_false(capt->events.size);
-	test_assert_enum(capt->state, CAPTURE_TASK_PENDING);
+	TEST_ASSERT_FALSE(capt->events.format);
+	TEST_ASSERT_FALSE(capt->events.size);
+	TEST_ASSERT_ENUM_EQ(capt->state, CAPTURE_TASK_PENDING);
 
 	/* Trying pixel source that is not available should fail immediately */
 	weston_capture_source_v1_capture(capt->source, buf->proxy);
 	client_roundtrip(client);
 
-	test_assert_false(capt->events.format);
-	test_assert_false(capt->events.size);
-	test_assert_enum(capt->state, CAPTURE_TASK_FAILED);
-	test_assert_str_eq(capt->last_failure, "source unavailable");
+	TEST_ASSERT_FALSE(capt->events.format);
+	TEST_ASSERT_FALSE(capt->events.size);
+	TEST_ASSERT_ENUM_EQ(capt->state, CAPTURE_TASK_FAILED);
+	TEST_ASSERT_STR_EQ(capt->last_failure, "source unavailable");
 
 	capturer_destroy(capt);
 	buffer_destroy(buf);

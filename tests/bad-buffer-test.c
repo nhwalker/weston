@@ -152,7 +152,7 @@ create_bad_shm_buffer(struct client *client, int width, int height)
 	int fd;
 
 	fd = create_anonymous_file_without_seals(size);
-	test_assert_int_ge(fd, 0);
+	TEST_ASSERT_INT_GE(fd, 0);
 
 	pool = wl_shm_create_pool(shm, fd, size);
 	buffer = wl_shm_pool_create_buffer(pool, 0, width, height, stride,
@@ -162,7 +162,7 @@ create_bad_shm_buffer(struct client *client, int width, int height)
 	/* Truncate the file to a small size, so that the compositor
 	 * will access it out-of-bounds, and hit SIGBUS.
 	 */
-	test_assert_int_eq(ftruncate(fd, 12), 0);
+	TEST_ASSERT_INT_EQ(ftruncate(fd, 12), 0);
 	close(fd);
 
 	return buffer;
@@ -177,7 +177,7 @@ TEST(test_truncated_shm_file)
 	int frame;
 
 	client = create_client_and_test_surface(46, 76, 111, 134);
-	test_assert_ptr_not_null(client);
+	TEST_ASSERT_PTR_SET(client);
 	surface = client->surface->wl_surface;
 
 	bad_buffer = create_bad_shm_buffer(client, 200, 200);

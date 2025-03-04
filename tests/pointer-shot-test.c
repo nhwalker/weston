@@ -94,7 +94,7 @@ surface_commit_color(struct client *client, struct surface *surface,
 	wl_surface_damage(surface->wl_surface, 0, 0, width, height);
 	wl_surface_commit(surface->wl_surface);
 
-	test_assert_ptr_null(surface->buffer);
+	TEST_ASSERT_PTR_NOT_SET(surface->buffer);
 	surface->buffer = buf;
 
 	return buf;
@@ -152,7 +152,7 @@ TEST(pointer_cursor_retains_committed_buffer_after_reenter)
 			      main_cursor_surface->wl_surface, 0, 0);
 	match = verify_screen_content(client, "pointer_cursor_reenter", 0,
 				      NULL, 0, NULL);
-	test_assert_true(match);
+	TEST_ASSERT_TRUE(match);
 
 	/* Move the cursor just outside the main surface. */
 	send_motion(client, &t2, 150, 150);
@@ -161,7 +161,7 @@ TEST(pointer_cursor_retains_committed_buffer_after_reenter)
 			      back_cursor_surface->wl_surface, 0, 0);
 	match = verify_screen_content(client, "pointer_cursor_reenter", 1,
 				      NULL, 1, NULL);
-	test_assert_true(match);
+	TEST_ASSERT_TRUE(match);
 
 	/* And back in the main surface again. */
 	send_motion(client, &t3, 149, 149);
@@ -170,7 +170,7 @@ TEST(pointer_cursor_retains_committed_buffer_after_reenter)
 			      main_cursor_surface->wl_surface, 0, 0);
 	match = verify_screen_content(client, "pointer_cursor_reenter", 2,
 				      NULL, 2, NULL);
-	test_assert_true(match);
+	TEST_ASSERT_TRUE(match);
 
 	surface_destroy(back_cursor_surface);
 	surface_destroy(main_cursor_surface);

@@ -93,13 +93,13 @@ check_pointer(struct client *client, int x, int y)
 	int sx, sy;
 
 	/* check that the client got the global pointer update */
-	test_assert_int_eq(client->test->pointer_x, x);
-	test_assert_int_eq(client->test->pointer_y, y);
+	TEST_ASSERT_INT_EQ(client->test->pointer_x, x);
+	TEST_ASSERT_INT_EQ(client->test->pointer_y, y);
 
 	/* Does global pointer map onto the surface? */
 	if (surface_contains(client->surface, x, y)) {
 		/* check that the surface has the pointer focus */
-		test_assert_ptr_eq(client->input->pointer->focus,
+		TEST_ASSERT_PTR_EQ(client->input->pointer->focus,
 				   client->surface);
 
 		/*
@@ -108,14 +108,14 @@ check_pointer(struct client *client, int x, int y)
 		 */
 		sx = client->input->pointer->x + client->surface->x;
 		sy = client->input->pointer->y + client->surface->y;
-		test_assert_int_eq(sx, x);
-		test_assert_int_eq(sy, y);
+		TEST_ASSERT_INT_EQ(sx, x);
+		TEST_ASSERT_INT_EQ(sy, y);
 	} else {
 		/*
 		 * The global pointer does not map onto surface.  So
 		 * check that it doesn't have the pointer focus.
 		 */
-		test_assert_ptr_null(client->input->pointer->focus);
+		TEST_ASSERT_PTR_NOT_SET(client->input->pointer->focus);
 	}
 }
 
@@ -130,7 +130,7 @@ static struct client *
 create_client_with_pointer_focus(int x, int y, int w, int h)
 {
 	struct client *cl = create_client_and_test_surface(x, y, w, h);
-	test_assert_ptr_not_null(cl);
+	TEST_ASSERT_PTR_SET(cl);
 	/* Move the pointer inside the surface to ensure that the surface
 	 * has the pointer focus. */
 	check_pointer_move(cl, x, y);
@@ -143,22 +143,22 @@ TEST(test_pointer_top_left)
 	int x, y;
 
 	client = create_client_and_test_surface(46, 76, 111, 134);
-	test_assert_ptr_not_null(client);
+	TEST_ASSERT_PTR_SET(client);
 
 	/* move pointer outside top left */
 	x = client->surface->x - 1;
 	y = client->surface->y - 1;
-	test_assert_false(surface_contains(client->surface, x, y));
+	TEST_ASSERT_FALSE(surface_contains(client->surface, x, y));
 	check_pointer_move(client, x, y);
 
 	/* move pointer on top left */
 	x += 1; y += 1;
-	test_assert_true(surface_contains(client->surface, x, y));
+	TEST_ASSERT_TRUE(surface_contains(client->surface, x, y));
 	check_pointer_move(client, x, y);
 
 	/* move pointer outside top left */
 	x -= 1; y -= 1;
-	test_assert_false(surface_contains(client->surface, x, y));
+	TEST_ASSERT_FALSE(surface_contains(client->surface, x, y));
 	check_pointer_move(client, x, y);
 
 	client_destroy(client);
@@ -170,22 +170,22 @@ TEST(test_pointer_bottom_left)
 	int x, y;
 
 	client = create_client_and_test_surface(99, 100, 100, 98);
-	test_assert_ptr_not_null(client);
+	TEST_ASSERT_PTR_SET(client);
 
 	/* move pointer outside bottom left */
 	x = client->surface->x - 1;
 	y = client->surface->y + client->surface->height;
-	test_assert_false(surface_contains(client->surface, x, y));
+	TEST_ASSERT_FALSE(surface_contains(client->surface, x, y));
 	check_pointer_move(client, x, y);
 
 	/* move pointer on bottom left */
 	x += 1; y -= 1;
-	test_assert_true(surface_contains(client->surface, x, y));
+	TEST_ASSERT_TRUE(surface_contains(client->surface, x, y));
 	check_pointer_move(client, x, y);
 
 	/* move pointer outside bottom left */
 	x -= 1; y += 1;
-	test_assert_false(surface_contains(client->surface, x, y));
+	TEST_ASSERT_FALSE(surface_contains(client->surface, x, y));
 	check_pointer_move(client, x, y);
 
 	client_destroy(client);
@@ -197,22 +197,22 @@ TEST(test_pointer_top_right)
 	int x, y;
 
 	client = create_client_and_test_surface(48, 100, 67, 100);
-	test_assert_ptr_not_null(client);
+	TEST_ASSERT_PTR_SET(client);
 
 	/* move pointer outside top right */
 	x = client->surface->x + client->surface->width;
 	y = client->surface->y - 1;
-	test_assert_false(surface_contains(client->surface, x, y));
+	TEST_ASSERT_FALSE(surface_contains(client->surface, x, y));
 	check_pointer_move(client, x, y);
 
 	/* move pointer on top right */
 	x -= 1; y += 1;
-	test_assert_true(surface_contains(client->surface, x, y));
+	TEST_ASSERT_TRUE(surface_contains(client->surface, x, y));
 	check_pointer_move(client, x, y);
 
 	/* move pointer outside top right */
 	x += 1; y -= 1;
-	test_assert_false(surface_contains(client->surface, x, y));
+	TEST_ASSERT_FALSE(surface_contains(client->surface, x, y));
 	check_pointer_move(client, x, y);
 
 	client_destroy(client);
@@ -224,22 +224,22 @@ TEST(test_pointer_bottom_right)
 	int x, y;
 
 	client = create_client_and_test_surface(100, 123, 100, 69);
-	test_assert_ptr_not_null(client);
+	TEST_ASSERT_PTR_SET(client);
 
 	/* move pointer outside bottom right */
 	x = client->surface->x + client->surface->width;
 	y = client->surface->y + client->surface->height;
-	test_assert_false(surface_contains(client->surface, x, y));
+	TEST_ASSERT_FALSE(surface_contains(client->surface, x, y));
 	check_pointer_move(client, x, y);
 
 	/* move pointer on bottom right */
 	x -= 1; y -= 1;
-	test_assert_true(surface_contains(client->surface, x, y));
+	TEST_ASSERT_TRUE(surface_contains(client->surface, x, y));
 	check_pointer_move(client, x, y);
 
 	/* move pointer outside bottom right */
 	x += 1; y += 1;
-	test_assert_false(surface_contains(client->surface, x, y));
+	TEST_ASSERT_FALSE(surface_contains(client->surface, x, y));
 	check_pointer_move(client, x, y);
 
 	client_destroy(client);
@@ -251,22 +251,22 @@ TEST(test_pointer_top_center)
 	int x, y;
 
 	client = create_client_and_test_surface(100, 201, 100, 50);
-	test_assert_ptr_not_null(client);
+	TEST_ASSERT_PTR_SET(client);
 
 	/* move pointer outside top center */
 	x = client->surface->x + client->surface->width/2;
 	y = client->surface->y - 1;
-	test_assert_false(surface_contains(client->surface, x, y));
+	TEST_ASSERT_FALSE(surface_contains(client->surface, x, y));
 	check_pointer_move(client, x, y);
 
 	/* move pointer on top center */
 	y += 1;
-	test_assert_true(surface_contains(client->surface, x, y));
+	TEST_ASSERT_TRUE(surface_contains(client->surface, x, y));
 	check_pointer_move(client, x, y);
 
 	/* move pointer outside top center */
 	y -= 1;
-	test_assert_false(surface_contains(client->surface, x, y));
+	TEST_ASSERT_FALSE(surface_contains(client->surface, x, y));
 	check_pointer_move(client, x, y);
 
 	client_destroy(client);
@@ -278,22 +278,22 @@ TEST(test_pointer_bottom_center)
 	int x, y;
 
 	client = create_client_and_test_surface(100, 45, 67, 100);
-	test_assert_ptr_not_null(client);
+	TEST_ASSERT_PTR_SET(client);
 
 	/* move pointer outside bottom center */
 	x = client->surface->x + client->surface->width/2;
 	y = client->surface->y + client->surface->height;
-	test_assert_false(surface_contains(client->surface, x, y));
+	TEST_ASSERT_FALSE(surface_contains(client->surface, x, y));
 	check_pointer_move(client, x, y);
 
 	/* move pointer on bottom center */
 	y -= 1;
-	test_assert_true(surface_contains(client->surface, x, y));
+	TEST_ASSERT_TRUE(surface_contains(client->surface, x, y));
 	check_pointer_move(client, x, y);
 
 	/* move pointer outside bottom center */
 	y += 1;
-	test_assert_false(surface_contains(client->surface, x, y));
+	TEST_ASSERT_FALSE(surface_contains(client->surface, x, y));
 	check_pointer_move(client, x, y);
 
 	client_destroy(client);
@@ -305,22 +305,22 @@ TEST(test_pointer_left_center)
 	int x, y;
 
 	client = create_client_and_test_surface(167, 45, 78, 100);
-	test_assert_ptr_not_null(client);
+	TEST_ASSERT_PTR_SET(client);
 
 	/* move pointer outside left center */
 	x = client->surface->x - 1;
 	y = client->surface->y + client->surface->height/2;
-	test_assert_false(surface_contains(client->surface, x, y));
+	TEST_ASSERT_FALSE(surface_contains(client->surface, x, y));
 	check_pointer_move(client, x, y);
 
 	/* move pointer on left center */
 	x += 1;
-	test_assert_true(surface_contains(client->surface, x, y));
+	TEST_ASSERT_TRUE(surface_contains(client->surface, x, y));
 	check_pointer_move(client, x, y);
 
 	/* move pointer outside left center */
 	x -= 1;
-	test_assert_false(surface_contains(client->surface, x, y));
+	TEST_ASSERT_FALSE(surface_contains(client->surface, x, y));
 	check_pointer_move(client, x, y);
 
 	client_destroy(client);
@@ -332,22 +332,22 @@ TEST(test_pointer_right_center)
 	int x, y;
 
 	client = create_client_and_test_surface(110, 37, 100, 46);
-	test_assert_ptr_not_null(client);
+	TEST_ASSERT_PTR_SET(client);
 
 	/* move pointer outside right center */
 	x = client->surface->x + client->surface->width;
 	y = client->surface->y + client->surface->height/2;
-	test_assert_false(surface_contains(client->surface, x, y));
+	TEST_ASSERT_FALSE(surface_contains(client->surface, x, y));
 	check_pointer_move(client, x, y);
 
 	/* move pointer on right center */
 	x -= 1;
-	test_assert_true(surface_contains(client->surface, x, y));
+	TEST_ASSERT_TRUE(surface_contains(client->surface, x, y));
 	check_pointer_move(client, x, y);
 
 	/* move pointer outside right center */
 	x += 1;
-	test_assert_false(surface_contains(client->surface, x, y));
+	TEST_ASSERT_FALSE(surface_contains(client->surface, x, y));
 	check_pointer_move(client, x, y);
 
 	client_destroy(client);
@@ -358,15 +358,15 @@ TEST(test_pointer_surface_move)
 	struct client *client;
 
 	client = create_client_and_test_surface(100, 100, 100, 100);
-	test_assert_ptr_not_null(client);
+	TEST_ASSERT_PTR_SET(client);
 
 	/* move pointer outside of client */
-	test_assert_false(surface_contains(client->surface, 50, 50));
+	TEST_ASSERT_FALSE(surface_contains(client->surface, 50, 50));
 	check_pointer_move(client, 50, 50);
 
 	/* move client center to pointer */
 	move_client_frame_sync(client, 0, 0);
-	test_assert_true(surface_contains(client->surface, 50, 50));
+	TEST_ASSERT_TRUE(surface_contains(client->surface, 50, 50));
 	check_pointer(client, 50, 50);
 
 	client_destroy(client);
@@ -381,10 +381,10 @@ TEST(pointer_motion_events)
 		input_timestamps_create_for_pointer(client);
 
 	send_motion(client, &t1, 150, 150);
-	test_assert_int_eq(pointer->x, 50);
-	test_assert_int_eq(pointer->y, 50);
-	test_assert_s64_eq(pointer->motion_time_msec, timespec_to_msec(&t1));
-	test_assert_true(timespec_eq(&pointer->motion_time_timespec, &t1));
+	TEST_ASSERT_INT_EQ(pointer->x, 50);
+	TEST_ASSERT_INT_EQ(pointer->y, 50);
+	TEST_ASSERT_S64_EQ(pointer->motion_time_msec, timespec_to_msec(&t1));
+	TEST_ASSERT_TRUE(timespec_eq(&pointer->motion_time_timespec, &t1));
 
 	input_timestamps_destroy(input_ts);
 
@@ -399,20 +399,20 @@ TEST(pointer_button_events)
 	struct input_timestamps *input_ts =
 		input_timestamps_create_for_pointer(client);
 
-	test_assert_u32_eq(pointer->button, 0);
-	test_assert_u32_eq(pointer->state, 0);
+	TEST_ASSERT_U32_EQ(pointer->button, 0);
+	TEST_ASSERT_U32_EQ(pointer->state, 0);
 
 	send_button(client, &t1, BTN_LEFT, WL_POINTER_BUTTON_STATE_PRESSED);
-	test_assert_enum(pointer->button, BTN_LEFT);
-	test_assert_enum(pointer->state, WL_POINTER_BUTTON_STATE_PRESSED);
-	test_assert_s64_eq(pointer->button_time_msec, timespec_to_msec(&t1));
-	test_assert_true(timespec_eq(&pointer->button_time_timespec, &t1));
+	TEST_ASSERT_ENUM_EQ(pointer->button, BTN_LEFT);
+	TEST_ASSERT_ENUM_EQ(pointer->state, WL_POINTER_BUTTON_STATE_PRESSED);
+	TEST_ASSERT_S64_EQ(pointer->button_time_msec, timespec_to_msec(&t1));
+	TEST_ASSERT_TRUE(timespec_eq(&pointer->button_time_timespec, &t1));
 
 	send_button(client, &t2, BTN_LEFT, WL_POINTER_BUTTON_STATE_RELEASED);
-	test_assert_enum(pointer->button, BTN_LEFT);
-	test_assert_enum(pointer->state, WL_POINTER_BUTTON_STATE_RELEASED);
-	test_assert_s64_eq(pointer->button_time_msec, timespec_to_msec(&t2));
-	test_assert_true(timespec_eq(&pointer->button_time_timespec, &t2));
+	TEST_ASSERT_ENUM_EQ(pointer->button, BTN_LEFT);
+	TEST_ASSERT_ENUM_EQ(pointer->state, WL_POINTER_BUTTON_STATE_RELEASED);
+	TEST_ASSERT_S64_EQ(pointer->button_time_msec, timespec_to_msec(&t2));
+	TEST_ASSERT_TRUE(timespec_eq(&pointer->button_time_timespec, &t2));
 
 	input_timestamps_destroy(input_ts);
 
@@ -428,15 +428,15 @@ TEST(pointer_axis_events)
 		input_timestamps_create_for_pointer(client);
 
 	send_axis(client, &t1, 1, 1.0);
-	test_assert_u32_eq(pointer->axis, 1);
-	test_assert_f64_eq(pointer->axis_value, 1.0);
-	test_assert_s64_eq(pointer->axis_time_msec, timespec_to_msec(&t1));
-	test_assert_true(timespec_eq(&pointer->axis_time_timespec, &t1));
+	TEST_ASSERT_U32_EQ(pointer->axis, 1);
+	TEST_ASSERT_F64_EQ(pointer->axis_value, 1.0);
+	TEST_ASSERT_S64_EQ(pointer->axis_time_msec, timespec_to_msec(&t1));
+	TEST_ASSERT_TRUE(timespec_eq(&pointer->axis_time_timespec, &t1));
 
 	send_axis(client, &t2, 2, 0.0);
-	test_assert_u32_eq(pointer->axis, 2);
-	test_assert_s64_eq(pointer->axis_stop_time_msec, timespec_to_msec(&t2));
-	test_assert_true(timespec_eq(&pointer->axis_stop_time_timespec, &t2));
+	TEST_ASSERT_U32_EQ(pointer->axis, 2);
+	TEST_ASSERT_S64_EQ(pointer->axis_stop_time_msec, timespec_to_msec(&t2));
+	TEST_ASSERT_TRUE(timespec_eq(&pointer->axis_stop_time_timespec, &t2));
 
 	input_timestamps_destroy(input_ts);
 
@@ -452,18 +452,18 @@ TEST(pointer_timestamps_stop_after_input_timestamps_object_is_destroyed)
 		input_timestamps_create_for_pointer(client);
 
 	send_button(client, &t1, BTN_LEFT, WL_POINTER_BUTTON_STATE_PRESSED);
-	test_assert_enum(pointer->button, BTN_LEFT);
-	test_assert_enum(pointer->state, WL_POINTER_BUTTON_STATE_PRESSED);
-	test_assert_s64_eq(pointer->button_time_msec, timespec_to_msec(&t1));
-	test_assert_true(timespec_eq(&pointer->button_time_timespec, &t1));
+	TEST_ASSERT_ENUM_EQ(pointer->button, BTN_LEFT);
+	TEST_ASSERT_ENUM_EQ(pointer->state, WL_POINTER_BUTTON_STATE_PRESSED);
+	TEST_ASSERT_S64_EQ(pointer->button_time_msec, timespec_to_msec(&t1));
+	TEST_ASSERT_TRUE(timespec_eq(&pointer->button_time_timespec, &t1));
 
 	input_timestamps_destroy(input_ts);
 
 	send_button(client, &t2, BTN_LEFT, WL_POINTER_BUTTON_STATE_RELEASED);
-	test_assert_enum(pointer->button, BTN_LEFT);
-	test_assert_enum(pointer->state, WL_POINTER_BUTTON_STATE_RELEASED);
-	test_assert_s64_eq(pointer->button_time_msec, timespec_to_msec(&t2));
-	test_assert_true(timespec_is_zero(&pointer->button_time_timespec));
+	TEST_ASSERT_ENUM_EQ(pointer->button, BTN_LEFT);
+	TEST_ASSERT_ENUM_EQ(pointer->state, WL_POINTER_BUTTON_STATE_RELEASED);
+	TEST_ASSERT_S64_EQ(pointer->button_time_msec, timespec_to_msec(&t2));
+	TEST_ASSERT_TRUE(timespec_is_zero(&pointer->button_time_timespec));
 
 	client_destroy(client);
 }
@@ -477,10 +477,10 @@ TEST(pointer_timestamps_stop_after_client_releases_wl_pointer)
 		input_timestamps_create_for_pointer(client);
 
 	send_motion(client, &t1, 150, 150);
-	test_assert_int_eq(pointer->x, 50);
-	test_assert_int_eq(pointer->y, 50);
-	test_assert_s64_eq(pointer->motion_time_msec, timespec_to_msec(&t1));
-	test_assert_true(timespec_eq(&pointer->motion_time_timespec, &t1));
+	TEST_ASSERT_INT_EQ(pointer->x, 50);
+	TEST_ASSERT_INT_EQ(pointer->y, 50);
+	TEST_ASSERT_S64_EQ(pointer->motion_time_msec, timespec_to_msec(&t1));
+	TEST_ASSERT_TRUE(timespec_eq(&pointer->motion_time_timespec, &t1));
 
 	wl_pointer_release(client->input->pointer->wl_pointer);
 
@@ -491,7 +491,7 @@ TEST(pointer_timestamps_stop_after_client_releases_wl_pointer)
 	 * event and checking for it here may lead to false negatives. */
 	pointer->input_timestamp = t_other;
 	send_motion(client, &t2, 175, 175);
-	test_assert_true(timespec_eq(&pointer->input_timestamp, &t_other));
+	TEST_ASSERT_TRUE(timespec_eq(&pointer->input_timestamp, &t_other));
 
 	input_timestamps_destroy(input_ts);
 

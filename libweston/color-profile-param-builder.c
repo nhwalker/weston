@@ -101,7 +101,7 @@ weston_color_profile_param_builder_create(struct weston_compositor *compositor)
 
 	builder->err_fp = open_memstream(&builder->err_msg,
 					 &builder->err_msg_size);
-	weston_assert_ptr_not_null(compositor, builder->err_fp);
+	WESTON_ASSERT_PTR_SET(builder->err_fp);
 
 	return builder;
 }
@@ -311,8 +311,7 @@ weston_color_profile_param_builder_set_tf_named(struct weston_color_profile_para
 		return false;
 
 	builder->params.tf_info = weston_color_tf_info_from(compositor, tf);
-	weston_assert_uint32_eq(builder->compositor,
-				builder->params.tf_info->count_parameters, 0);
+	WESTON_DASSERT_U32_EQ(builder->params.tf_info->count_parameters, 0);
 
 	builder->group_mask |= WESTON_COLOR_PROFILE_PARAMS_TF;
 

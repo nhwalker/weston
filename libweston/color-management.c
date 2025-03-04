@@ -500,7 +500,7 @@ cm_output_get_image_description(struct wl_client *client,
 	 * object inert. We do that in weston_head_remove_global(), and the
 	 * cm_output_res user data (which was the head itself) is set to NULL.
 	 * So if we reached here, head is active and head->output != NULL. */
-	weston_assert_ptr_not_null(compositor, output);
+	WESTON_DASSERT_PTR_SET(output);
 
 	cm_image_desc = cm_image_desc_create(compositor->color_manager,
 					     output->color_profile, client,
@@ -1105,7 +1105,7 @@ create_image_description_color_profile_from_icc_creator(struct cm_image_desc *cm
 		}
 		bytes_read += (size_t)pread_ret;
 	}
-	weston_assert_true(compositor, bytes_read == cm_creator_icc->icc_data_length);
+	WESTON_DASSERT_U64_EQ(bytes_read, cm_creator_icc->icc_data_length);
 
 	ret = cm->get_color_profile_from_icc(cm, icc_prof_data,
 					     cm_creator_icc->icc_data_length,
@@ -1273,7 +1273,7 @@ cm_creator_params_error_to_protocol(struct weston_compositor *compositor,
 		return -1;
 	}
 
-	weston_assert_not_reached(compositor, "unknown params profile builder error");
+	WESTON_DASSERT_NOT_REACHED("unknown params profile builder error");
 }
 
 /**
@@ -1741,9 +1741,8 @@ weston_compositor_enable_color_management_protocol(struct weston_compositor *com
 {
 	uint32_t version = 1;
 
-	weston_assert_bit_is_set(compositor,
-				 compositor->color_manager->supported_rendering_intents,
-				 1ull << WESTON_RENDER_INTENT_PERCEPTUAL);
+	WESTON_DASSERT_BIT_SET(compositor->color_manager->supported_rendering_intents,
+			       1ull << WESTON_RENDER_INTENT_PERCEPTUAL);
 
 	if (!wl_global_create(compositor->wl_display,
 			      &wp_color_manager_v1_interface,

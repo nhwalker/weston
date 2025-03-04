@@ -29,7 +29,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
-#include <assert.h>
 #include <unistd.h>
 #include <sys/mman.h>
 #include <signal.h>
@@ -42,6 +41,7 @@
 #include "shared/os-compatibility.h"
 #include <libweston/zalloc.h>
 #include "xdg-shell-client-protocol.h"
+#include "weston-client-assert.h"
 
 #define ARRAY_SIZE(array) (sizeof(array) / sizeof(array[0]))
 #define FMT(fmt, bpp, r, g, b, a) { WL_SHM_FORMAT_ ## fmt, #fmt, bpp, { r, g, b, a } }
@@ -164,7 +164,10 @@ redraw(void *data, struct wl_callback *callback, uint32_t time);
 static struct buffer *
 alloc_buffer(struct window *window, int width, int height)
 {
-	struct buffer *buffer = calloc(1, sizeof(*buffer));
+	struct buffer *buffer;
+
+	buffer = calloc(1, sizeof(*buffer));
+	CLIENT_ASSERT(buffer, "can't allocate memory");
 
 	buffer->width = width;
 	buffer->height = height;
@@ -408,8 +411,7 @@ create_window(struct display *display, int width, int height)
 	int i;
 
 	window = zalloc(sizeof *window);
-	if (!window)
-		return NULL;
+	CLIENT_ASSERT(window, "can't allocate memory");
 
 	window->callback = NULL;
 	window->display = display;
@@ -421,29 +423,28 @@ create_window(struct display *display, int width, int height)
 	window->needs_update_buffer = false;
 	wl_list_init(&window->buffer_list);
 
-	if (display->wm_base) {
-		window->xdg_surface =
-			xdg_wm_base_get_xdg_surface(display->wm_base,
-						    window->surface);
-		assert(window->xdg_surface);
-		xdg_surface_add_listener(window->xdg_surface,
-					 &xdg_surface_listener, window);
+	CLIENT_ASSERT(display->wm_base,
+		      "XDG shell isn't supported by compositor");
 
-		window->xdg_toplevel =
-			xdg_surface_get_toplevel(window->xdg_surface);
-		assert(window->xdg_toplevel);
-		xdg_toplevel_add_listener(window->xdg_toplevel,
-					  &xdg_toplevel_listener, window);
+	window->xdg_surface = xdg_wm_base_get_xdg_surface(display->wm_base,
+							  window->surface);
+	CLIENT_ASSERT(window->xdg_surface, "can't get XDG surface");
 
-		xdg_toplevel_set_title(window->xdg_toplevel, "simple-shm");
-		xdg_toplevel_set_app_id(window->xdg_toplevel,
+	xdg_surface_add_listener(window->xdg_surface, &xdg_surface_listener,
+				 window);
+
+	window->xdg_toplevel = xdg_surface_get_toplevel(window->xdg_surface);
+	CLIENT_ASSERT(window->xdg_toplevel, "can't get XDG toplevel");
+
+	xdg_toplevel_add_listener(window->xdg_toplevel, &xdg_toplevel_listener,
+				  window);
+
+	xdg_toplevel_set_title(window->xdg_toplevel, "simple-shm");
+	xdg_toplevel_set_app_id(window->xdg_toplevel,
 				"org.freedesktop.weston.simple-shm");
 
-		wl_surface_commit(window->surface);
-		window->wait_for_configure = true;
-	} else {
-		assert(0);
-	}
+	wl_surface_commit(window->surface);
+	window->wait_for_configure = true;
 
 	for (i = 0; i < MAX_BUFFER_ALLOC; i++)
 		alloc_buffer(window, window->width, window->height);
@@ -776,12 +777,10 @@ create_display(const struct format *format, bool paint_format)
 	struct display *display;
 
 	display = zalloc(sizeof *display);
-	if (display == NULL) {
-		fprintf(stderr, "out of memory\n");
-		exit(1);
-	}
+	CLIENT_ASSERT(display, "can't allocate memory");
+
 	display->display = wl_display_connect(NULL);
-	assert(display->display);
+	CLIENT_ASSERT(display->display, "can't connect to Wayland compositor");
 
 	display->format = format;
 	display->paint_format = paint_format;
@@ -790,10 +789,8 @@ create_display(const struct format *format, bool paint_format)
 	wl_registry_add_listener(display->registry,
 				 &registry_listener, display);
 	wl_display_roundtrip(display->display);
-	if (display->shm == NULL) {
-		fprintf(stderr, "No wl_shm global\n");
-		exit(1);
-	}
+
+	CLIENT_ASSERT(display->shm, "wl_shm isn't supported by compositor");
 
 	wl_display_roundtrip(display->display);
 
@@ -837,11 +834,8 @@ create_display(const struct format *format, bool paint_format)
 	 * technique.
 	 */
 
-	if (!display->has_format) {
-		fprintf(stderr, "Format '%s' not supported by compositor.\n",
-			format->string);
-		exit(1);
-	}
+	CLIENT_ASSERT(display->has_format,
+		      "format not supported by compositor");
 
 	return display;
 }

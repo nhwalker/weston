@@ -54,6 +54,7 @@
 #include "shared/process-util.h"
 #include "shared/string-helpers.h"
 #include "shared/xalloc.h"
+#include "shared/weston-assert.h"
 #include "git-version.h"
 #include <libweston/version.h>
 #include "weston.h"
@@ -535,7 +536,7 @@ wet_client_start(struct weston_compositor *compositor, const char *path)
 	custom_env_set_env_var(&child_env, "WAYLAND_SOCKET",
 			       wayland_socket.str1);
 
-	assert(num_no_cloexec_fds <= ARRAY_LENGTH(no_cloexec_fds));
+	WESTON_DASSERT_U64_LE(num_no_cloexec_fds, ARRAY_LENGTH(no_cloexec_fds));
 
 	proc = wet_client_launch(compositor, &child_env,
 				 no_cloexec_fds, num_no_cloexec_fds,
@@ -987,7 +988,7 @@ wet_load_shell(struct weston_compositor *compositor,
 		name = strdup(_name);
 	else
 		str_printf(&name, "%s-shell.so", _name);
-	assert(name);
+	WESTON_DASSERT_PTR_SET(name);
 
 	shell_init = weston_load_module(name, "wet_shell_init", MODULEDIR);
 	free(name);
@@ -1470,7 +1471,8 @@ wet_output_set_eotf_mode(struct weston_output *output,
 	weston_config_section_get_string(section, "eotf-mode", &str, NULL);
 	if (!str) {
 		/* The default SDR mode is always supported. */
-		assert(weston_output_get_supported_eotf_modes(output) & eotf_mode);
+		WESTON_DASSERT_BIT_SET(weston_output_get_supported_eotf_modes(output),
+				       eotf_mode);
 		weston_output_set_eotf_mode(output, eotf_mode);
 		return 0;
 	}
@@ -1534,7 +1536,8 @@ wet_output_set_colorimetry_mode(struct weston_output *output,
 	weston_config_section_get_string(section, "colorimetry-mode", &str, NULL);
 	if (!str) {
 		/* The default RGB mode is always supported. */
-		assert(weston_output_get_supported_colorimetry_modes(output) & cmode);
+		WESTON_DASSERT_BIT_SET(weston_output_get_supported_colorimetry_modes(output),
+				       cmode);
 		weston_output_set_colorimetry_mode(output, cmode);
 		return 0;
 	}
@@ -1822,7 +1825,7 @@ wet_config_find_head_to_mirror(struct weston_output *output,
 						  &section))
 			break;
 
-		assert(mof_name);
+		WESTON_DASSERT_PTR_SET(mof_name);
 
 		/* do we have a matching output between signal event and the
 		 * output to mirror ? */
@@ -1908,7 +1911,7 @@ wet_configure_windowed_output_from_config(struct weston_output *output,
 	int width;
 	int height;
 
-	assert(parsed_options);
+	WESTON_DASSERT_PTR_SET(parsed_options);
 
 	if (!api) {
 		weston_log("Cannot use weston_windowed_output_api.\n");
@@ -2129,7 +2132,7 @@ simple_head_disable(struct weston_head *head)
 		wet_head_tracker_destroy(track);
 
 	output = weston_head_get_output(head);
-	assert(output);
+	WESTON_DASSERT_PTR_SET(output);
 	weston_output_destroy(output);
 }
 
@@ -2406,10 +2409,10 @@ drm_backend_output_configure(struct weston_output *output,
 	if (weston_config_section_get_uint(section, "max-bpc", &max_bpc, 16) == 0)
 		max_bpc_specified = true;
 
-	if (strcmp(s, "off") == 0) {
-		assert(0 && "off was supposed to be pruned");
-		return -1;
-	} else if (wet->drm_use_current_mode || strcmp(s, "current") == 0) {
+	/* "off" is supposed to be pruned. */
+	WESTON_DASSERT_STR_NE(s, "off");
+
+	if (wet->drm_use_current_mode || strcmp(s, "current") == 0) {
 		mode = WESTON_DRM_BACKEND_OUTPUT_CURRENT;
 		/* If mode=current and no max-bpc was specfied on the .ini file,
 		   use current max_bpc so full modeset is not done. */
@@ -2545,7 +2548,7 @@ static void
 wet_layoutput_destroy(struct wet_layoutput *lo)
 {
 	wl_list_remove(&lo->compositor_link);
-	assert(wl_list_empty(&lo->output_list));
+	WESTON_DASSERT_TRUE(wl_list_empty(&lo->output_list));
 	free(lo->name);
 	free(lo);
 }
@@ -2566,7 +2569,7 @@ wet_output_handle_destroy(struct wl_listener *listener, void *data)
 	struct weston_head *head = NULL;
 
 	output = wl_container_of(listener, output, output_destroy_listener);
-	assert(output->output == data);
+	WESTON_DASSERT_PTR_EQ(output->output, data);
 
 	wet = output->layoutput->compositor;
 	head = wet_config_find_head_to_mirror(output->output, wet);
@@ -2593,8 +2596,8 @@ wet_output_compute_output_from_mirror(struct weston_output *output,
 				      struct weston_mode *mode,
 				      int *scale)
 {
-	assert(output->native_mode_copy.width);
-	assert(output->native_mode_copy.height);
+	WESTON_DASSERT_S32_NE(output->native_mode_copy.width, 0);
+	WESTON_DASSERT_S32_NE(output->native_mode_copy.height, 0);
 
 	mode->width = output->native_mode_copy.width /
 			mirror->current_scale;
@@ -2683,7 +2686,7 @@ wet_output_handle_create(struct wl_listener *listener, void *data)
 		return;
 
 	wb = wet_get_backend_from_head(wet, head);
-	assert(wb);
+	WESTON_DASSERT_PTR_SET(wb);
 
 	simple_head_enable(wet, wb, head, head_to_mirror,
 			   wet_output_overlap_pre_enable,
@@ -2840,7 +2843,7 @@ drm_head_prepare_enable(struct wet_compositor *wet,
 
 		weston_config_section_get_string(section, "name",
 						 &output_name, NULL);
-		assert(output_name);
+		WESTON_DASSERT_PTR_SET(output_name);
 
 		wet_compositor_layoutput_add_head(wet, output_name,
 						  section, head);
@@ -2879,7 +2882,8 @@ drm_try_attach(struct weston_output *output,
 			continue;
 
 		if (weston_output_attach_head(output, add->heads[i]) < 0) {
-			assert(failed->n < ARRAY_LENGTH(failed->heads));
+			WESTON_DASSERT_UINT_LT(failed->n,
+					       ARRAY_LENGTH(failed->heads));
 
 			failed->heads[failed->n++] = add->heads[i];
 			add->heads[i] = NULL;
@@ -2907,7 +2911,7 @@ drm_try_enable(struct weston_output *output,
 		if (undo->heads[undo->n] == NULL)
 			return -1;
 
-		assert(failed->n < ARRAY_LENGTH(failed->heads));
+		WESTON_DASSERT_UINT_LT(failed->n, ARRAY_LENGTH(failed->heads));
 
 		/* undo one head */
 		weston_head_detach(undo->heads[undo->n]);
@@ -2924,7 +2928,7 @@ drm_try_attach_enable(struct weston_output *output, struct wet_layoutput *lo)
 	struct wet_head_array failed = {};
 	unsigned i;
 
-	assert(!output->enabled);
+	WESTON_DASSERT_FALSE(output->enabled);
 
 	drm_try_attach(output, &lo->add, &failed);
 	if (drm_backend_output_configure(output, lo->section) < 0)
@@ -2969,7 +2973,7 @@ drm_process_layoutput(struct wet_compositor *wet, struct wet_layoutput *lo)
 			continue;
 		}
 
-		assert(output->output->enabled);
+		WESTON_DASSERT_TRUE(output->output->enabled);
 
 		drm_try_attach(output->output, &lo->add, &failed);
 		lo->add = failed;
@@ -3048,9 +3052,10 @@ drm_head_disable(struct weston_head *head)
 		wet_head_tracker_destroy(track);
 
 	output_base = weston_head_get_output(head);
-	assert(output_base);
+	WESTON_DASSERT_PTR_SET(output_base);
 	output = wet_output_from_weston_output(output_base);
-	assert(output && output->output == output_base);
+	WESTON_DASSERT_PTR_SET(output);
+	WESTON_DASSERT_PTR_EQ(output->output, output_base);
 
 	weston_head_detach(head);
 	if (count_remaining_heads(output->output, NULL) == 0)
@@ -3625,7 +3630,7 @@ pipewire_backend_output_configure(struct weston_output *output)
 	int width;
 	int height;
 
-	assert(parsed_options);
+	WESTON_DASSERT_PTR_SET(parsed_options);
 
 	if (!api) {
 		weston_log("Cannot use weston_pipewire_output_api.\n");
@@ -3862,7 +3867,9 @@ vnc_backend_output_configure(struct weston_output *output)
 	int height;
 	bool resizeable;
 
-	assert(parsed_options);
+	MAYBE_UNUSED(parsed_options);
+
+	WESTON_DASSERT_PTR_SET(parsed_options);
 
 	if (!api) {
 		weston_log("Cannot use weston_vnc_output_api.\n");
@@ -4261,7 +4268,8 @@ load_backend(struct weston_compositor *compositor, const char *name,
 		return load_x11_backend(compositor, argc, argv, config,
 					renderer);
 	default:
-		unreachable("unknown backend type in load_backend()");
+		WESTON_DASSERT_NOT_REACHED("unknown backend type in "
+					   "load_backend()");
 	}
 }
 
@@ -4410,8 +4418,8 @@ weston_log_setup_scopes(struct weston_log_context *log_ctx,
 			struct weston_log_subscriber *subscriber,
 			const char *names)
 {
-	assert(log_ctx);
-	assert(subscriber);
+	WESTON_DASSERT_PTR_SET(log_ctx);
+	WESTON_DASSERT_PTR_SET(subscriber);
 
 	char *tokenize = strdup(names);
 	char *token = strtok(tokenize, ",");

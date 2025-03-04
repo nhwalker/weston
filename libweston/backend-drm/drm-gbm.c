@@ -41,6 +41,7 @@
 #include "pixel-formats.h"
 #include "renderer-gl/gl-renderer.h"
 #include "shared/weston-egl-ext.h"
+#include "shared/weston-assert.h"
 #include "linux-dmabuf.h"
 #include "linux-explicit-synchronization.h"
 
@@ -233,7 +234,7 @@ drm_output_init_egl(struct drm_output *output, struct drm_backend *b)
 		.fb_size.height = mode->height,
 	};
 
-	assert(output->gbm_surface == NULL);
+	WESTON_DASSERT_PTR_NOT_SET(output->gbm_surface);
 	create_gbm_surface(b->gbm, output);
 	if (!output->gbm_surface) {
 		weston_log("failed to create gbm surface\n");

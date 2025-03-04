@@ -25,7 +25,6 @@
 
 #include "config.h"
 
-#include <assert.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -40,6 +39,7 @@
 #include <winpr/string.h>
 
 #include "libweston-internal.h"
+#include "shared/weston-assert.h"
 
 /* From MSDN, RegisterClipboardFormat API.
    Registered clipboard formats are identified by values in the range 0xC000 through 0xFFFF. */
@@ -169,7 +169,7 @@ clipboard_data_source_state_to_string(struct rdp_clipboard_data_source *source)
 	case RDP_CLIPBOARD_SOURCE_FAILED:
 		return "failed";
 	}
-	assert(false);
+	WESTON_DASSERT_NOT_REACHED();
 	return "unknown";
 }
 
@@ -183,15 +183,18 @@ clipboard_process_text_utf8(struct rdp_clipboard_data_source *source, bool is_se
 
 	wl_array_init(&data_contents);
 
-	assert(!source->is_data_processed);
+	WESTON_DASSERT_FALSE(source->is_data_processed);
 
 	if (is_send) {
 		char *data = source->data_contents.data;
 		size_t data_size, data_size_in_char;
 
+		MAYBE_UNUSED(data_size_in_char);
+
 		/* Linux to Windows (convert utf-8 to UNICODE) */
 		/* Include terminating NULL in size */
-		assert((source->data_contents.size + 1) <= source->data_contents.alloc);
+		WESTON_DASSERT_U64_LE((source->data_contents.size + 1),
+				      source->data_contents.alloc);
 		data[source->data_contents.size] = '\0';
 		source->data_contents.size++;
 
@@ -224,7 +227,8 @@ clipboard_process_text_utf8(struct rdp_clipboard_data_source *source, bool is_se
 							data_contents.data,
 							data_size);
 #endif
-		assert(data_contents.size == (data_size_in_char * 2));
+		WESTON_DASSERT_U64_EQ(data_contents.size,
+				      (data_size_in_char * 2));
 	} else {
 		/* Windows to Linux (UNICODE to utf-8) */
 		size_t data_size;
@@ -270,7 +274,7 @@ clipboard_process_text_utf8(struct rdp_clipboard_data_source *source, bool is_se
 						data_size,
 						NULL, NULL);
 #endif
-		assert(data_contents.size == data_size);
+		WESTON_DASSERT_U64_EQ(data_contents.size, data_size);
 	}
 
 	/* swap the data_contents with new one */
@@ -309,12 +313,13 @@ clipboard_process_text_raw(struct rdp_clipboard_data_source *source, bool is_sen
 	char *data = source->data_contents.data;
 	size_t data_size = source->data_contents.size;
 
-	assert(!source->is_data_processed);
+	WESTON_DASSERT_FALSE(source->is_data_processed);
 
 	if (is_send) {
 		/* Linux to Windows */
 		/* Include terminating NULL in size */
-		assert(data_size + 1 <= source->data_contents.alloc);
+		WESTON_DASSERT_U64_LE(data_size + 1,
+				      source->data_contents.alloc);
 		data[data_size] = '\0';
 		source->data_contents.size++;
 	} else {
@@ -349,13 +354,14 @@ clipboard_process_html(struct rdp_clipboard_data_source *source, bool is_send)
 	struct wl_array data_contents;
 	char *cur = source->data_contents.data;
 
-	assert(!source->is_data_processed);
+	WESTON_DASSERT_FALSE(source->is_data_processed);
 
 	/* We're treating the contents as a string for now, so null
 	 * terminate it so strstr can't run off the end. However, we
 	 * don't increase data_contents.size because we don't want
 	 * to affect the content. */
-	assert(source->data_contents.size + 1 <= source->data_contents.alloc);
+	WESTON_DASSERT_U64_LE(source->data_contents.size + 1,
+			      source->data_contents.alloc);
 	((char *)(source->data_contents.data))[source->data_contents.size] = '\0';
 
 	wl_array_init(&data_contents);
@@ -460,7 +466,7 @@ clipboard_process_bmp(struct rdp_clipboard_data_source *source, bool is_send)
 	uint32_t color_table_size = 0;
 	struct wl_array data_contents;
 
-	assert(!source->is_data_processed);
+	WESTON_DASSERT_FALSE(source->is_data_processed);
 
 	wl_array_init(&data_contents);
 
@@ -505,7 +511,7 @@ clipboard_process_bmp(struct rdp_clipboard_data_source *source, bool is_send)
 
 		if (!wl_array_add(&data_contents, bmfh->bfSize))
 			goto error_return;
-		assert(data_contents.size == bmfh->bfSize);
+		WESTON_DASSERT_U64_EQ(data_contents.size, bmfh->bfSize);
 
 		/* copy generated BITMAPFILEHEADER */
 		memcpy(data_contents.data, bmfh, sizeof(*bmfh));
@@ -669,7 +675,7 @@ static bool
 clipboard_process_source(struct rdp_clipboard_data_source *source, bool is_send)
 {
 	if (source->is_data_processed) {
-		assert(source->processed_data_is_send == is_send);
+		WESTON_DASSERT_TRUE(source->processed_data_is_send == is_send);
 		return true;
 	}
 
@@ -697,7 +703,7 @@ clipboard_data_source_unref(struct rdp_clipboard_data_source *source)
 
 	assert_compositor_thread(b);
 
-	assert(source->refcount);
+	WESTON_DASSERT_INT_NE(source->refcount, 0);
 	source->refcount--;
 
 	rdp_debug_clipboard(b, "RDP %s (%p:%s): refcount:%d\n",
@@ -739,7 +745,7 @@ clipboard_client_send_format_data_response(RdpPeerContext *ctx, struct rdp_clipb
 	struct rdp_backend *b = ctx->rdpBackend;
 	CLIPRDR_FORMAT_DATA_RESPONSE formatDataResponse = {};
 
-	assert(source->is_data_processed);
+	WESTON_DASSERT_TRUE(source->is_data_processed);
 	rdp_debug_clipboard(b, "Client: %s (%p:%s) format_index:%d %s (%d bytes)\n",
 			    __func__, source,
 			    clipboard_data_source_state_to_string(source),
@@ -800,13 +806,13 @@ clipboard_data_source_read(int fd, uint32_t mask, void *arg)
 
 	assert_compositor_thread(b);
 
-	assert(source->data_source_fd == fd);
-	assert(source->refcount == 1);
+	WESTON_DASSERT_INT_EQ(source->data_source_fd, fd);
+	WESTON_DASSERT_INT_EQ(source->refcount, 1);
 
 	/* event source is not removed here, but it will be removed when read is completed,
 	   until it's completed this function will be called whenever next chunk of data is
 	   available for read in pipe. */
-	assert(source->transfer_event_source);
+	WESTON_DASSERT_PTR_SET(source->transfer_event_source);
 
 	source->state = RDP_CLIPBOARD_SOURCE_TRANSFERING;
 
@@ -849,7 +855,7 @@ error_exit:
 		clipboard_client_send_format_data_response_fail(ctx, source);
 
 	/* make sure this is the last reference, so event source is removed at unref */
-	assert(source->refcount == 1);
+	WESTON_DASSERT_INT_EQ(source->refcount, 1);
 	clipboard_data_source_unref(source);
 	return 0;
 }
@@ -868,9 +874,10 @@ clipboard_data_source_fail(int fd, uint32_t mask, void *arg)
 
 	assert_compositor_thread(b);
 
-	assert(source->data_source_fd == fd);
+	WESTON_DASSERT_INT_EQ(source->data_source_fd, fd);
 	/* this data source must be tracked as inflight */
-	assert(source == ctx->clipboard_inflight_client_data_source);
+	WESTON_DASSERT_PTR_EQ(source,
+			      ctx->clipboard_inflight_client_data_source);
 
 	wl_event_source_remove(source->transfer_event_source);
 	source->transfer_event_source = NULL;
@@ -880,19 +887,19 @@ clipboard_data_source_fail(int fd, uint32_t mask, void *arg)
 	 * last reference release. */
 	if (!source->data_contents.size) {
 		/* data has been never received, thus must be empty. */
-		assert(source->data_contents.size == 0);
-		assert(source->data_contents.alloc == 0);
-		assert(source->data_contents.data == NULL);
+		WESTON_DASSERT_U64_EQ(source->data_contents.size, 0);
+		WESTON_DASSERT_U64_EQ(source->data_contents.alloc, 0);
+		WESTON_DASSERT_PTR_NOT_SET(source->data_contents.data);
 		/* clear previous requested format so it can be requested later again. */
 		source->format_index = -1;
 	}
 
 	/* data has never been sent to write(), thus must be no inflight write. */
-	assert(source->inflight_write_count == 0);
-	assert(source->inflight_data_to_write == NULL);
-	assert(source->inflight_data_size == 0);
+	WESTON_DASSERT_U32_EQ(source->inflight_write_count, 0);
+	WESTON_DASSERT_PTR_NOT_SET(source->inflight_data_to_write);
+	WESTON_DASSERT_U32_EQ(source->inflight_data_size, 0);
 	/* data never has been sent to write(), so must not be processed. */
-	assert(source->is_data_processed == FALSE);
+	WESTON_DASSERT_FALSE(source->is_data_processed);
 	/* close fd to server clipboard stop pulling data. */
 	close(source->data_source_fd);
 	source->data_source_fd = -1;
@@ -922,13 +929,14 @@ clipboard_data_source_write(int fd, uint32_t mask, void *arg)
 
 	assert_compositor_thread(b);
 
-	assert(source->data_source_fd == fd);
+	WESTON_DASSERT_INT_EQ(source->data_source_fd, fd);
 	/* this data source must be tracked as inflight */
-	assert(source == ctx->clipboard_inflight_client_data_source);
+	WESTON_DASSERT_PTR_EQ(source,
+			      ctx->clipboard_inflight_client_data_source);
 
 	if (source->is_canceled) {
 		/* if source is being canceled, this must be the last reference */
-		assert(source->refcount == 1);
+		WESTON_DASSERT_INT_EQ(source->refcount, 1);
 		source->state = RDP_CLIPBOARD_SOURCE_CANCELED;
 		rdp_debug_clipboard_verbose(b, "RDP %s (%p:%s) canceled\n",
 					    __func__, source,
@@ -937,16 +945,16 @@ clipboard_data_source_write(int fd, uint32_t mask, void *arg)
 	}
 
 	if (!source->data_contents.data || !source->data_contents.size) {
-		assert(source->refcount > 1);
+		WESTON_DASSERT_INT_GT(source->refcount, 1);
 		weston_log("RDP %s (%p:%s) no data received from client\n",
 			   __func__, source,
 			   clipboard_data_source_state_to_string(source));
 		goto fail;
 	}
 
-	assert(source->refcount > 1);
+	WESTON_DASSERT_INT_GT(source->refcount, 1);
 	if (source->inflight_data_to_write) {
-		assert(source->inflight_data_size);
+		WESTON_DASSERT_U64_NE(source->inflight_data_size, 0);
 		rdp_debug_clipboard_verbose(b, "RDP %s (%p:%s) transfer in chunk, count:%d\n",
 					    __func__, source,
 					    clipboard_data_source_state_to_string(source),
@@ -980,7 +988,7 @@ clipboard_data_source_write(int fd, uint32_t mask, void *arg)
 			source->inflight_write_count++;
 			return 0;
 		} else {
-			assert(data_size >= (size_t)size);
+			WESTON_DASSERT_U64_GE(data_size, (size_t)size);
 			data_size -= size;
 			data_to_write = (char *)data_to_write + size;
 			rdp_debug_clipboard_verbose(b, "RDP %s (%p:%s) wrote %ld bytes, remaining %ld bytes\n",
@@ -1089,14 +1097,14 @@ clipboard_data_source_send(struct weston_data_source *base,
 		ctx->clipboard_inflight_client_data_source = source;
 		source->refcount++; /* reference while request inflight. */
 		source->data_source_fd = fd;
-		assert(source->inflight_write_count == 0);
-		assert(source->inflight_data_to_write == NULL);
-		assert(source->inflight_data_size == 0);
+		WESTON_DASSERT_U32_EQ(source->inflight_write_count, 0);
+		WESTON_DASSERT_PTR_NOT_SET(source->inflight_data_to_write);
+		WESTON_DASSERT_U64_EQ(source->inflight_data_size, 0);
 		if (index == source->format_index) {
 			bool ret;
 
 			/* data is already in data_contents, no need to pull from client */
-			assert(source->transfer_event_source == NULL);
+			WESTON_DASSERT_PTR_NOT_SET(source->transfer_event_source);
 			source->state = RDP_CLIPBOARD_SOURCE_RECEIVED_DATA;
 			rdp_debug_clipboard_verbose(b, "RDP %s (%p:%s) data in cache \"%s\" index:%d formatId:%d %s\n",
 						    __func__, source,
@@ -1147,10 +1155,11 @@ clipboard_data_source_send(struct weston_data_source *base,
 
 error_return_unref_source:
 	source->data_source_fd = -1;
-	assert(source->inflight_write_count == 0);
-	assert(source->inflight_data_to_write == NULL);
-	assert(source->inflight_data_size == 0);
-	assert(ctx->clipboard_inflight_client_data_source == source);
+	WESTON_DASSERT_U32_EQ(source->inflight_write_count, 0);
+	WESTON_DASSERT_PTR_NOT_SET(source->inflight_data_to_write);
+	WESTON_DASSERT_U32_EQ(source->inflight_data_size, 0);
+	WESTON_DASSERT_PTR_EQ(ctx->clipboard_inflight_client_data_source,
+			      source);
 	ctx->clipboard_inflight_client_data_source = NULL;
 	clipboard_data_source_unref(source);
 
@@ -1180,7 +1189,7 @@ clipboard_data_source_cancel(struct weston_data_source *base)
 				    __func__, source,
 				    clipboard_data_source_state_to_string(source),
 				    source->refcount);
-		assert(source->refcount > 1);
+		WESTON_DASSERT_INT_GT(source->refcount, 1);
 		return;
 	}
 	/* everything outside of the base has to be cleaned up */
@@ -1189,8 +1198,8 @@ clipboard_data_source_cancel(struct weston_data_source *base)
 				    __func__, source,
 				    clipboard_data_source_state_to_string(source),
 				    source->refcount);
-	assert(source->refcount == 1);
-	assert(source->transfer_event_source == NULL);
+	WESTON_DASSERT_INT_EQ(source->refcount, 1);
+	WESTON_DASSERT_PTR_NOT_SET(source->transfer_event_source);
 	wl_array_release(&source->data_contents);
 	wl_array_init(&source->data_contents);
 	source->is_data_processed = false;
@@ -1268,7 +1277,8 @@ clipboard_data_source_request(bool freeOnly, void *arg)
 		goto error_exit_free_request;
 
 	index = request->requested_format_index;
-	assert(index >= 0 && index < (int)RDP_NUM_CLIPBOARD_FORMATS);
+	WESTON_DASSERT_INT_GE(index, 0);
+	WESTON_DASSERT_INT_LT(index, (int)RDP_NUM_CLIPBOARD_FORMATS);
 	requested_mime_type = clipboard_supported_formats[index].mime_type;
 	rdp_debug_clipboard(b, "RDP %s (base:%p) requested mime type:\"%s\"\n",
 			    __func__, selection_data_source, requested_mime_type);
@@ -1339,7 +1349,7 @@ clipboard_data_source_request(bool freeOnly, void *arg)
 	return;
 
 error_exit_free_source:
-	assert(source->refcount == 1);
+	WESTON_DASSERT_INT_EQ(source->refcount, 1);
 	clipboard_data_source_unref(source);
 error_exit_response_fail:
 	clipboard_client_send_format_data_response_fail(ctx, NULL);
@@ -1624,7 +1634,7 @@ clipboard_client_format_data_response(CliprdrServerContext *context, const CLIPR
 				    clipboard_data_source_state_to_string(source),
 				    source->data_response_fail_count);
 
-	assert(source->transfer_event_source == NULL);
+	WESTON_DASSERT_PTR_NOT_SET(source->transfer_event_source);
 	ret = rdp_event_loop_add_fd(loop, source->data_source_fd, WL_EVENT_WRITABLE,
 				    success ? clipboard_data_source_write : clipboard_data_source_fail,
 				    source, &source->transfer_event_source);
@@ -1706,7 +1716,7 @@ rdp_clipboard_init(freerdp_peer *client)
 	struct weston_seat *seat = ctx->item.seat;
 	CliprdrServerContext *clip_ctx;
 
-	assert(seat);
+	WESTON_DASSERT_PTR_SET(seat);
 
 	assert_compositor_thread(b);
 

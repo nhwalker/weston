@@ -26,7 +26,6 @@
 
 #include "config.h"
 
-#include <assert.h>
 #include <libweston/libweston.h>
 #include <lcms2_plugin.h>
 
@@ -76,9 +75,9 @@ fill_in_curves(cmsToneCurve *curves[3], float *values, unsigned len)
 	unsigned i;
 	cmsFloat32Number x;
 
-	assert(len > 1);
+	WESTON_DASSERT_UINT_GT(len, 1);
 	for (i = 0; i < 3; i++)
-		assert(curves[i]);
+		WESTON_DASSERT_PTR_SET(curves[i]);
 
 	for (i = 0; i < len; i++) {
 		x = (double)i / (len - 1);
@@ -361,8 +360,8 @@ join_curvesets(cmsContext context_id, const cmsStage *prev,
 	prev_ = cmsStageData(prev);
 	next_ = cmsStageData(next);
 
-	assert(prev_->nCurves == ARRAY_LENGTH(arr));
-	assert(next_->nCurves == ARRAY_LENGTH(arr));
+	WESTON_DASSERT_U32_EQ(prev_->nCurves, ARRAY_LENGTH(arr));
+	WESTON_DASSERT_U32_EQ(next_->nCurves, ARRAY_LENGTH(arr));
 
 	/* If the CurveSet's are parametric powerlaw curves that we know how to
 	 * merge (preserving them as parametric powerlaw curves), we do that. We
@@ -392,7 +391,7 @@ is_identity_curve_stage(const cmsStage *stage)
 	unsigned int i;
 	bool is_identity = true;
 
-	assert(stage);
+	WESTON_DASSERT_PTR_SET(stage);
 
 	if (cmsStageType(stage) != cmsSigCurveSetElemType)
 		return false;
@@ -760,8 +759,7 @@ translate_curve_element_parametric(struct cmlcms_color_transform *xform,
 		curve = &xform->base.post_curve;
 		break;
 	default:
-		weston_assert_not_reached(compositor,
-					  "curve should be a pre or post curve");
+		WESTON_DASSERT_NOT_REACHED("curve should be a pre or post curve");
 	}
 
 	/* The curveset may not be a parametric one, in such case we have a
@@ -802,7 +800,6 @@ translate_curve_element_LUT(struct cmlcms_color_transform *xform,
 			    _cmsStageToneCurvesData *trc_data,
 			    enum color_transform_step step)
 {
-	struct weston_compositor *compositor = xform->base.cm->compositor;
 	struct weston_color_curve *curve;
 	cmsToneCurve **stash;
 	unsigned i;
@@ -819,14 +816,14 @@ translate_curve_element_LUT(struct cmlcms_color_transform *xform,
 		stash = xform->post_curve;
 		break;
 	default:
-		weston_assert_not_reached(compositor,
-					  "curve should be a pre or post curve");
+		WESTON_DASSERT_NOT_REACHED("curve should be a pre or post curve");
+		return false;
 	}
 
 	curve->type = WESTON_COLOR_CURVE_TYPE_LUT_3x1D;
 	curve->u.lut_3x1d.optimal_len = cmlcms_reasonable_1D_points();
 
-	weston_assert_uint32_eq(compositor, trc_data->nCurves, 3);
+	WESTON_DASSERT_U32_EQ(trc_data->nCurves, 3);
 	for (i = 0; i < 3; i++) {
 		stash[i] = cmsDupToneCurve(trc_data->TheCurves[i]);
 		abort_oom_if_null(stash[i]);
@@ -839,11 +836,9 @@ static bool
 translate_curve_element(struct cmlcms_color_transform *xform,
 			cmsStage *elem, enum color_transform_step step)
 {
-	struct weston_compositor *compositor = xform->base.cm->compositor;
 	_cmsStageToneCurvesData *trc_data;
 
-	weston_assert_uint64_eq(compositor, cmsStageType(elem),
-				cmsSigCurveSetElemType);
+	WESTON_DASSERT_U64_EQ(cmsStageType(elem), cmsSigCurveSetElemType);
 
 	trc_data = cmsStageData(elem);
 	if (trc_data->nCurves != 3)
@@ -1028,7 +1023,7 @@ matrix_print(cmsStage *stage, struct weston_log_scope *scope)
 	double elem;
 	const char *sep;
 
-	assert(cmsStageType(stage) == cmsSigMatrixElemType);
+	WESTON_DASSERT_ENUM_EQ(cmsStageType(stage), cmsSigMatrixElemType);
 	data = cmsStageData(stage);
 
 	for (row = 0; row < SIZE; row++) {
@@ -1158,9 +1153,9 @@ transform_factory(_cmsTransform2Fn *xform_fn,
 		return FALSE;
 	}
 	context_id = cmsGetPipelineContextID(*lut);
-	assert(context_id);
+	WESTON_ASSERT_PTR_SET(context_id);
 	xform = cmsGetContextUserData(context_id);
-	assert(xform);
+	WESTON_ASSERT_PTR_SET(xform);
 
 	cm = to_cmlcms(xform->base.cm);
 
@@ -1255,7 +1250,7 @@ xform_realize_chain(struct cmlcms_color_transform *xform)
 			chain[chain_len++] = output_profile->extract.vcgt;
 
 		/* Render intent does not apply here, but need to set something. */
-		weston_assert_ptr_null(cm->base.compositor, render_intent);
+		WESTON_DASSERT_PTR_NOT_SET(render_intent);
 		render_intent = weston_render_intent_info_from(cm->base.compositor,
 							       WESTON_RENDER_INTENT_ABSOLUTE);
 		break;
@@ -1267,8 +1262,8 @@ xform_realize_chain(struct cmlcms_color_transform *xform)
 		break;
 	}
 
-	assert(chain_len <= ARRAY_LENGTH(chain));
-	weston_assert_ptr_not_null(cm->base.compositor, render_intent);
+	WESTON_DASSERT_UINT_LE(chain_len, ARRAY_LENGTH(chain));
+	WESTON_DASSERT_PTR_SET(render_intent);
 
 	/**
 	 * Binding to our LittleCMS plug-in occurs here.
@@ -1279,7 +1274,7 @@ xform_realize_chain(struct cmlcms_color_transform *xform)
 	abort_oom_if_null(xform->lcms_ctx);
 	cmsSetLogErrorHandlerTHR(xform->lcms_ctx, lcms_xform_error_logger);
 
-	assert(xform->status == CMLCMS_TRANSFORM_FAILED);
+	WESTON_DASSERT_ENUM_EQ(xform->status, CMLCMS_TRANSFORM_FAILED);
 	/* transform_factory() is invoked by this call. */
 	dwFlags = render_intent->bps ? cmsFLAGS_BLACKPOINTCOMPENSATION : 0;
 	xform->cmap_3dlut = cmsCreateMultiprofileTransformTHR(xform->lcms_ctx,
@@ -1309,8 +1304,8 @@ xform_realize_chain(struct cmlcms_color_transform *xform)
 		 * Given the chain formed above, blend-to-output should never
 		 * fall back to 3D LUT.
 		 */
-		weston_assert_uint32_neq(cm->base.compositor, xform->search_key.category,
-					 CMLCMS_CATEGORY_BLEND_TO_OUTPUT);
+		WESTON_DASSERT_U32_NE(xform->search_key.category,
+				      CMLCMS_CATEGORY_BLEND_TO_OUTPUT);
 		break;
 	}
 
@@ -1391,7 +1386,7 @@ cmlcms_color_transform_create(struct weston_color_manager_lcms *cm,
 	}
 
 	wl_list_insert(&cm->color_transform_list, &xform->link);
-	assert(xform->status != CMLCMS_TRANSFORM_FAILED);
+	WESTON_DASSERT_ENUM_NE(xform->status, CMLCMS_TRANSFORM_FAILED);
 
 	str = weston_color_transform_string(&xform->base);
 	weston_log_scope_printf(cm->transforms_scope, "  %s", str);

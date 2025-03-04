@@ -123,7 +123,7 @@ TEST_P(output_transform, my_buffer_args)
 	ret = asprintf(&refname, "output_%d-%s_buffer_%d-%s",
 		       oargs->scale, oargs->transform_name,
 		       bargs->scale, bargs->transform_name);
-	test_assert_int_ne(ret, 0);
+	TEST_ASSERT_INT_NE(ret, 0);
 
 	testlog("%s: %s\n", get_test_name(), refname);
 
@@ -145,7 +145,7 @@ TEST_P(output_transform, my_buffer_args)
 	move_client(client, 19, 19);
 
 	match = verify_screen_content(client, refname, 0, NULL, 0, NULL);
-	test_assert_true(match);
+	TEST_ASSERT_TRUE(match);
 
 	client_destroy(client);
 	free(refname);

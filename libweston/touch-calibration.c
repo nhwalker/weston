@@ -33,6 +33,7 @@
 #include "shared/string-helpers.h"
 #include <libweston/zalloc.h>
 #include "shared/timespec-util.h"
+#include "shared/weston-assert.h"
 #include <libweston/libweston.h>
 #include "libweston-internal.h"
 #include "backend.h"
@@ -72,8 +73,8 @@ calibrator_from_device(struct weston_touch_device *device)
 static uint32_t
 wire_uint_from_double(double c)
 {
-	assert(c >= 0.0);
-	assert(c <= 1.0);
+	WESTON_DASSERT_F64_GE(c, 0.0);
+	WESTON_DASSERT_F64_LE(c, 1.0);
 
 	return round(c * 0xffffffff);
 }
@@ -115,7 +116,7 @@ notify_touch_calibrator(struct weston_touch_device *device,
 	 */
 	if (calibrator->touch_cancelled) {
 		if (calibrator->device->aggregate->num_tp == 0) {
-			assert(touch_type == WL_TOUCH_UP);
+			WESTON_DASSERT_ENUM_EQ(touch_type, WL_TOUCH_UP);
 			calibrator->touch_cancelled = false;
 		}
 		return;
@@ -185,11 +186,11 @@ map_calibrator(struct weston_touch_calibrator *calibrator)
 		.m = { 1, 0, 0, 0, 1, 0}
 	};
 
-	assert(!calibrator->view);
-	assert(calibrator->output);
-	assert(calibrator->surface);
-	assert(calibrator->surface->resource);
-	assert(weston_surface_is_mapped(calibrator->surface));
+	WESTON_DASSERT_PTR_NOT_SET(calibrator->view);
+	WESTON_DASSERT_PTR_SET(calibrator->output);
+	WESTON_DASSERT_PTR_SET(calibrator->surface);
+	WESTON_DASSERT_PTR_SET(calibrator->surface->resource);
+	WESTON_DASSERT_TRUE(weston_surface_is_mapped(calibrator->surface));
 
 	calibrator->view = weston_view_create(calibrator->surface);
 	if (!calibrator->view) {
@@ -315,8 +316,8 @@ touch_calibrator_convert(struct wl_client *client,
 				       "calibrator surface is not mapped");
 		return;
 	}
-	assert(calibrator->view);
-	assert(output);
+	WESTON_DASSERT_PTR_SET(calibrator->view);
+	WESTON_DASSERT_PTR_SET(output);
 
 	if (x < 0 || y < 0 || x >= surface->width || y >= surface->height) {
 		wl_resource_post_error(resource,
@@ -405,7 +406,7 @@ touch_calibrator_output_destroyed(struct wl_listener *listener, void *data)
 		container_of(listener, struct weston_touch_calibrator,
 			     output_destroy_listener);
 
-	assert(calibrator->output == data);
+	WESTON_DASSERT_PTR_EQ(calibrator->output, data);
 	calibrator->output = NULL;
 
 	touch_calibrator_cancel_calibration(calibrator);
@@ -418,7 +419,7 @@ touch_calibrator_device_destroyed(struct wl_listener *listener, void *data)
 		container_of(listener, struct weston_touch_calibrator,
 			     device_destroy_listener);
 
-	assert(calibrator->device == data);
+	WESTON_DASSERT_PTR_EQ(calibrator->device, data);
 	calibrator->device = NULL;
 
 	touch_calibrator_cancel_calibration(calibrator);
@@ -431,7 +432,7 @@ touch_calibrator_surface_destroyed(struct wl_listener *listener, void *data)
 		container_of(listener, struct weston_touch_calibrator,
 			     surface_destroy_listener);
 
-	assert(calibrator->surface->resource == data);
+	WESTON_DASSERT_PTR_EQ(calibrator->surface->resource, data);
 
 	unmap_calibrator(calibrator);
 	calibrator->surface = NULL;
@@ -512,7 +513,7 @@ touch_calibration_create_calibrator(
 	}
 
 	surface = wl_resource_get_user_data(surface_resource);
-	assert(surface);
+	WESTON_DASSERT_PTR_SET(surface);
 	ret = weston_surface_set_role(surface, "weston_touch_calibrator",
 		touch_calibration_resource,
 		WESTON_TOUCH_CALIBRATION_ERROR_INVALID_SURFACE);
@@ -555,7 +556,7 @@ touch_calibration_create_calibrator(
 				       &touch_calibrator_implementation,
 				       calibrator, destroy_touch_calibrator);
 
-	assert(output);
+	WESTON_DASSERT_PTR_SET(output);
 	calibrator->output_destroy_listener.notify =
 		touch_calibrator_output_destroyed;
 	wl_signal_add(&output->destroy_signal,

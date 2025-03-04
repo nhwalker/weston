@@ -37,7 +37,6 @@
 #include <unistd.h>
 #include <signal.h>
 #include <limits.h>
-#include <assert.h>
 #include <X11/Xcursor/Xcursor.h>
 #include <linux/input.h>
 
@@ -49,6 +48,7 @@
 #include "shared/hash.h"
 #include "shared/helpers.h"
 #include "shared/xcb-xwayland.h"
+#include "shared/weston-assert.h"
 #include "xwayland-shell-v1-server-protocol.h"
 
 struct wm_size_hints {
@@ -263,7 +263,7 @@ weston_output_weak_ref_handle_destroy(struct wl_listener *listener, void *data)
 	struct weston_output_weak_ref *ref;
 
 	ref = wl_container_of(listener, ref, destroy_listener);
-	assert(ref->output == data);
+	WESTON_DASSERT_PTR_EQ(ref->output, data);
 
 	weston_output_weak_ref_clear(ref);
 }
@@ -406,7 +406,7 @@ dump_cardinal_array(FILE *fp, xcb_get_property_reply_t *reply)
 	unsigned i = 0;
 	void *arr;
 
-	assert(reply->type == XCB_ATOM_CARDINAL);
+	WESTON_DASSERT_ENUM_EQ(reply->type, XCB_ATOM_CARDINAL);
 
 	arr = xcb_get_property_value(reply);
 
@@ -1050,7 +1050,7 @@ weston_wm_window_set_allow_commits(struct weston_wm_window *window, bool allow)
 	struct weston_wm *wm = window->wm;
 	uint32_t property[1];
 
-	assert(window->frame_id != XCB_WINDOW_NONE);
+	WESTON_DASSERT_ENUM_NE(window->frame_id, XCB_WINDOW_NONE);
 
 	wm_printf(wm, "XWM: window %d set _XWAYLAND_ALLOW_COMMITS = %s\n",
 		  window->id, allow ? "true" : "false");
@@ -1268,14 +1268,14 @@ weston_wm_handle_map_request(struct weston_wm *wm, xcb_generic_event_t *event)
 	 * of the Wayland connection and the X11 client is repeatedly mapping
 	 * and unmapping, we will never have shsurf set on MapRequest.
 	 */
-	assert(!window->shsurf);
+	WESTON_DASSERT_PTR_NOT_SET(window->shsurf);
 
 	window->map_request_valid = true;
 	window->map_request = window->pos;
 
 	if (window->frame_id == XCB_WINDOW_NONE)
 		weston_wm_window_create_frame(window); /* sets frame_id */
-	assert(window->frame_id != XCB_WINDOW_NONE);
+	WESTON_DASSERT_ENUM_NE(window->frame_id, XCB_WINDOW_NONE);
 
 	wm_printf(wm, "XCB_MAP_REQUEST (window %d, %p, frame %d, %dx%d @ %d,%d)\n",
 		  window->id, window, window->frame_id,
@@ -1475,7 +1475,7 @@ weston_wm_window_set_pending_state_OR(struct weston_wm_window *window)
 	int width, height;
 
 	/* for override-redirect windows */
-	assert(window->frame_id == XCB_WINDOW_NONE);
+	WESTON_DASSERT_ENUM_EQ(window->frame_id, XCB_WINDOW_NONE);
 
 	if (!window->surface)
 		return;
@@ -1987,7 +1987,7 @@ weston_wm_window_handle_surface_id(struct weston_wm_window *window,
 	struct weston_wm *wm = window->wm;
 	struct wl_resource *resource;
 
-	assert(!wm->shell_bound);
+	WESTON_DASSERT_FALSE(wm->shell_bound);
 
 	if (window->surface_id != 0) {
 		wm_printf(wm, "already have surface id for window %d\n",

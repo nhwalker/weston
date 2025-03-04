@@ -25,7 +25,6 @@
 
 #include "config.h"
 
-#include <assert.h>
 #include <inttypes.h>
 
 #include <libweston/libweston.h>
@@ -278,7 +277,7 @@ linux_explicit_synchronization_send_server_error(struct wl_resource *resource,
 	struct wl_client *client = wl_resource_get_client(resource);
 	struct wl_resource *display_resource = wl_client_get_object(client, 1);
 
-	assert(display_resource);
+	WESTON_DASSERT_PTR_SET(display_resource);
 	wl_resource_post_error(display_resource,
 			       WL_DISPLAY_ERROR_INVALID_OBJECT,
 			       "linux_explicit_synchronization server error "

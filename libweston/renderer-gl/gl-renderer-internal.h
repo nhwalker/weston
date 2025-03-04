@@ -68,13 +68,14 @@
 
 #include "shared/weston-egl-ext.h"  /* for PFN* stuff */
 #include "shared/helpers.h"
+#include "shared/weston-assert.h"
 
 /* Max number of images per buffer. */
 #define SHADER_INPUT_TEX_MAX 3
 
 #define GET_PROC_ADDRESS(dest, proc) do { \
 	dest = (void *) eglGetProcAddress(proc); \
-	assert(dest); \
+	WESTON_DASSERT_PTR_SET(dest); \
 } while (0)
 
 #define EXT(string, flag) { string, ARRAY_LENGTH(string) - 1, (uint64_t) flag }
@@ -470,9 +471,7 @@ struct gl_renderer {
 	PFNGLDELETEQUERIESEXTPROC delete_queries;
 	PFNGLBEGINQUERYEXTPROC begin_query;
 	PFNGLENDQUERYEXTPROC end_query;
-#if !defined(NDEBUG)
 	PFNGLGETQUERYOBJECTIVEXTPROC get_query_object_iv;
-#endif
 	PFNGLGETQUERYOBJECTUI64VEXTPROC get_query_object_ui64v;
 
 	/* GL_EXT_texture_storage */
