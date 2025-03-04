@@ -2693,6 +2693,9 @@ notify_key(struct weston_seat *seat, const struct timespec *time, uint32_t key,
 		*k = key;
 	}
 
+	if (keyboard->pending_keymap)
+		update_keymap(seat);
+
 	if (state == WL_KEYBOARD_KEY_STATE_PRESSED) {
 		weston_compositor_idle_inhibit(compositor);
 	} else {
@@ -2707,10 +2710,6 @@ notify_key(struct weston_seat *seat, const struct timespec *time, uint32_t key,
 	}
 
 	grab->interface->key(grab, time, key, state);
-
-	if (keyboard->pending_keymap &&
-	    keyboard->keys.size == 0)
-		update_keymap(seat);
 
 	if (update_state == STATE_UPDATE_AUTOMATIC) {
 		update_modifier_state(seat,
