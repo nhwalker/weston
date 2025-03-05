@@ -697,4 +697,15 @@ void
 weston_output_copy_native_mode(struct weston_output *output,
 			       struct weston_mode *mode);
 
+struct weston_keyboard_keymap *
+weston_keyboard_create_keymap(struct xkb_keymap *keymap, const char *layout_name);
+
+void
+weston_keyboard_destroy_keymap(struct weston_keyboard_keymap *keyboard_keymap);
+
+void
+weston_keyboard_update_keymap(struct weston_keyboard_keymap *keyboard_keymap,
+                             struct xkb_keymap *keymap, const char *keyboard_layout);
+
+
 #endif

@@ -87,6 +87,176 @@ ensure_pointer_capability(struct libinput_device *libinput_device)
 	}
 }
 
+
+static struct xkb_keymap *
+weston_compile_keymap_from_string(struct weston_compositor *ec,
+				  const char *keyboard_layout)
+{
+	struct xkb_keymap *keymap = NULL;
+	struct xkb_rule_names names = {};
+
+	names.rules = ec->xkb_names.rules;
+	names.model = ec->xkb_names.model;
+	names.layout = keyboard_layout;
+
+	keymap = xkb_keymap_new_from_names(ec->xkb_context, &names, 0);
+
+	if (keymap == NULL) {
+		weston_log("failed to compile XKB keymap\n");
+		return NULL;
+	}
+
+	return keymap;
+}
+
+
+static const char *
+evdev_keyboard_get_udev_layout(struct libinput_device *libinput_device,
+			       const char *env_var)
+{
+	struct udev_device *udev_dev =
+		libinput_device_get_udev_device(libinput_device);
+	const char *layout_keyboard = NULL;
+
+	if (!env_var)
+		return layout_keyboard;
+
+	layout_keyboard = udev_device_get_property_value(udev_dev, env_var);
+
+	udev_device_unref(udev_dev);
+
+	return layout_keyboard;
+}
+
+static struct xkb_keymap *
+weston_keyboard_get_keymap_from_cache(struct weston_keyboard *keyboard,
+				      const char *keyboard_layout)
+{
+	if (!keyboard->xkb_state.cached_keymap->layout_name)
+		return NULL;
+
+	if (!strcmp(keyboard->xkb_state.cached_keymap->layout_name, keyboard_layout))
+		return keyboard->xkb_state.cached_keymap->keymap;
+
+	return NULL;
+}
+
+static void
+weston_keyboard_replace_keymap_cache(struct weston_keyboard *keyboard,
+				     struct xkb_keymap *keymap,
+				     const char *layout_name)
+{
+	if (keyboard->xkb_state.cached_keymap->keymap)
+		xkb_keymap_unref(keyboard->xkb_state.cached_keymap->keymap);
+
+
+	keyboard->xkb_state.cached_keymap->keymap = keymap;
+	xkb_keymap_ref(keyboard->xkb_state.cached_keymap->keymap);
+
+	if (layout_name) {
+		if (keyboard->xkb_state.cached_keymap->layout_name)
+			free(keyboard->xkb_state.cached_keymap->layout_name);
+
+		keyboard->xkb_state.cached_keymap->layout_name = strdup(layout_name);
+	}
+}
+
+static void
+handle_potential_keymap_update(struct weston_keyboard *keyboard,
+			       struct libinput_device *libinput_device)
+{
+	const char *udev_keyboard_layout = NULL;
+	const char *active_layout_name = NULL;
+	struct weston_compositor *ec = keyboard->seat->compositor;
+	struct weston_keyboard_keymap *weston_default_keymap =
+		keyboard->xkb_state.default_keymap;
+	struct weston_keyboard_keymap *weston_active_keymap =
+		keyboard->xkb_state.active_keymap;
+
+	udev_keyboard_layout =
+		evdev_keyboard_get_udev_layout(libinput_device, "KEYBOARD_LAYOUT");
+
+	if (!udev_keyboard_layout) {
+
+		/* we need to switch to default keyboard keymap */
+		if (strcmp(weston_active_keymap->layout_name,
+			   weston_default_keymap->layout_name)) {
+
+			const char *default_layout_name =
+				weston_default_keymap->layout_name;
+			struct xkb_keymap *default_keymap =
+				weston_default_keymap->keymap;
+
+			weston_keyboard_update_keymap(weston_active_keymap,
+						      default_keymap,
+						      default_layout_name);
+
+			/* we need to take an additional reference  here as
+			 * update_keymap() drops the one that we have on it.
+			 */
+			xkb_keymap_ref(default_keymap);
+			keyboard->pending_keymap = default_keymap;
+
+			weston_log("Keyboard layout set to default ('%s') keymap\n",
+				   default_layout_name);
+		}
+
+		return;
+	}
+
+	/* we have keyboard layout set in udev */
+	active_layout_name = weston_active_keymap->layout_name;
+
+	if (strcmp(active_layout_name, udev_keyboard_layout)) {
+		struct xkb_keymap *env_layout_keymap = NULL;
+
+		env_layout_keymap =
+			weston_keyboard_get_keymap_from_cache(keyboard,
+						      udev_keyboard_layout);
+
+		if (env_layout_keymap) {
+			/* it is in the cache just take a ref on it */
+			weston_keyboard_update_keymap(weston_active_keymap,
+						      env_layout_keymap,
+						      udev_keyboard_layout);
+
+			xkb_keymap_ref(env_layout_keymap);
+			keyboard->pending_keymap = env_layout_keymap;
+
+			weston_log("(cached) Keyboard layout set to '%s' keymap\n",
+				   udev_keyboard_layout);
+			return;
+		}
+
+		/* not found in cache, then need to create it and add it to the
+		 * cache; note we *do* not take another reference here because
+		 * we'll get one when compiling; cache does need to take it
+		 * though because we don't compile one for the cache we re-use
+		 * it */
+		env_layout_keymap =
+			weston_compile_keymap_from_string(ec,
+					udev_keyboard_layout);
+
+		if (!env_layout_keymap) {
+			weston_log("WARNING: failed to compile %s keymap\n",
+				   udev_keyboard_layout);
+			return;
+		}
+
+		weston_keyboard_update_keymap(weston_active_keymap,
+					      env_layout_keymap,
+					      udev_keyboard_layout);
+		keyboard->pending_keymap = env_layout_keymap;
+
+		weston_keyboard_replace_keymap_cache(keyboard,
+						     env_layout_keymap,
+						     udev_keyboard_layout);
+
+		weston_log("Keyboard layout set to '%s' keymap\n",
+			   udev_keyboard_layout);
+	}
+}
+
 static void
 handle_keyboard_key(struct libinput_device *libinput_device,
 		    struct libinput_event_keyboard *keyboard_event)
@@ -98,6 +268,7 @@ handle_keyboard_key(struct libinput_device *libinput_device,
 	int seat_key_count =
 		libinput_event_keyboard_get_seat_key_count(keyboard_event);
 	struct timespec time;
+	struct weston_keyboard *keyboard = weston_seat_get_keyboard(device->seat);
 
 	/* Ignore key events that are not seat wide state changes. */
 	if ((key_state == LIBINPUT_KEY_STATE_PRESSED &&
@@ -108,6 +279,8 @@ handle_keyboard_key(struct libinput_device *libinput_device,
 
 	timespec_from_usec(&time,
 			   libinput_event_keyboard_get_time_usec(keyboard_event));
+
+	handle_potential_keymap_update(keyboard, libinput_device);
 
 	notify_key(device->seat, &time,
 		   libinput_event_keyboard_get_key(keyboard_event),
