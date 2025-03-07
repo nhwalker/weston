@@ -663,6 +663,12 @@ float
 weston_inverse_evaluate_lut1d(struct weston_compositor *compositor,
 			      uint32_t len_lut, float *lut, float input);
 
+char *
+weston_color_curve_type_to_str(const struct weston_color_curve *curve);
+
+const char *
+weston_color_mapping_type_to_str(const struct weston_color_mapping *mapping);
+
 struct weston_color_transform *
 weston_color_transform_ref(struct weston_color_transform *xform);
 
