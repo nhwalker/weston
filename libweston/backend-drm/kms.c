@@ -1650,6 +1650,9 @@ drm_pending_state_apply_atomic(struct drm_pending_state *pending_state,
 	/* Test commits do not take ownership of the state; return
 	 * without freeing here. */
 	if (mode == DRM_STATE_TEST_ONLY) {
+		if (ret != 0)
+			weston_log("atomic: test commit failed: %s\n", strerror(errno));
+
 		drmModeAtomicFree(req);
 		return ret;
 	}
