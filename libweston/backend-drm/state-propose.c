@@ -943,7 +943,7 @@ drm_output_propose_state(struct weston_output *output_base,
 			force_renderer = true;
 			drm_debug(b, "\t\t\t\t[view] not assigning view %p to "
 				     "a plane (alpha view occluded by renderer "
-				     "views)", ev);
+				     "views)\n", ev);
 		}
 
 		/* In case of enforced mode of content-protection do not
