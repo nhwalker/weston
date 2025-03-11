@@ -97,7 +97,9 @@ drm_output_try_paint_node_on_plane(struct drm_plane *plane,
 				   struct drm_output_state *output_state,
 				   struct weston_paint_node *node,
 				   enum drm_output_propose_state_mode mode,
-				   struct drm_fb *fb, uint64_t zpos)
+				   struct drm_fb *fb,
+				   struct drm_color_pipeline_state *pipeline_state,
+				   uint64_t zpos)
 {
 	struct drm_output *output = output_state->output;
 	struct weston_view *ev = node->view;
@@ -117,6 +119,12 @@ drm_output_try_paint_node_on_plane(struct drm_plane *plane,
 	/* we can't have a 'pending' framebuffer as never set one before reaching here */
 	assert(!state->fb);
 	state->output = output;
+
+	if (pipeline_state != state->pipeline_state) {
+		if (state->pipeline_state)
+			drm_color_pipeline_state_destroy(state->pipeline_state);
+		state->pipeline_state = pipeline_state;
+	}
 
 	if (!drm_plane_state_coords_for_paint_node(state, node, zpos)) {
 		drm_debug(b, "\t\t\t\t[view] not placing view %p on plane: "
@@ -586,6 +594,7 @@ drm_output_find_plane_for_view(struct drm_output_state *state,
 	/* assemble a list with possible candidates */
 	wl_list_for_each(plane, &device->plane_list, link) {
 		const char *p_name = drm_output_get_plane_type_name(plane);
+		struct drm_color_pipeline_state *pipeline_state = NULL;
 		uint64_t zpos;
 		bool mm_underlay_only = false;
 
@@ -647,6 +656,46 @@ drm_output_find_plane_for_view(struct drm_output_state *state,
 			continue;
 		}
 
+		/* If we have a color xform that is not identity, we need to
+		 * be able to offload that to KMS. */
+		if (pnode->surf_xform.transform || !pnode->surf_xform.identity_pipeline) {
+			if (!device->color_pipeline_supported) {
+				drm_debug(b, "\t\t\t\t[plane] not trying plane %d: "
+					     "color pipelines not supported by KMS "
+					     "but we have a non-identity xform\n",
+					     plane->plane_id);
+				continue;
+			}
+
+			if (!b->compositor->offload_blend_to_output) {
+				drm_debug(b, "\t\t\t\t[plane] not trying plane %d: "
+					     "blend-to-output color xform not being "
+					     "offloaded to KMS, so we need to do the "
+					     "same with the pre-blend xform\n",
+					     plane->plane_id);
+				continue;
+			}
+
+			if (plane->num_color_pipelines == 0) {
+				drm_debug(b, "\t\t\t\t[plane] not trying plane %d: "
+					     "plane has no color pipelines and xform "
+					     "is not identity\n",
+					     plane->plane_id);
+				continue;
+			}
+
+			pipeline_state =
+				drm_color_pipeline_state_from_xform(plane,
+								    pnode->surf_xform.transform,
+								    "\t\t\t\t");
+			if (!pipeline_state) {
+				drm_debug(b, "\t\t\t\t[plane] not trying plane %d: "
+					     "not compatible with surface color xform\n",
+					     plane->plane_id);
+				continue;
+			}
+		}
+
 		/* Pre-judge whether the plane will be set as underlay plane. If so, start
 		 * trying to find underlay plane based on 'current_lowest_zpos_underlay'. */
 		if (!need_underlay) {
@@ -706,7 +755,8 @@ drm_output_find_plane_for_view(struct drm_output_state *state,
 			if (fb)
 				ps = drm_output_try_paint_node_on_plane(plane, state,
 									pnode, mode,
-									fb, zpos);
+									fb, pipeline_state,
+									zpos);
 		}
 
 		if (ps) {
@@ -906,13 +956,6 @@ drm_output_propose_state(struct weston_output *output_base,
 		    ev->surface->buffer_ref.buffer->type == WESTON_BUFFER_SOLID) {
 			drm_debug(b, "\t\t\t\t[view] not assigning view %p to plane "
 			             "(solid-colour surface)\n", ev);
-			force_renderer = true;
-		}
-
-		if (pnode->surf_xform.transform != NULL ||
-		    !pnode->surf_xform.identity_pipeline) {
-			drm_debug(b, "\t\t\t\t[view] not assigning view %p to plane "
-			             "(requires color transform)\n", ev);
 			force_renderer = true;
 		}
 

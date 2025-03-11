@@ -37,6 +37,8 @@
 #include <libweston/libweston.h>
 #include <libweston/backend-drm.h>
 #include "shared/helpers.h"
+#include "shared/string-helpers.h"
+#include "shared/weston-assert.h"
 #include "shared/weston-drm-fourcc.h"
 #include "drm-internal.h"
 #include "pixel-formats.h"
@@ -1144,6 +1146,28 @@ plane_add_prop(drmModeAtomicReq *req, struct drm_plane *plane,
 	return (ret <= 0) ? -1 : 0;
 }
 
+static int
+colorop_add_prop(drmModeAtomicReq *req, struct drm_colorop *colorop,
+		 enum wdrm_colorop_property prop, uint64_t val)
+{
+	struct drm_plane *plane = colorop->pipeline->plane;
+	struct drm_device *device = plane->device;
+	struct drm_backend *b = device->backend;
+	struct drm_property_info *info = &colorop->props[prop];
+	int ret;
+
+	drm_debug(b, "\t\t\t[COLOROP:%lu] %lu (%s) -> %llu (0x%llx)\n",
+		  (unsigned long) colorop->id,
+		  (unsigned long) info->prop_id, info->name,
+		  (unsigned long long) val, (unsigned long long) val);
+
+	if (info->prop_id == 0)
+		return -1;
+
+	ret = drmModeAtomicAddProperty(req, colorop->id, info->prop_id, val);
+	return (ret <= 0) ? -1 : 0;
+}
+
 static bool
 drm_connector_has_prop(struct drm_connector *connector,
 		       enum wdrm_connector_property prop)
@@ -1345,6 +1369,177 @@ drm_plane_set_color_range(struct drm_plane *plane,
 	return plane_add_prop(req, plane, WDRM_PLANE_COLOR_RANGE, color_range);
 }
 
+static bool
+drm_colorop_program_3x1d_lut(drmModeAtomicReq *req,
+			     struct weston_compositor *compositor,
+			     struct drm_colorop *colorop,
+			     struct drm_colorop_3x1d_lut *lut, char **err_msg)
+{
+	struct drm_property_info *prop;
+	int ret;
+
+	/* For now DRM/KMS only exposes linear interpolation for 1D LUTs. */
+	prop = &colorop->props[WDRM_COLOROP_LUT1D_INTERPOLATION];
+	weston_assert_uint32_eq(compositor, prop->num_enum_values, 1);
+	weston_assert_true(compositor, prop->enum_values[0].valid);
+	weston_assert_uint64_eq(compositor, prop->enum_values[0].value,
+				WDRM_COLOROP_LUT1D_INTERPOLATION_LINEAR);
+
+	ret = colorop_add_prop(req, colorop, WDRM_COLOROP_DATA, lut->blob_id);
+	if (ret < 0) {
+		str_printf(err_msg, "failed to set blob id %u for lut colorop",
+				    lut->blob_id);
+		return false;
+	}
+
+	return true;
+}
+
+static bool
+drm_colorop_program_curve(drmModeAtomicReq *req,
+			  struct weston_compositor *compositor,
+			  struct drm_colorop *colorop,
+			  struct weston_color_curve *curve, char **err_msg)
+{
+	struct drm_property_enum_info *prop_info;
+	enum wdrm_colorop_curve_1d curve_type;
+	bool inverse;
+	int ret;
+
+	weston_assert_uint32_eq(compositor, curve->type,
+				WESTON_COLOR_CURVE_TYPE_ENUM);
+
+	inverse = (curve->u.enumerated.tf_direction == WESTON_INVERSE_TF);
+	curve_type = weston_tf_to_colorop_curve(curve->u.enumerated.tf,
+						inverse);
+	weston_assert_uint32_neq(compositor,
+				 curve_type, WDRM_COLOROP_CURVE_1D__COUNT);
+
+	prop_info = &colorop->props[WDRM_COLOROP_CURVE_1D].enum_values[curve_type];
+	weston_assert_true(compositor, prop_info->valid);
+
+	ret = colorop_add_prop(req, colorop, WDRM_COLOROP_CURVE_1D, prop_info->value);
+	if (ret < 0) {
+		str_printf(err_msg, "failed to set colorop curve type %s",
+				    prop_info->name);
+		return false;
+	}
+
+	return true;
+}
+
+static bool
+drm_colorop_program_matrix(drmModeAtomicReq *req, struct drm_colorop *colorop,
+			   struct drm_colorop_matrix *mat, char **err_msg)
+{
+	int ret;
+
+	ret = colorop_add_prop(req, colorop, WDRM_COLOROP_DATA, mat->blob_id);
+	if (ret < 0) {
+		str_printf(err_msg, "failed to set blob id %u for mapping colorop",
+				    mat->blob_id);
+		return false;
+	}
+
+	return true;
+}
+
+static bool
+drm_colorop_program(drmModeAtomicReq *req, struct weston_color_transform *xform,
+		    struct drm_colorop_state *colorop_state, char **err_msg)
+{
+	struct drm_colorop *colorop = colorop_state->colorop;
+	struct drm_color_pipeline *pipeline = colorop->pipeline;
+	struct weston_compositor *compositor = pipeline->plane->base.compositor;
+	int ret_drm;
+	bool ret;
+
+	if (colorop->can_bypass) {
+		ret_drm = colorop_add_prop(req, colorop, WDRM_COLOROP_BYPASS, 0);
+		if (ret_drm < 0) {
+			str_printf(err_msg, "failed to set colorop id %u bypass == false",
+					    colorop->id);
+			return false;
+		}
+	}
+
+	switch (colorop_state->object.type) {
+	case COLOROP_OBJECT_TYPE_CURVE:
+		ret = drm_colorop_program_curve(req, compositor, colorop,
+						colorop_state->object.curve,
+						err_msg);
+		return ret;
+	case COLOROP_OBJECT_TYPE_MATRIX:
+		ret = drm_colorop_program_matrix(req, colorop,
+						 colorop_state->object.mat,
+						 err_msg);
+		return ret;
+	case COLOROP_OBJECT_TYPE_3x1D_LUT:
+		ret = drm_colorop_program_3x1d_lut(req, compositor, colorop,
+						   colorop_state->object.lut_3x1d,
+						   err_msg);
+		return ret;
+	}
+
+	weston_assert_not_reached(compositor,
+				  "unknown drm_colorop_state object type");
+}
+
+static int
+drm_color_pipeline_program(drmModeAtomicReq *req,
+			   struct drm_color_pipeline_state *pipeline_state,
+			   const char *indent)
+{
+	struct drm_color_pipeline *pipeline = pipeline_state->pipeline;
+	struct drm_plane *plane = pipeline->plane;
+	struct drm_backend *b = plane->device->backend;
+	struct weston_color_transform *xform = pipeline_state->xform;
+	struct drm_colorop_state *colorop_state;
+	struct drm_colorop *colorop;
+	char *err_msg;
+	int ret_drm;
+	bool ret;
+
+	drm_debug(b, "%s[PLANE:%lu] %lu (%s) -> %llu (0x%llx)\n",
+		     indent, (unsigned long) plane->plane_id,
+		     (unsigned long) plane->pipeline_props_id, "COLOR_PIPELINE",
+		     (unsigned long long) pipeline_state->pipeline->id,
+		     (unsigned long long) pipeline_state->pipeline->id);
+
+	/* Bypass all colorop that we can. Later we change the ones we don't
+	 * want to bypass. */
+	wl_list_for_each(colorop, &pipeline->colorop_list, link) {
+		if (!colorop->can_bypass)
+			continue;
+
+		ret_drm = colorop_add_prop(req, colorop, WDRM_COLOROP_BYPASS, 1);
+		if (ret_drm < 0) {
+			drm_debug(b, "%s%s[colorop] failed to set colorop id %u bypass == true",
+				     indent, indent, colorop->id);
+			goto err;
+		}
+	}
+
+	/* Program the colorops. */
+	wl_list_for_each(colorop_state, &pipeline_state->colorop_state_list, link) {
+		ret = drm_colorop_program(req, xform, colorop_state, &err_msg);
+		if (!ret) {
+			drm_debug(b, "%s%s[colorop] %s\n", indent, indent, err_msg);
+			free(err_msg);
+			goto err;
+		}
+	}
+
+	/* Set plane pipeline. */
+	drmModeAtomicAddProperty(req, plane->plane_id,
+				 plane->pipeline_props_id, pipeline->id);
+	return 0;
+
+err:
+	drm_debug(b, "%s%s[colorop] failed to program pipeline\n", indent, indent);
+	return -1;
+}
+
 static int
 drm_output_apply_state_atomic(struct drm_output_state *state,
 			      drmModeAtomicReq *req,
@@ -1493,6 +1688,10 @@ drm_output_apply_state_atomic(struct drm_output_state *state,
 		if (plane->props[WDRM_PLANE_FB_DAMAGE_CLIPS].prop_id != 0)
 			ret |= plane_add_prop(req, plane, WDRM_PLANE_FB_DAMAGE_CLIPS,
 					      plane_state->damage_blob_id);
+
+		if (plane_state->pipeline_state)
+			ret |= drm_color_pipeline_program(req, plane_state->pipeline_state,
+							  "\t\t\t");
 
 		if (plane_state->fb && plane_state->fb->format)
 			pinfo = plane_state->fb->format;

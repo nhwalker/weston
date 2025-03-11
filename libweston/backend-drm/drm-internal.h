@@ -394,6 +394,9 @@ struct drm_plane_state {
 
 	struct weston_view *ev; /**< maintained for drm_assign_planes only */
 
+	/* only when a color transformation is being offloaded */
+	struct drm_color_pipeline_state *pipeline_state;
+
 	int32_t src_x, src_y;
 	uint32_t src_w, src_h;
 	int32_t dest_x, dest_y;
@@ -435,10 +438,79 @@ struct drm_colorop {
 	struct drm_property_info props[WDRM_COLOROP__COUNT];
 };
 
+enum colorop_object_type {
+	COLOROP_OBJECT_TYPE_CURVE = 0,
+	COLOROP_OBJECT_TYPE_MATRIX,
+	COLOROP_OBJECT_TYPE_3x1D_LUT,
+};
+
+struct drm_colorop_state_object {
+	/* Defines which of the below is valid. The others are NULL. */
+	enum colorop_object_type type;
+
+	/* Object that we are going to offload through the colorop. */
+	struct weston_color_curve *curve;
+	struct drm_colorop_matrix *mat;
+	struct drm_colorop_3x1d_lut *lut_3x1d;
+};
+
+struct drm_colorop_state {
+	struct drm_colorop *colorop;
+	struct wl_list link; /* struct drm_color_pipeline_state::colorop_state_list */
+
+	/* Object that should be programmed through the colorop. */
+	struct drm_colorop_state_object object;
+};
+
 struct drm_color_pipeline {
 	struct drm_plane *plane;
 	struct wl_list colorop_list; /* drm_colorop::link */
 	uint32_t id;
+};
+
+struct drm_color_pipeline_state {
+	struct drm_color_pipeline *pipeline;
+	struct weston_color_transform *xform;
+	struct wl_list colorop_state_list; /* struct drm_colorop_state::link */
+};
+
+struct drm_colorop_3x1d_lut {
+	struct wl_list link; /* drm_plane::cached_colorop_3x1d_lut_list */
+	struct drm_plane *plane;
+
+	/**
+	 * 3x1D LUT may naturally come from a color curve or from a whole xform,
+	 * when it gets decomposed into shaper (3x1D LUT) + 3D LUT.
+	 *
+	 * The xform is always set (because all curves comes from a xform), but
+	 * the curve may be NULL.
+	 */
+	struct weston_color_transform *xform;
+	struct weston_color_curve *curve;
+
+	/**
+	 * This struct gets destroyed when the xform gets destroyed or the
+	 * DRM plane.
+	 */
+	struct wl_listener xform_destroy_listener;
+
+	uint32_t len;
+	uint32_t blob_id;
+};
+
+struct drm_colorop_matrix {
+	struct wl_list link; /* drm_plane::cached_colorop_matrix_list */
+	struct drm_plane *plane;
+
+	struct weston_color_mapping *mapping;
+
+	/**
+	 * This struct gets destroyed when the xform gets destroyed or the
+	 * DRM plane.
+	 */
+	struct wl_listener xform_destroy_listener;
+
+	uint32_t blob_id;
 };
 
 /**
@@ -488,6 +560,12 @@ struct drm_plane {
 	uint32_t pipeline_props_id;
 	uint32_t num_color_pipelines;
 	struct drm_color_pipeline *pipelines;
+
+	/* struct drm_colorop_3x1d_lut::link */
+	struct wl_list cached_colorop_3x1d_lut_list;
+
+	/* struct drm_colorop_matrix::link */
+	struct wl_list cached_colorop_matrix_list;
 };
 
 struct drm_connector {
@@ -751,6 +829,23 @@ drm_output_get_plane_type_name(struct drm_plane *p)
 		break;
 	}
 }
+
+enum wdrm_colorop_curve_1d
+weston_tf_to_colorop_curve(const struct weston_color_tf_info *tf_info, bool inverse);
+
+void
+drm_color_pipeline_state_destroy(struct drm_color_pipeline_state *state);
+
+struct drm_color_pipeline_state *
+drm_color_pipeline_state_from_xform(struct drm_plane *plane,
+				    struct weston_color_transform *xform,
+				    const char *indent);
+
+void
+drm_colorop_3x1d_lut_destroy(struct drm_colorop_3x1d_lut *lut);
+
+void
+drm_colorop_matrix_destroy(struct drm_colorop_matrix *mat);
 
 struct drm_crtc *
 drm_crtc_find(struct drm_device *device, uint32_t crtc_id);

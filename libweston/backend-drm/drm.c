@@ -1256,6 +1256,9 @@ drm_plane_create(struct drm_device *device, const drmModePlane *kplane)
 
 	weston_drm_format_array_init(&plane->formats);
 
+	wl_list_init(&plane->cached_colorop_3x1d_lut_list);
+	wl_list_init(&plane->cached_colorop_matrix_list);
+
 	props = drmModeObjectGetProperties(device->drm.fd, kplane->plane_id,
 					   DRM_MODE_OBJECT_PLANE);
 	if (!props) {
@@ -1398,12 +1401,20 @@ static void
 drm_plane_destroy(struct drm_plane *plane)
 {
 	struct drm_device *device = plane->device;
+	struct drm_colorop_3x1d_lut *lut_3x1d, *tmp_lut_3x1d;
+	struct drm_colorop_matrix *mat, *tmp_mat;
 
 	if (plane->type == WDRM_PLANE_TYPE_OVERLAY)
 		drmModeSetPlane(device->drm.fd, plane->plane_id,
 				0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 	drm_plane_state_free(plane->state_cur, true);
 	drm_property_info_free(plane->props, WDRM_PLANE__COUNT);
+	wl_list_for_each_safe(lut_3x1d, tmp_lut_3x1d,
+			      &plane->cached_colorop_3x1d_lut_list, link)
+		drm_colorop_3x1d_lut_destroy(lut_3x1d);
+	wl_list_for_each_safe(mat, tmp_mat,
+			      &plane->cached_colorop_matrix_list, link)
+		drm_colorop_matrix_destroy(mat);
 	drm_plane_release_color_pipelines(plane);
 	weston_plane_release(&plane->base);
 	weston_drm_format_array_fini(&plane->formats);
