@@ -368,7 +368,8 @@ load_cairo_surface(const char *filename)
 	void *data;
 
 	image = weston_image_load(filename, WESTON_IMAGE_LOAD_IMAGE |
-					    WESTON_IMAGE_LOAD_ICC);
+					    WESTON_IMAGE_LOAD_ICC |
+					    WESTON_IMAGE_LOAD_CICP);
 	if (image == NULL) {
 		return NULL;
 	}

@@ -31,6 +31,7 @@
 enum weston_image_load_flags {
         WESTON_IMAGE_LOAD_IMAGE = 0x1,
         WESTON_IMAGE_LOAD_ICC = 0x2,
+        WESTON_IMAGE_LOAD_CICP = 0x4,
 };
 
 struct icc_profile_data {
@@ -39,9 +40,28 @@ struct icc_profile_data {
         uint32_t offset;
 };
 
+struct cicp_data {
+        uint8_t primaries;
+        uint8_t tf;
+        /**
+         * When this is set, it means that the transfer function should be
+         * defined over the extended range, including negative input values.
+         * The suggestion is to handle negative input values as:
+         *
+         * out = sign(in) * TransferFunction(abs(in))
+         *
+         * But it depends on the API in use if honoring this behavior would be
+         * possible or not. E.g., if we use this CICP data to create an image
+         * description through the CM&HDR protocol, it would be up to the
+         * compositor how to handle negative input values.
+         */
+        bool video_full_range;
+};
+
 struct weston_image {
         pixman_image_t *pixman_image;
         struct icc_profile_data *icc_profile_data;
+        struct cicp_data *cicp_data;
 };
 
 struct weston_image *
