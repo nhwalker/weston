@@ -97,6 +97,8 @@ struct display {
 
 	uint32_t color_manager_features;
 	uint32_t color_manager_rendering_intents;
+	uint32_t color_manager_primaries_named;
+	uint32_t color_manager_tf_named;
 
 	int display_fd;
 	bool display_fd_was_read;
@@ -654,6 +656,232 @@ widget_set_image_description_icc(struct widget *widget, int icc_fd,
 	/* Create the image description. It will also destroy the ICC creator. */
 	cm_image_desc.status = CM_IMAGE_DESC_NOT_CREATED;
 	cm_image_desc.image_desc = wp_image_description_creator_icc_v1_create(icc_creator);
+	wp_image_description_v1_add_listener(cm_image_desc.image_desc,
+					     &cm_image_desc_listener, &cm_image_desc);
+
+	/* Wait until compositor creates the image description or gracefully
+	 * fail to do that. */
+	while (ret != -1 && cm_image_desc.status == CM_IMAGE_DESC_NOT_CREATED)
+		ret = wl_display_dispatch_queue(display->display, queue);
+	if (ret == -1) {
+		wp_image_description_v1_destroy(cm_image_desc.image_desc);
+		wl_event_queue_destroy(queue);
+		str_printf(err_msg,
+			   "Disconnected from the Wayland compositor, " \
+			   "wl_display_dispatch() failed: %s", strerror(errno));
+		return false;
+	}
+
+	/* Gracefully failed to create image description. Error already printed
+	 * in the handler. */
+	if (cm_image_desc.status == CM_IMAGE_DESC_FAILED) {
+		wp_image_description_v1_destroy(cm_image_desc.image_desc);
+		wl_event_queue_destroy(queue);
+		str_printf(err_msg,
+			   "Image description creation gracefully failed.");
+		return false;
+	}
+	assert(cm_image_desc.status == CM_IMAGE_DESC_READY);
+
+	if (!surface->cm_surface)
+		surface->cm_surface =
+			wp_color_manager_v1_get_surface(display->color_manager,
+							surface->surface);
+
+	wp_color_management_surface_v1_set_image_description(surface->cm_surface,
+							     cm_image_desc.image_desc,
+							     intent_info->protocol_intent);
+
+	wp_image_description_v1_destroy(cm_image_desc.image_desc);
+	wl_event_queue_destroy(queue);
+
+	return true;
+}
+
+static bool
+cicp_primaries_to_protocol(uint8_t cicp_primaries,
+			   enum wp_color_manager_v1_primaries *protocol_primaries)
+{
+	switch(cicp_primaries) {
+	case 1:
+		*protocol_primaries = WP_COLOR_MANAGER_V1_PRIMARIES_SRGB;
+		break;
+	case 4:
+		*protocol_primaries = WP_COLOR_MANAGER_V1_PRIMARIES_PAL_M;
+		break;
+	case 5:
+		*protocol_primaries = WP_COLOR_MANAGER_V1_PRIMARIES_PAL;
+		break;
+	case 6:
+	case 7:
+		*protocol_primaries = WP_COLOR_MANAGER_V1_PRIMARIES_NTSC;
+		break;
+	case 8:
+		*protocol_primaries = WP_COLOR_MANAGER_V1_PRIMARIES_GENERIC_FILM;
+		break;
+	case 9:
+		*protocol_primaries = WP_COLOR_MANAGER_V1_PRIMARIES_BT2020;
+		break;
+	case 10:
+		*protocol_primaries = WP_COLOR_MANAGER_V1_PRIMARIES_CIE1931_XYZ;
+		break;
+	case 11:
+		*protocol_primaries = WP_COLOR_MANAGER_V1_PRIMARIES_DCI_P3;
+		break;
+	case 12:
+		*protocol_primaries = WP_COLOR_MANAGER_V1_PRIMARIES_DISPLAY_P3;
+		break;
+	case 22:
+		/* TODO: support 22; it has no corresponding enum but we can use
+		 * the CIE xy values directly. */
+		fprintf(stderr, "CICP primaries 22 still unsupported.");
+		return false;
+	default:
+		return false;
+	}
+
+	return true;
+}
+
+static bool
+cicp_tf_to_protocol(uint8_t cicp_tf, enum wp_color_manager_v1_transfer_function *protocol_tf,
+		    bool video_full_range)
+{
+	switch(cicp_tf) {
+	case 1:
+	case 6:
+	case 14:
+	case 15:
+		*protocol_tf = WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_BT1886;
+		break;
+	case 4:
+		*protocol_tf = WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_GAMMA22;
+		break;
+	case 5:
+		*protocol_tf = WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_GAMMA28;
+		break;
+	case 7:
+		*protocol_tf = WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_ST240;
+		break;
+	case 8:
+		*protocol_tf = WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_EXT_LINEAR;
+		break;
+	case 9:
+		*protocol_tf = WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_LOG_100;
+		break;
+	case 10:
+		*protocol_tf = WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_LOG_316;
+		break;
+	case 11:
+		*protocol_tf = WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_XVYCC;
+		break;
+	case 13:
+		if (video_full_range)
+			*protocol_tf = WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_EXT_SRGB;
+		else
+			*protocol_tf = WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_SRGB;
+		break;
+	case 16:
+		*protocol_tf = WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_ST2084_PQ;
+		break;
+	case 17:
+		*protocol_tf = WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_ST428;
+		break;
+	case 18:
+		*protocol_tf = WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_HLG;
+		break;
+	default:
+		return false;
+	}
+
+	return true;
+}
+
+bool
+widget_set_image_description_param(struct widget *widget, uint8_t cicp_primaries,
+				   uint8_t cicp_tf, bool video_full_range,
+				   enum render_intent intent, char **err_msg)
+{
+	struct wp_image_description_creator_params_v1 *param_creator;
+	enum wp_color_manager_v1_primaries protocol_primaries;
+	enum wp_color_manager_v1_transfer_function protocol_tf;
+	struct display *display = widget->window->display;
+	struct surface *surface = widget->surface;
+	struct wp_color_manager_v1 *color_manager_wrapper;
+	struct wl_event_queue *queue;
+	struct cm_image_description cm_image_desc;
+	const struct render_intent_info *intent_info;
+	int ret = 0;
+
+	if (!display->color_manager) {
+		str_printf(err_msg,
+			   "%s extension not supported by the Wayland " \
+			   "compositor, ignoring image color profile.",
+			   wp_color_manager_v1_interface.name);
+		return false;
+	}
+
+	if (!((display->color_manager_features >> WP_COLOR_MANAGER_V1_FEATURE_PARAMETRIC) & 1)) {
+		str_printf(err_msg,
+			   "Wayland compositor does not support creating image " \
+			   "descriptions from params, ignoring color profile.");
+		return false;
+	}
+
+	intent_info = render_intent_info_from(intent);
+	assert(intent_info && "error: unknown rendering intent\n");
+
+	if (!((display->color_manager_rendering_intents >> intent_info->protocol_intent) & 1)) {
+		str_printf(err_msg,
+			   "Wayland compositor does not support creating image " \
+			   "descriptions with the following rendering intent: %s. " \
+			   "Ignoring color profile.", intent_info->desc);
+		return false;
+	}
+
+	if (!cicp_primaries_to_protocol(cicp_primaries, &protocol_primaries)) {
+		str_printf(err_msg,
+			   "invalid CICP primaries %u; ignoring color profile.",
+			   cicp_primaries);
+		return false;
+	}
+
+	if (!cicp_tf_to_protocol(cicp_tf, &protocol_tf, video_full_range)) {
+		str_printf(err_msg,
+			   "invalid CICP transfer function %u; ignoring color profile.",
+			   cicp_tf);
+		return false;
+	}
+
+	if (!((display->color_manager_primaries_named >> protocol_primaries) & 1)) {
+		str_printf(err_msg,
+			   "Wayland compositor does not support primaries %u",
+			   protocol_primaries);
+		return false;
+	}
+
+	if (!((display->color_manager_tf_named >> protocol_tf) & 1)) {
+		str_printf(err_msg,
+			   "Wayland compositor does not support transfer function %u",
+			   protocol_tf);
+		return false;
+	}
+
+	color_manager_wrapper = wl_proxy_create_wrapper(display->color_manager);
+	queue = wl_display_create_queue(display->display);
+	wl_proxy_set_queue((struct wl_proxy *)color_manager_wrapper, queue);
+
+	/* Create the parametric image description creator and set params. */
+	param_creator = wp_color_manager_v1_create_parametric_creator(color_manager_wrapper);
+	wl_proxy_wrapper_destroy(color_manager_wrapper);
+	wp_image_description_creator_params_v1_set_primaries_named(param_creator,
+								   protocol_primaries);
+	wp_image_description_creator_params_v1_set_tf_named(param_creator,
+							    protocol_tf);
+
+	/* Create the image description. It will also destroy the param creator. */
+	cm_image_desc.status = CM_IMAGE_DESC_NOT_CREATED;
+	cm_image_desc.image_desc = wp_image_description_creator_params_v1_create(param_creator);
 	wp_image_description_v1_add_listener(cm_image_desc.image_desc,
 					     &cm_image_desc_listener, &cm_image_desc);
 
@@ -6708,14 +6936,18 @@ static void
 cm_supported_tf_named(void *data, struct wp_color_manager_v1 *wp_color_manager_v1,
 		      uint32_t tf_code)
 {
-	/* unused in this file */
+	struct display *d = data;
+
+	d->color_manager_tf_named |= (1 << tf_code);
 }
 
 static void
 cm_supported_primaries_named(void *data, struct wp_color_manager_v1 *wp_color_manager_v1,
 			     uint32_t primaries_code)
 {
-	/* unused in this file */
+	struct display *d = data;
+
+	d->color_manager_primaries_named |= (1 << primaries_code);
 }
 
 static void
