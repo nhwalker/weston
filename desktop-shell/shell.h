@@ -2,6 +2,7 @@
  * Copyright © 2010-2012 Intel Corporation
  * Copyright © 2011-2012 Collabora, Ltd.
  * Copyright © 2013 Raspberry Pi Foundation
+ * Copyright © 2020 Microsoft
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -32,6 +33,13 @@
 
 #include <libweston/libweston.h>
 #include <libweston/xwayland-api.h>
+
+#include "shared/image-loader.h"
+
+#ifdef BUILD_RAIL
+#include "rdprail/rdprail.h"
+#include <libweston/backend-rdp.h>
+#endif
 
 #include "weston-desktop-shell-server-protocol.h"
 
@@ -94,10 +102,13 @@ struct shell_surface {
 
 	struct desktop_shell *shell;
 
+	struct shell_surface *parent;
 	struct wl_list children_list;
 	struct wl_list children_link;
 
 	struct weston_coord_global saved_pos;
+	uint32_t saved_showstate;
+	bool saved_showstate_valid;
 	bool saved_position_valid;
 	bool saved_rotation_valid;
 	int unresponsive, grabbed;
@@ -108,6 +119,25 @@ struct shell_surface {
 		struct weston_transform transform;
 		struct weston_matrix rotation;
 	} rotation;
+
+	struct {
+		bool grab_unmaximized;
+		bool grab_maximize_when_released;
+		int32_t saved_width, saved_height;
+	} maximized;
+
+	struct {
+		bool is_snapped;
+		bool is_maximized_requested;
+		struct weston_coord_global pos;
+		int width;
+		int height;
+		struct weston_coord_global saved_pos;
+		int saved_surface_width;
+		int saved_width; // based on window geometry
+		int saved_height; // based on window geometry
+		struct weston_coord_global last_grab;
+	} snapped;
 
 	struct {
 		struct weston_curtain *black_view;
@@ -128,10 +158,21 @@ struct shell_surface {
 		struct weston_coord_global pos;
 	} xwayland;
 
+	struct {
+		bool is_default_icon_used;
+		bool is_icon_set;
+	} icon;
+
+	struct {
+		bool is_window_app_id_associated;
+	} app_id;
+
 	int focus_count;
 
 	bool destroying;
 	struct wl_list link;	/** desktop_shell::shsurf_list */
+
+	struct wl_listener metadata_listener;
 };
 
 struct shell_grab {
@@ -226,11 +267,17 @@ struct workspace {
 	struct weston_view_animation *focus_animation;
 };
 
+struct shell_workarea_change {
+	struct weston_output *output;
+	pixman_rectangle32_t old_workarea;
+	pixman_rectangle32_t new_workarea;
+};
+
 struct shell_output {
 	struct desktop_shell  *shell;
 	struct weston_output  *output;
-	struct wl_listener    destroy_listener;
-	struct wl_list        link;
+	struct wl_listener	destroy_listener;
+	struct wl_list		link;
 
 	struct weston_surface *panel_surface;
 	struct weston_view *panel_view;
@@ -242,10 +289,14 @@ struct shell_output {
 	struct wl_listener background_surface_listener;
 
 	struct weston_curtain *temporary_curtain;
+
+	pixman_rectangle32_t  desktop_workarea;
 };
 
 struct weston_desktop;
 struct desktop_shell {
+	bool rail;  // Important parameter as this sets if this is RAIL or not.
+
 	struct weston_compositor *compositor;
 	struct weston_desktop *desktop;
 	const struct weston_xwayland_surface_api *xwayland_surface_api;
@@ -309,6 +360,7 @@ struct desktop_shell {
 
 	bool allow_zap;
 	bool disallow_output_changed_move;
+	bool allow_alt_f4_to_close_app;
 	uint32_t binding_modifier;
 	enum animation_type win_animation_type;
 	enum animation_type win_close_animation_type;
@@ -329,10 +381,36 @@ struct desktop_shell {
 	char *client;
 
 	struct timespec startup_time;
+
+	// RAIL-only
+	bool is_localmove_supported;
+	bool is_localmove_pending;
+
+	void *app_list_context;
+	char *distroName;
+	size_t distroNameLength;
+	bool is_appid_with_distro_name;
+
+	struct weston_image *image_default_app_icon;
+	struct weston_image *image_default_app_overlay_icon;
+
+	bool is_blend_overlay_icon_taskbar;
+	bool is_blend_overlay_icon_app_list;
+
+	struct weston_surface *focus_proxy_surface;
+
+#ifdef BUILD_RAIL
+	const struct weston_rdprail_api *rdprail_api;
+	void *rdp_backend;
+#endif
+
+	struct weston_log_scope *debug;
+	uint32_t debugLevel;
 };
 
-struct weston_output *
-get_default_output(struct weston_compositor *compositor);
+// shell.c functions used by rdprail/*
+
+static const struct weston_pointer_grab_interface move_grab_interface;
 
 struct weston_view *
 get_default_view(struct weston_surface *surface);
@@ -344,13 +422,18 @@ struct workspace *
 get_current_workspace(struct desktop_shell *shell);
 
 void
+shell_workarea_changed_layer(struct desktop_shell *shell,
+				struct weston_layer *layer,
+				void *data);
+
+void
 get_output_work_area(struct desktop_shell *shell,
-		     struct shell_output *output,
-		     pixman_rectangle32_t *area);
+			 struct shell_output *output,
+			 pixman_rectangle32_t *area);
 
 void
 lower_fullscreen_layer(struct desktop_shell *shell,
-		       struct shell_output *lowering_output);
+			   struct shell_output *lowering_output);
 
 void
 activate(struct desktop_shell *shell, struct weston_view *view,
@@ -362,11 +445,19 @@ void
 input_panel_destroy(struct desktop_shell *shell);
 
 typedef void (*shell_for_each_layer_func_t)(struct desktop_shell *,
-					    struct weston_layer *, void *);
+						struct weston_layer *, void *);
 
 void
 shell_for_each_layer(struct desktop_shell *shell,
 		     shell_for_each_layer_func_t func,
 		     void *data);
+
+void
+shell_send_minmax_info(struct weston_surface *surface);
+
+void
+shell_blend_overlay_icon(struct desktop_shell *shell,
+		pixman_image_t *app_image,
+		pixman_image_t *overlay_image);
 
 #endif /* WESTON_DESKTOP_SHELL_H */

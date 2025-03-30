@@ -161,6 +161,36 @@ struct weston_xwayland_surface_api {
 	 */
 	const char *
 	(*get_xwayland_window_name)(struct weston_surface *surface, enum window_atom_type atype);
+
+	/** Get the saved geometry of the window (when not maximized / minimized)
+	 *
+	 * \param surface The Xwayland surface.
+	 * \param saved_height
+	 * \param saved_width
+	 */
+	void
+	(*get_saved_geometry)(struct weston_surface *surface, int32_t *saved_height, int32_t *saved_width);
+
+	/** Obtain X window class name associated to the surface.
+	 *
+	 * \param surface The Xwayland surface.
+	 */
+	char *
+	(*get_class_name)(struct weston_surface *surface);
+	/** Trigger callback to weston_desktop_api.set_window_icon with icon image from X.
+	 *
+	 * \param surface The Xwayland surface.
+	 */
+	bool
+	(*trigger_set_window_icon)(struct weston_surface *surface);
+	/** Send request to app to close the window.
+	 *  (application may react to the request and it may ignore
+	 *   or may prompt an confirmation UI, such as "Save" dialog).
+	 *
+	 * \param surface The Xwayland surface.
+	 */
+	void
+	(*close_window)(struct weston_surface *surface);
 };
 
 /** Retrieve the API object for the libweston Xwayland surface.

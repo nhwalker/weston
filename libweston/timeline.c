@@ -346,6 +346,27 @@ emit_gpu_timestamp(struct timeline_emit_context *ctx, void *obj)
 	return 1;
 }
 
+static int
+emit_msec(struct timeline_emit_context *ctx, void *obj)
+{
+	int64_t *i = obj;
+
+	fprintf(ctx->cur, "\"msec\":%" PRId64 "", *i);
+
+	return 1;
+}
+
+static int
+emit_present_timestamp(struct timeline_emit_context *ctx, void *obj)
+{
+	struct timespec *ts = obj;
+
+	fprintf(ctx->cur, "\"next_present\":[%" PRId64 ", %ld]",
+		(int64_t)ts->tv_sec, ts->tv_nsec);
+
+	return 1;
+}
+
 static struct weston_timeline_subscription_object *
 weston_timeline_get_subscription_object(struct weston_log_subscription *sub,
 		void *object)
@@ -393,6 +414,8 @@ static const type_func type_dispatch[] = {
 	[TLT_SURFACE] = emit_weston_surface,
 	[TLT_VBLANK] = emit_vblank_timestamp,
 	[TLT_GPU] = emit_gpu_timestamp,
+	[TLT_MSEC] = emit_msec,
+	[TLT_PRESENT] = emit_present_timestamp,
 };
 
 static const char *
@@ -405,16 +428,24 @@ tlp_to_string(enum timeline_point_name tlp)
 		return "core_repaint_exit_loop";
 	case TLP_CORE_REPAINT_BEGIN:
 		return "core_repaint_begin";
+	case TLP_CORE_REPAINT_START_LOOP:
+		return "core_repaint_start_loop";
 	case TLP_CORE_REPAINT_POSTED:
 		return "core_repaint_posted";
 	case TLP_CORE_REPAINT_RESTART:
 		return "core_repaint_restart";
 	case TLP_CORE_REPAINT_FINISHED:
 		return "core_repaint_finished";
+	case TLP_CORE_REPAINT_FINISHED_NEXT_REPAINT:
+		return "core_repaint_finished_next_repaint";
 	case TLP_CORE_REPAINT_REQ:
 		return "core_repaint_req";
 	case TLP_CORE_REPAINT_ENTER_LOOP:
 		return "core_repaint_enter_loop";
+	case TLP_CORE_REPAINT_TIMER_ARM:
+		return "core_repaint_timer_arm";
+	case TLP_CORE_REPAINT_TIMER_ARM_OUTPUT:
+		return "core_repaint_timer_arm_output";
 	case TLP_CORE_COMMIT_DAMAGE:
 		return "core_commit_damage";
 	case TLP_RENDERER_GPU_BEGIN:

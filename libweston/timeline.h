@@ -43,17 +43,23 @@ enum timeline_type {
 	TLT_SURFACE,
 	TLT_VBLANK,
 	TLT_GPU,
+	TLT_MSEC,
+	TLT_PRESENT,
 };
 
 enum timeline_point_name {
 	TLP_CORE_FLUSH_DAMAGE,
 	TLP_CORE_REPAINT_EXIT_LOOP,
 	TLP_CORE_REPAINT_BEGIN,
+	TLP_CORE_REPAINT_START_LOOP,
 	TLP_CORE_REPAINT_POSTED,
 	TLP_CORE_REPAINT_RESTART,
 	TLP_CORE_REPAINT_FINISHED,
+	TLP_CORE_REPAINT_FINISHED_NEXT_REPAINT,
 	TLP_CORE_REPAINT_REQ,
 	TLP_CORE_REPAINT_ENTER_LOOP,
+	TLP_CORE_REPAINT_TIMER_ARM,
+	TLP_CORE_REPAINT_TIMER_ARM_OUTPUT,
 	TLP_CORE_COMMIT_DAMAGE,
 	TLP_RENDERER_GPU_BEGIN,
 	TLP_RENDERER_GPU_END
@@ -96,6 +102,8 @@ struct weston_timeline_subscription_object {
 #define TLP_SURFACE(s) TLT_SURFACE, TYPEVERIFY(struct weston_surface *, (s))
 #define TLP_VBLANK(t) TLT_VBLANK, TYPEVERIFY(const struct timespec *, (t))
 #define TLP_GPU(t) TLT_GPU, TYPEVERIFY(const struct timespec *, (t))
+#define TLP_MSEC(i) TLT_MSEC, TYPEVERIFY(const int64_t *, (i))
+#define TLP_NEXT_PRESENT(t) TLT_PRESENT, TYPEVERIFY(const struct timespec *, (t))
 
 /** This macro is used to add timeline points.
  *
