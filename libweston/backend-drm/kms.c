@@ -1928,6 +1928,17 @@ atomic_flip_handler(int fd, unsigned int frame, unsigned int sec,
 		usec = now.tv_nsec / 1000;
 	}
 
+	if (frame == 0 && sec == 0 && usec == 0 &&
+	    output->state_last && output->state_last->dpms == WESTON_DPMS_OFF) {
+		/* The first commit after idle causes a flip event with empty
+		 * sequence number and vsync timestamp on amdgpu, see:
+		 * https://gitlab.freedesktop.org/drm/amd/-/issues/1890.
+		 */
+		weston_compositor_read_presentation_clock(ec, &now);
+		sec = now.tv_sec;
+		usec = now.tv_nsec / 1000;
+	}
+
 	drm_debug(b, "[atomic][CRTC:%u] flip processing started\n", crtc_id);
 	assert(device->atomic_modeset);
 	assert(output->atomic_complete_pending);
