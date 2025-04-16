@@ -38,6 +38,7 @@
 #include <libweston/backend-drm.h>
 #include "shared/helpers.h"
 #include "shared/weston-drm-fourcc.h"
+#include "shared/timespec-util.h"
 #include "drm-internal.h"
 #include "pixel-formats.h"
 #include "presentation-time-server-protocol.h"
@@ -1935,9 +1936,8 @@ atomic_flip_handler(int fd, unsigned int frame, unsigned int sec,
 
 	drm_output_update_complete(output, flags, sec, usec);
 	drm_debug(b, "[atomic][CRTC:%u] flip processing completed\n", crtc_id);
-	drm_debug(b, "[atomic][CRTC:%u] %.2f page flips computed in %d seconds\n",
-			crtc_id, output->page_flips_per_timer_interval,
-			output->backend->perf_page_flips_stats.frame_counter_interval);
+	drm_debug(b, "[atomic][CRTC:%u] %.2f page flips counted\n",
+			crtc_id, output->page_flips_per_timer_interval);
 }
 
 int

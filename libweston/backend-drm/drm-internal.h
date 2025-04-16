@@ -274,7 +274,7 @@ struct drm_backend {
 	struct weston_log_scope *debug;
 
 	struct {
-		uint32_t frame_counter_interval;
+		uint64_t timer_arm_interval;
 		struct wl_event_source *pageflip_timer_counter;
 		bool timer_armed;
 	} perf_page_flips_stats;

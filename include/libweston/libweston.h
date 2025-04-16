@@ -1663,10 +1663,10 @@ struct weston_compositor {
 	} output_capture;
 
 	struct {
-		/** interval which we divide the amount of frames */
-		unsigned int frame_counter_interval;
+		/** how often to fire out the frame_counter_timer in ns */
+		uint64_t timer_arm_interval;
 
-		/** fires with frame_counter_interval rate */
+		/** fires with timer_arm_interval rate */
 		struct wl_event_source *frame_counter_timer;
 	} perf_surface_stats;
 };
@@ -2127,9 +2127,12 @@ struct weston_surface {
 	 * reset as frame_commit_counter  */
 	unsigned int painted_frame_counter;
 
-	/** computed after each frame_counter_interval */
+	/** computed after each timer_arm_interval */
 	float frame_commit_fps_counter;
 	float painted_frame_fps_counter;
+	/** updated by frame callback handler with how much time it actually
+	 * took, rather than dividing by perf_surface_stats::timer_arm_interval */
+	struct timespec previous_timestamp;
 };
 
 struct weston_subsurface {
