@@ -153,7 +153,7 @@ desktop_shell_destroy_surface(struct shell_surface *shsurf)
 	wl_list_remove(&shsurf->link);
 	weston_view_destroy(shsurf->view);
 
-	wl_signal_emit(&shsurf->destroy_signal, shsurf);
+	wl_signal_emit_mutable(&shsurf->destroy_signal, shsurf);
 	weston_surface_unref(shsurf->wsurface_anim_fade);
 
 	if (shsurf->output_destroy_listener.notify) {
@@ -4318,7 +4318,7 @@ force_kill_binding(struct weston_keyboard *keyboard,
 	if (!focus_surface)
 		return;
 
-	wl_signal_emit(&compositor->kill_signal, focus_surface);
+	wl_signal_emit_mutable(&compositor->kill_signal, focus_surface);
 
 	client = wl_resource_get_client(focus_surface->resource);
 	wl_client_get_credentials(client, &pid, NULL, NULL);
