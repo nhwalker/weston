@@ -453,7 +453,7 @@ kiosk_shell_surface_reconfigure_for_output(struct kiosk_shell_surface *shsurf)
 static void
 kiosk_shell_surface_destroy(struct kiosk_shell_surface *shsurf)
 {
-	wl_signal_emit(&shsurf->destroy_signal, shsurf);
+	wl_signal_emit_mutable(&shsurf->destroy_signal, shsurf);
 	wl_list_remove(&shsurf->surface_tree_link);
 
 	weston_desktop_surface_set_user_data(shsurf->desktop_surface, NULL);
@@ -931,7 +931,7 @@ desktop_surface_removed(struct weston_desktop_surface *desktop_surface,
 	/* Inform children about destruction of their parent, so that we can
 	 * reparent them and potentially relink surface tree links before
 	 * finding a focus successor and activating a new surface. */
-	wl_signal_emit(&shsurf->parent_destroy_signal, shsurf);
+	wl_signal_emit_mutable(&shsurf->parent_destroy_signal, shsurf);
 
 	/* We need to take into account that the surface being destroyed it not
 	 * always the same as the focused surface, which could result in picking
