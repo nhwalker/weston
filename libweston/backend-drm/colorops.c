@@ -135,6 +135,155 @@ drm_colorop_3x1d_lut_from_curve(struct drm_plane *plane,
 }
 
 /**
+ * Destroys the given colorop 3D LUT.
+ *
+ * @param lut The 3D LUT to destroy.
+ */
+void
+drm_colorop_3d_lut_destroy(struct drm_colorop_3d_lut *lut)
+{
+	wl_list_remove(&lut->xform_destroy_listener.link);
+	wl_list_remove(&lut->link);
+	drmModeDestroyPropertyBlob(lut->plane->device->drm.fd, lut->blob_id);
+	free(lut);
+}
+
+static void
+drm_colorop_3d_lut_destroy_handler(struct wl_listener *l, void *data)
+{
+	struct drm_colorop_3d_lut *lut =
+		wl_container_of(l, lut, xform_destroy_listener);
+
+	drm_colorop_3d_lut_destroy(lut);
+}
+
+static struct drm_colorop_3d_lut *
+drm_colorop_3d_lut_create(struct drm_plane *plane,
+			  struct weston_color_transform *xform,
+			  float *lut, uint32_t len_lut)
+{
+	struct drm_device *device = plane->device;
+	struct drm_colorop_3d_lut *colorop_lut;
+	struct drm_color_lut *drm_lut;
+	uint32_t blob_id;
+	unsigned int index_r, index_g, index_b, index;
+	int ret;
+
+	drm_lut = xzalloc(len_lut * len_lut * len_lut * sizeof(*drm_lut));
+
+	for (index_b = 0; index_b < len_lut; index_b++) {
+		for (index_g = 0; index_g < len_lut; index_g++) {
+			for (index_r = 0; index_r < len_lut; index_r++) {
+				/**
+				 * TODO: doc states that the KMS 3D LUT indexes
+				 * are traversed in RGB order (B index growing
+				 * first, then G and lastly R). But our 3D LUT
+				 * created in build_3d_lut() is traversed in BGR
+				 * order (R growing first, and so on). So that
+				 * would require an index mapping from us here.
+				 * But that results in R and B colors being
+				 * swapped. So I think that the docs are wrong
+				 * (or their code).
+				 */
+				index = index_r + len_lut * (index_g + len_lut * index_b);
+				drm_lut[index].red   = lut[3 * index + 0] * 0xffff;
+				drm_lut[index].green = lut[3 * index + 1] * 0xffff;
+				drm_lut[index].blue  = lut[3 * index + 2] * 0xffff;
+			}
+		}
+	}
+
+	ret = drmModeCreatePropertyBlob(device->drm.fd, drm_lut,
+					len_lut * len_lut * len_lut * sizeof(*drm_lut),
+					&blob_id);
+	free(drm_lut);
+
+	if (ret < 0)
+		return NULL;
+
+	/* Cache the color shaper + 3D LUT. */
+	colorop_lut = xzalloc(sizeof(*colorop_lut));
+	colorop_lut->blob_id = blob_id;
+	colorop_lut->plane = plane;
+	colorop_lut->xform = xform;
+	colorop_lut->len = len_lut;
+	wl_list_insert(&plane->cached_colorop_3d_lut_list, &colorop_lut->link);
+	colorop_lut->xform_destroy_listener.notify = drm_colorop_3d_lut_destroy_handler;
+	wl_signal_add(&xform->destroy_signal, &colorop_lut->xform_destroy_listener);
+
+	return colorop_lut;
+}
+
+static bool
+drm_colorop_3x1d_lut_and_3d_lut_from_xform(struct drm_plane *plane,
+					   struct weston_color_transform *xform,
+					   uint32_t len_3x1d_lut, uint32_t len_3d_lut,
+					   struct drm_colorop_3x1d_lut **colorop_3x1d_lut_out,
+					   struct drm_colorop_3d_lut **colorop_3d_lut_out)
+{
+	float *lut = NULL;
+	float *lut_3d = NULL;
+	struct drm_colorop_3x1d_lut *colorop_3x1d_lut = NULL;
+	struct drm_colorop_3d_lut *colorop_3d_lut = NULL;
+	bool lut_3x1d_cached = false;
+	bool lut_3d_cached = false;
+	bool ret = true;
+
+	wl_list_for_each(colorop_3x1d_lut, &plane->cached_colorop_3x1d_lut_list, link) {
+		if (colorop_3x1d_lut->xform == xform && colorop_3x1d_lut->len == len_3x1d_lut) {
+			lut_3x1d_cached = true;
+			break;
+		}
+	}
+
+	wl_list_for_each(colorop_3d_lut, &plane->cached_colorop_3d_lut_list, link) {
+		if (colorop_3d_lut->xform == xform && colorop_3d_lut->len == len_3d_lut) {
+			lut_3d_cached = true;
+			break;
+		}
+	}
+
+	/* Both color shaper and 3D LUT already cached. */
+	if (lut_3x1d_cached && lut_3d_cached)
+		goto out;
+
+	/* Get shaper + 3D LUT from xform. */
+	lut = xzalloc(3 * len_3x1d_lut * sizeof(*lut));
+	lut_3d = xzalloc(3 * len_3d_lut * len_3d_lut * len_3d_lut * sizeof(*lut_3d));
+	if (!xform->to_shaper_plus_3dlut(xform, len_3x1d_lut, lut, len_3d_lut, lut_3d)) {
+		ret = false;
+		goto out;
+	}
+
+	colorop_3x1d_lut = drm_colorop_3x1d_lut_create(plane, xform,
+						       NULL, /* curve */
+						       lut, len_3x1d_lut);
+	if (!colorop_3x1d_lut) {
+		ret = false;
+		goto out;
+	}
+
+	colorop_3d_lut = drm_colorop_3d_lut_create(plane, xform,
+						   lut_3d, len_3d_lut);
+	if (!colorop_3d_lut) {
+		free(colorop_3x1d_lut);
+		ret = false;
+		goto out;
+	}
+
+out:
+	free(lut);
+	free(lut_3d);
+
+	if (ret) {
+		*colorop_3x1d_lut_out = colorop_3x1d_lut;
+		*colorop_3d_lut_out = colorop_3d_lut;
+	}
+
+	return ret;
+}
+
+/**
  * Destroys the given colorop color matrix.
  *
  * @param matrix The matrix to destroy.
@@ -692,6 +841,59 @@ err:
 	return NULL;
 }
 
+static struct drm_color_pipeline_state *
+drm_color_pipeline_state_from_xform_decomposed(struct drm_color_pipeline *pipeline,
+					       struct weston_color_transform *xform,
+					       const char *indent)
+{
+	struct drm_backend *b = pipeline->plane->device->backend;
+	struct drm_color_pipeline_state *pipeline_state = NULL;
+	struct drm_colorop *colorop_3x1d_lut, *colorop_3d_lut;
+	struct drm_colorop_state_object object_3x1d_lut, object_3d_lut;
+	struct drm_colorop_3d_lut *lut_3d;
+	struct drm_colorop_3x1d_lut *lut_3x1d;
+
+	/* Find colorop for shaper (3x1D LUT). */
+	colorop_3x1d_lut = search_colorop_type(pipeline,
+					       NULL, /* previous colorop (none) */
+					       WDRM_COLOROP_TYPE_1D_LUT);
+	if (!colorop_3x1d_lut)
+		goto out;
+
+	/* Find colorop for 3D LUT. */
+	colorop_3d_lut = search_colorop_type(pipeline,
+					     colorop_3x1d_lut, /* previous colorop */
+					     WDRM_COLOROP_TYPE_3D_LUT);
+	if (!colorop_3d_lut)
+		goto out;
+
+	/* Create the 3x1D LUT and 3D LUT objects. */
+	if (!drm_colorop_3x1d_lut_and_3d_lut_from_xform(pipeline->plane, xform,
+							colorop_3x1d_lut->size,
+							colorop_3d_lut->size,
+							&lut_3x1d, &lut_3d))
+		goto out;
+
+	/* Create pipeline state and fill with the colorops. */
+	pipeline_state = drm_color_pipeline_state_create(pipeline, xform);
+
+	object_3x1d_lut.type = COLOROP_OBJECT_TYPE_3x1D_LUT;
+	object_3x1d_lut.lut_3x1d = lut_3x1d;
+	drm_colorop_state_create(pipeline_state, colorop_3x1d_lut, object_3x1d_lut);
+
+	object_3d_lut.type = COLOROP_OBJECT_TYPE_3D_LUT;
+	object_3d_lut.lut_3d = lut_3d;
+	drm_colorop_state_create(pipeline_state, colorop_3d_lut, object_3d_lut);
+
+out:
+	drm_debug(b, "%s[colorop] color pipeline id %u %s compatible with xform %p;\n" \
+		     "%s          xform decomposed into shaper + 3D LUT\n",
+		     indent, pipeline->id,
+		     pipeline_state ? "IS" : "NOT",
+		     xform, indent);
+	return pipeline_state;
+}
+
 /**
  * Given a color transformation, returns a color pipeline state that can
  * be used to offload such xform to KMS.
@@ -745,6 +947,20 @@ drm_color_pipeline_state_from_xform(struct drm_plane *plane,
 					return pipeline_state;
 			}
 		}
+	}
+
+	/**
+	 * Either the pipelines are not compatible with our xform or we were
+	 * unable to optimize the xform to steps. Our last resource would be
+	 * crafting a shaper + 3D LUT from the xform. Let's check if any
+	 * pipelines would be able to handle that.
+	 */
+	for (i = 0; i < plane->num_color_pipelines; i++) {
+		pipeline_state =
+			drm_color_pipeline_state_from_xform_decomposed(&plane->pipelines[i],
+								       xform, indent);
+		if (pipeline_state)
+			return pipeline_state;
 	}
 
 	return NULL;

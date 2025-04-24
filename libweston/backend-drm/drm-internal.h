@@ -442,6 +442,7 @@ enum colorop_object_type {
 	COLOROP_OBJECT_TYPE_CURVE = 0,
 	COLOROP_OBJECT_TYPE_MATRIX,
 	COLOROP_OBJECT_TYPE_3x1D_LUT,
+	COLOROP_OBJECT_TYPE_3D_LUT,
 };
 
 struct drm_colorop_state_object {
@@ -452,6 +453,7 @@ struct drm_colorop_state_object {
 	struct weston_color_curve *curve;
 	struct drm_colorop_matrix *mat;
 	struct drm_colorop_3x1d_lut *lut_3x1d;
+	struct drm_colorop_3d_lut *lut_3d;
 };
 
 struct drm_colorop_state {
@@ -487,6 +489,22 @@ struct drm_colorop_3x1d_lut {
 	 */
 	struct weston_color_transform *xform;
 	struct weston_color_curve *curve;
+
+	/**
+	 * This struct gets destroyed when the xform gets destroyed or the
+	 * DRM plane.
+	 */
+	struct wl_listener xform_destroy_listener;
+
+	uint32_t len;
+	uint32_t blob_id;
+};
+
+struct drm_colorop_3d_lut {
+	struct wl_list link; /* drm_plane::cached_colorop_3d_lut_list */
+	struct drm_plane *plane;
+
+	struct weston_color_transform *xform;
 
 	/**
 	 * This struct gets destroyed when the xform gets destroyed or the
@@ -563,6 +581,9 @@ struct drm_plane {
 
 	/* struct drm_colorop_3x1d_lut::link */
 	struct wl_list cached_colorop_3x1d_lut_list;
+
+	/* struct drm_colorop_3d_lut::link */
+	struct wl_list cached_colorop_3d_lut_list;
 
 	/* struct drm_colorop_matrix::link */
 	struct wl_list cached_colorop_matrix_list;
@@ -843,6 +864,9 @@ drm_color_pipeline_state_from_xform(struct drm_plane *plane,
 
 void
 drm_colorop_3x1d_lut_destroy(struct drm_colorop_3x1d_lut *lut);
+
+void
+drm_colorop_3d_lut_destroy(struct drm_colorop_3d_lut *lut);
 
 void
 drm_colorop_matrix_destroy(struct drm_colorop_matrix *mat);

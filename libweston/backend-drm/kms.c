@@ -1429,6 +1429,32 @@ drm_colorop_program_curve(drmModeAtomicReq *req,
 }
 
 static bool
+drm_colorop_program_3d_lut(drmModeAtomicReq *req,
+			   struct weston_compositor *compositor,
+			   struct drm_colorop *colorop,
+			   struct drm_colorop_3d_lut *lut_3d, char **err_msg)
+{
+	struct drm_property_info *prop;
+	int ret;
+
+	/* For now DRM/KMS only exposes tetrahedral interpolation for 3D LUTs. */
+	prop = &colorop->props[WDRM_COLOROP_LUT3D_INTERPOLATION];
+	weston_assert_uint32_eq(compositor, prop->num_enum_values, 1);
+	weston_assert_true(compositor, prop->enum_values[0].valid);
+	weston_assert_uint64_eq(compositor, prop->enum_values[0].value,
+				WDRM_COLOROP_LUT3D_INTERPOLATION_TETRAHEDRAL);
+
+	ret = colorop_add_prop(req, colorop, WDRM_COLOROP_DATA, lut_3d->blob_id);
+	if (ret < 0) {
+		str_printf(err_msg, "failed to set blob id %u for 3D lut colorop",
+				    lut_3d->blob_id);
+		return false;
+	}
+
+	return true;
+}
+
+static bool
 drm_colorop_program_matrix(drmModeAtomicReq *req, struct drm_colorop *colorop,
 			   struct drm_colorop_matrix *mat, char **err_msg)
 {
@@ -1478,6 +1504,11 @@ drm_colorop_program(drmModeAtomicReq *req, struct weston_color_transform *xform,
 		ret = drm_colorop_program_3x1d_lut(req, compositor, colorop,
 						   colorop_state->object.lut_3x1d,
 						   err_msg);
+		return ret;
+	case COLOROP_OBJECT_TYPE_3D_LUT:
+		ret = drm_colorop_program_3d_lut(req, compositor, colorop,
+						 colorop_state->object.lut_3d,
+						 err_msg);
 		return ret;
 	}
 
