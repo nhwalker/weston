@@ -106,6 +106,63 @@ enum wdrm_plane_color_range {
 #define WDRM_PLANE_COLOR_RANGE_DEFAULT WDRM_PLANE_COLOR_RANGE_LIMITED
 
 /**
+ * List of properties attached to a DRM colorop.
+ */
+enum wdrm_colorop_property {
+	WDRM_COLOROP_TYPE = 0,
+	WDRM_COLOROP_NEXT,
+	WDRM_COLOROP_BYPASS,
+	WDRM_COLOROP_SIZE,
+	WDRM_COLOROP_DATA,
+	WDRM_COLOROP_MULTIPLIER,
+	WDRM_COLOROP_LUT1D_INTERPOLATION,
+	WDRM_COLOROP_LUT3D_INTERPOLATION,
+	WDRM_COLOROP_CURVE_1D,
+	WDRM_COLOROP__COUNT,
+};
+
+/**
+ * Possible values for the WDRM_COLOROP_TYPE property.
+ */
+enum wdrm_colorop_type {
+	WDRM_COLOROP_TYPE_1D_CURVE = 0,
+	WDRM_COLOROP_TYPE_1D_LUT,
+	WDRM_COLOROP_TYPE_CTM_3X4,
+	WDRM_COLOROP_TYPE_MULTIPLIER,
+	WDRM_COLOROP_TYPE_3D_LUT,
+	WDRM_COLOROP_TYPE__COUNT,
+};
+
+/**
+ * Possible values for the WDRM_COLOROP_CURVE_1D property.
+ */
+enum wdrm_colorop_curve_1d {
+	WDRM_COLOROP_CURVE_1D_SRGB_EOTF = 0,
+	WDRM_COLOROP_CURVE_1D_SRGB_INV_EOTF,
+	WDRM_COLOROP_CURVE_1D_BT2020_INV_OETF,
+	WDRM_COLOROP_CURVE_1D_BT2020_OETF,
+	WDRM_COLOROP_CURVE_1D_PQ_125_EOTF,
+	WDRM_COLOROP_CURVE_1D_PQ_125_INV_EOTF,
+	WDRM_COLOROP_CURVE_1D__COUNT,
+};
+
+/**
+ * Possible values for the WDRM_COLOROP_LUT1D_INTERPOLATION property.
+ */
+enum wdrm_colorop_lut1d_interpolation {
+	WDRM_COLOROP_LUT1D_INTERPOLATION_LINEAR = 0,
+	WDRM_COLOROP_LUT1D_INTERPOLATION__COUNT,
+};
+
+/**
+ * Possible values for the WDRM_COLOROP_LUT3D_INTERPOLATION property.
+ */
+enum wdrm_colorop_lut3d_interpolation {
+	WDRM_COLOROP_LUT3D_INTERPOLATION_TETRAHEDRAL = 0,
+	WDRM_COLOROP_LUT3D_INTERPOLATION__COUNT,
+};
+
+/**
  * List of properties attached to a DRM connector
  */
 enum wdrm_connector_property {

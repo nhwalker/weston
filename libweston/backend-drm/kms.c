@@ -138,6 +138,59 @@ const struct drm_property_info plane_props[] = {
 	},
 };
 
+struct drm_property_enum_info colorop_type_enums[] = {
+	[WDRM_COLOROP_TYPE_1D_CURVE] = { .name = "1D Curve", },
+	[WDRM_COLOROP_TYPE_1D_LUT] = { .name = "1D Curve Custom LUT", },
+	[WDRM_COLOROP_TYPE_CTM_3X4] = { .name = "3x4 Matrix", },
+	[WDRM_COLOROP_TYPE_MULTIPLIER] = { .name = "Multiplier", },
+	[WDRM_COLOROP_TYPE_3D_LUT] = { .name = "3D LUT", },
+};
+
+struct drm_property_enum_info colorop_curve_1d_enums[] = {
+	[WDRM_COLOROP_CURVE_1D_SRGB_EOTF] = { .name = "sRGB EOTF", },
+	[WDRM_COLOROP_CURVE_1D_SRGB_INV_EOTF] = { .name = "sRGB Inverse EOTF", },
+	[WDRM_COLOROP_CURVE_1D_BT2020_INV_OETF] = { .name = "BT.2020 Inverse OETF", },
+	[WDRM_COLOROP_CURVE_1D_BT2020_OETF] = { .name = "BT.2020 OETF", },
+	[WDRM_COLOROP_CURVE_1D_PQ_125_EOTF] = { .name = "PQ 125 EOTF", },
+	[WDRM_COLOROP_CURVE_1D_PQ_125_INV_EOTF] = { .name = "PQ 125 Inverse EOTF", },
+};
+
+struct drm_property_enum_info colorop_lut1d_interpolation_enums[] = {
+	[WDRM_COLOROP_LUT1D_INTERPOLATION_LINEAR] = { .name = "Linear", },
+};
+
+struct drm_property_enum_info colorop_lut3d_interpolation_enums[] = {
+	[WDRM_COLOROP_LUT3D_INTERPOLATION_TETRAHEDRAL] = { .name = "Tetrahedral", },
+};
+
+const struct drm_property_info colorop_props[] = {
+	[WDRM_COLOROP_TYPE] = {
+		.name = "TYPE",
+		.enum_values = colorop_type_enums,
+		.num_enum_values = WDRM_COLOROP_TYPE__COUNT,
+	},
+	[WDRM_COLOROP_NEXT] = { .name = "NEXT", },
+	[WDRM_COLOROP_BYPASS] = { .name = "BYPASS", },
+	[WDRM_COLOROP_SIZE] = { .name = "SIZE", },
+	[WDRM_COLOROP_DATA] = { .name = "DATA", },
+	[WDRM_COLOROP_MULTIPLIER] = { .name = "MULTIPLIER", },
+	[WDRM_COLOROP_CURVE_1D] = {
+		.name = "CURVE_1D_TYPE",
+		.enum_values = colorop_curve_1d_enums,
+		.num_enum_values = WDRM_COLOROP_CURVE_1D__COUNT,
+	},
+	[WDRM_COLOROP_LUT1D_INTERPOLATION] = {
+		.name = "LUT1D_INTERPOLATION",
+		.enum_values = colorop_lut1d_interpolation_enums,
+		.num_enum_values = WDRM_COLOROP_LUT1D_INTERPOLATION__COUNT,
+	},
+	[WDRM_COLOROP_LUT3D_INTERPOLATION] = {
+		.name = "LUT3D_INTERPOLATION",
+		.enum_values = colorop_lut3d_interpolation_enums,
+		.num_enum_values = WDRM_COLOROP_LUT3D_INTERPOLATION__COUNT,
+	},
+};
+
 struct drm_property_enum_info dpms_state_enums[] = {
 	[WDRM_DPMS_STATE_OFF] = {
 		.name = "Off",
@@ -2008,6 +2061,9 @@ init_kms_caps(struct drm_device *device)
 		   device->fb_modifiers ? "supports" : "does not support");
 
 	drmSetClientCap(device->drm.fd, DRM_CLIENT_CAP_WRITEBACK_CONNECTORS, 1);
+
+	ret = drmSetClientCap(device->drm.fd, DRM_CLIENT_CAP_PLANE_COLOR_PIPELINE, 1);
+	device->color_pipeline_supported = (ret == 0);
 
 	ret = drmGetCap(device->drm.fd, DRM_CAP_ATOMIC_ASYNC_PAGE_FLIP, &cap);
 	if (ret == 0)
