@@ -20,6 +20,7 @@ dep_backlight = declare_dependency(
 config_h.set('BUILD_DRM_COMPOSITOR', '1')
 
 srcs_drm = [
+	'colorops.c',
 	'drm.c',
 	'fb.c',
 	'modes.c',

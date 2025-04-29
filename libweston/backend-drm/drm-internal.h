@@ -218,6 +218,8 @@ struct drm_device {
 
 	bool aspect_ratio_supported;
 
+	bool color_pipeline_supported;
+
 	int32_t cursor_width;
 	int32_t cursor_height;
 
@@ -395,6 +397,30 @@ struct drm_colorop_3x1d_lut_blob {
 	uint32_t blob_id;
 };
 
+struct drm_colorop {
+	struct drm_color_pipeline *pipeline;
+	struct wl_list link; /* drm_pipeline::colorop_list */
+
+	enum wdrm_colorop_type type;
+
+	uint32_t id;
+
+	/* Some colorop's can be bypassed. */
+	bool can_bypass;
+
+	/* Only useful for 1D and 3D LUT colorop's. */
+	uint32_t size;
+
+	/* Holds the properties for the colorop. */
+	struct drm_property_info props[WDRM_COLOROP__COUNT];
+};
+
+struct drm_color_pipeline {
+	struct drm_plane *plane;
+	struct wl_list colorop_list; /* drm_colorop::link */
+	uint32_t id;
+};
+
 /**
  * Plane state holds the dynamic state for a plane: where it is positioned,
  * and which buffer it is currently displaying.
@@ -479,6 +505,10 @@ struct drm_plane {
 	struct wl_list link;
 
 	struct weston_drm_format_array formats;
+
+	uint32_t pipeline_props_id;
+	uint32_t num_color_pipelines;
+	struct drm_color_pipeline *pipelines;
 };
 
 struct drm_plane_handle {
@@ -836,6 +866,14 @@ int
 drm_plane_populate_formats(struct drm_plane *plane, const drmModePlane *kplane,
 			   const drmModeObjectProperties *props,
 			   const bool use_modifiers);
+
+void
+drm_plane_populate_color_pipelines(struct drm_plane *plane,
+				   drmModeObjectPropertiesPtr plane_props);
+
+void
+drm_plane_release_color_pipelines(struct drm_plane *plane);
+
 void
 drm_property_info_free(struct drm_property_info *info, int num_props);
 
@@ -846,6 +884,7 @@ extern struct drm_property_enum_info content_protection_enums[];
 extern struct drm_property_enum_info hdcp_content_type_enums[];
 extern const struct drm_property_info connector_props[];
 extern const struct drm_property_info crtc_props[];
+extern const struct drm_property_info colorop_props[];
 
 int
 init_kms_caps(struct drm_device *device);
