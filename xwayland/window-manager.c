@@ -3161,6 +3161,19 @@ send_position(struct weston_surface *surface, int32_t x, int32_t y)
 }
 
 static void
+get_saved_geometry(struct weston_surface *surface,
+				   int32_t *saved_height, int32_t *saved_width)
+{
+	struct weston_wm_window *window = get_wm_window(surface);
+
+	if (!window)
+		return;
+
+	*saved_height = window->saved_height;
+	*saved_width = window->saved_width;
+}
+
+static void
 send_fullscreen(struct weston_surface *surface, bool fullscreen)
 {
 	struct weston_wm_window *window = get_wm_window(surface);
@@ -3375,4 +3388,5 @@ const struct weston_xwayland_surface_api surface_api = {
 	is_wm_window,
 	send_position,
 	get_xwayland_window_name,
+	get_saved_geometry,
 };

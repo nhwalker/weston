@@ -1648,6 +1648,31 @@ set_minimized(struct weston_surface *surface)
 	shell_surface_update_child_surface_layers(shsurf);
 }
 
+static void
+get_saved_geometry(struct weston_surface *surface,
+				   int32_t *saved_height, int32_t *saved_width)
+{
+	struct shell_surface *shsurf = get_shell_surface(surface);
+	const struct weston_xwayland_surface_api *api;
+
+	if (!shsurf)
+		return;
+
+	api = shsurf->shell->xwayland_surface_api;
+	if (!api) {
+		api = weston_xwayland_surface_get_api(shsurf->shell->compositor);
+		shsurf->shell->xwayland_surface_api = api;
+	}
+
+	if (api && api->is_xwayland_surface(surface)) {
+		api->get_saved_geometry(surface, saved_height, saved_width);
+	} else {
+		shsurf = get_shell_surface(surface);
+
+		*saved_height = shsurf->maximized.saved_height;
+		*saved_width = shsurf->maximized.saved_width;
+	}
+}
 
 static struct desktop_shell *
 shell_surface_get_shell(struct shell_surface *shsurf)
