@@ -3193,9 +3193,38 @@ send_fullscreen(struct weston_surface *surface, bool fullscreen)
 	}
 }
 
+static void
+send_maximized(struct weston_surface *surface, bool maximized)
+{
+	struct weston_wm_window *window = get_wm_window(surface);
+
+	if (!window || !window->wm)
+		return;
+
+	if (weston_wm_window_is_maximized(window) == maximized)
+		return;
+
+	if (maximized) {
+		window->maximized_horz = 1;
+		window->maximized_vert = 1;
+
+		/* Store only if we were not already in full-screen */
+		if (!window->fullscreen) {
+			window->saved_width = window->width;
+			window->saved_height = window->height;
+		}
+	} else {
+		window->maximized_horz = 0;
+		window->maximized_vert = 0;
+	}
+
+	weston_wm_window_set_net_wm_state(window);
+}
+
 static const struct weston_xwayland_client_interface shell_client = {
 	send_configure,
 	send_close,
+	send_maximized,
 	send_fullscreen,
 };
 
