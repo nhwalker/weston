@@ -37,6 +37,12 @@ extern "C" {
  */
 
 /**
+ * Height of the title bar
+ */
+#define TITLEBAR_HEIGHT 27
+
+
+/**
  * Compile-time computation of number of items in a hardcoded array.
  *
  * @param a the array being measured.

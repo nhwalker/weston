@@ -2175,7 +2175,7 @@ window_create_tooltip(struct tooltip *tooltip)
 {
 	struct widget *parent = tooltip->parent;
 	struct display *display = parent->window->display;
-	const int offset_y = 27;
+	const int offset_y = TITLEBAR_HEIGHT;
 	const int margin = 3;
 	cairo_text_extents_t extents;
 

@@ -110,6 +110,12 @@ struct shell_surface {
 	} rotation;
 
 	struct {
+		bool grab_unmaximized;
+		bool grab_maximize_when_released;
+		int32_t saved_width, saved_height;
+	} maximized;
+
+	struct {
 		struct weston_curtain *black_view;
 	} fullscreen;
 

@@ -1381,6 +1381,9 @@ weston_wm_window_draw_decoration(struct weston_wm_window *window)
 		how = "decorate";
 		frame_set_title(window->frame, window->name);
 		frame_repaint(window->frame, cr);
+	} else if (weston_wm_window_is_maximized(window)) {
+		how = "maximized";
+		/* nothing */
 	} else {
 		how = "shadow";
 		cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
@@ -1736,8 +1739,10 @@ weston_wm_handle_reparent_notify(struct weston_wm *wm, xcb_generic_event_t *even
 		(xcb_reparent_notify_event_t *) event;
 	struct weston_wm_window *window;
 
-	wm_printf(wm, "XCB_REPARENT_NOTIFY (window %d, parent %d, event %d%s)\n",
+	wm_printf(wm, "XCB_REPARENT_NOTIFY (window %d @ %d,%d, parent %d, event %d%s)\n",
 		  reparent_notify->window,
+		  reparent_notify->x,
+		  reparent_notify->y,
 		  reparent_notify->parent,
 		  reparent_notify->event,
 		  reparent_notify->override_redirect ? ", override" : "");
@@ -3143,9 +3148,15 @@ send_position(struct weston_surface *surface, int32_t x, int32_t y)
 		return;
 
 	wm = window->wm;
+
+    wm_printf(wm, "XWM: send_position (window %d) input %d,%d window %f,%f%s\n",
+		window->id, x, y,
+		window->pos.c.x, window->pos.c.y,
+		window->override_redirect ? ", override" : "");
+
 	/* We use pos_dirty to tell whether a configure message is in flight.
 	 * This is needed in case we send two configure events in a very
-	 * short time, since window->x/y is set in after a roundtrip, hence
+	 * short time, since window->pos.x/y is set in after a roundtrip, hence
 	 * we cannot just check if the current x and y are different. */
 	if (window->pos.c.x != pos.c.x || window->pos.c.y != pos.c.y ||
 	    window->pos_dirty) {

@@ -2,6 +2,7 @@
  * Copyright © 2010-2012 Intel Corporation
  * Copyright © 2011-2012 Collabora, Ltd.
  * Copyright © 2013 Raspberry Pi Foundation
+ * Copyright © 2020 Microsoft
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -69,6 +70,18 @@ get_shell_seat(struct weston_seat *seat);
 
 static void
 shell_surface_update_child_surface_layers(struct shell_surface *shsurf);
+
+static void
+grab_maximize_motion(struct shell_surface *shsurf);
+
+static void
+grab_unmaximized_motion(struct weston_pointer_grab *grab);
+
+static void
+set_minimized(struct weston_surface *surface);
+
+static void
+set_maximized(struct shell_surface *shsurf, bool maximized);
 
 static void
 get_maximized_size(struct shell_surface *shsurf, int32_t *width, int32_t *height);
@@ -871,14 +884,15 @@ noop_grab_frame(struct weston_pointer_grab *grab)
 {
 }
 
-static struct weston_coord_global
-constrain_position(struct weston_move_grab *move)
+static bool
+constrain_position(struct weston_move_grab *move, struct weston_coord_global *out_pos)
 {
 	struct shell_surface *shsurf = move->base.shsurf;
 	struct weston_surface *surface =
 		weston_desktop_surface_get_surface(shsurf->desktop_surface);
 	struct weston_pointer *pointer = move->base.grab.pointer;
 	int bottom;
+	bool constrained = false;
 	const int safety = 50;
 	pixman_rectangle32_t area;
 	struct weston_geometry geometry;
@@ -898,16 +912,21 @@ constrain_position(struct weston_move_grab *move)
 			weston_desktop_surface_get_geometry(shsurf->desktop_surface);
 
 		bottom = c.c.y + geometry.height + geometry.y;
-		if (bottom - safety < area.y)
+		if (bottom - safety < area.y) {
 			c.c.y = area.y + safety - geometry.height
 			      - geometry.y;
+			constrained = true;
+		}
 
 		if (move->client_initiated &&
-		    c.c.y + geometry.y < area.y)
+		    c.c.y + geometry.y < area.y) {
 			c.c.y = area.y - geometry.y;
+			constrained = true;
+		}
 	}
 
-	return c;
+	*out_pos = c;
+	return constrained;
 }
 
 static void
@@ -924,8 +943,16 @@ move_grab_motion(struct weston_pointer_grab *grab,
 	if (!shsurf || !shsurf->desktop_surface)
 		return;
 
-	pos = constrain_position(move);
-	weston_view_set_position(shsurf->view, pos);
+	if (shsurf->state.maximized &&
+		(pointer->grab_pos.c.x != pointer->pos.c.x ||
+		 pointer->grab_pos.c.y != pointer->pos.c.y)) {
+		grab_unmaximized_motion(grab);
+	} else {
+		/* If the position had to be constrained, we're off screen at the top.
+		 * If the grab is released in this state, maximize. */
+		shsurf->maximized.grab_maximize_when_released = constrain_position(move, &pos);
+		weston_view_set_position(shsurf->view, pos);
+	}
 }
 
 static void
@@ -934,13 +961,20 @@ move_grab_button(struct weston_pointer_grab *grab,
 {
 	struct shell_grab *shell_grab = container_of(grab, struct shell_grab,
 						    grab);
+	struct weston_move_grab *move = (struct weston_move_grab *) grab;
 	struct weston_pointer *pointer = grab->pointer;
+	struct shell_surface *shsurf = move->base.shsurf;
 	enum wl_pointer_button_state state = state_w;
 
 	if (pointer->button_count == 0 &&
 	    state == WL_POINTER_BUTTON_STATE_RELEASED) {
 		shell_grab_end(shell_grab);
 		free(grab);
+
+		/* If grab_maximize_when_released is true, maximize */
+		if (shsurf->maximized.grab_maximize_when_released) {
+			grab_maximize_motion(shsurf);
+		}
 	}
 }
 
@@ -973,7 +1007,9 @@ surface_move(struct shell_surface *shsurf, struct weston_pointer *pointer,
 	if (!shsurf)
 		return -1;
 
-	if (shsurf->grabbed || shsurf_is_max_or_fullscreen(shsurf))
+	/* Return if fullscreen.
+	* Keep going if maximized to support un-maximizing through the title bar */
+	if (shsurf->grabbed || weston_desktop_surface_get_fullscreen(shsurf->desktop_surface))
 		return 0;
 
 	move = malloc(sizeof *move);
@@ -1606,11 +1642,17 @@ unset_maximized(struct shell_surface *shsurf)
 	shell_surface_set_output(shsurf,
 			weston_shell_utils_get_default_output(surface->compositor));
 
-	if (shsurf->saved_position_valid)
-		weston_view_set_position(shsurf->view, shsurf->saved_pos);
-	else
-		weston_view_set_initial_position(shsurf->view, shsurf->shell);
+	/* If we're doing an unmaximized grab, the window has already been repositioned. */
+	if (!shsurf->maximized.grab_unmaximized) {
+		/* Restore to previous position or make up one if the window started maximized
+		   and if window is not being grabbed */
+		if (shsurf->saved_position_valid)
+			weston_view_set_position(shsurf->view, shsurf->saved_pos);
+		else
+			weston_view_set_initial_position(shsurf->view, shsurf->shell);
+	}
 	shsurf->saved_position_valid = false;
+	shsurf->maximized.grab_unmaximized = false;
 
 	weston_desktop_surface_set_orientation(shsurf->desktop_surface,
 					       shsurf->orientation);
@@ -1672,6 +1714,87 @@ get_saved_geometry(struct weston_surface *surface,
 		*saved_height = shsurf->maximized.saved_height;
 		*saved_width = shsurf->maximized.saved_width;
 	}
+}
+
+/*
+ * grab_maximize_motion kicks in when a window is dragged and released at the
+ * top of the screen, which triggers a maximize.
+ */
+static void
+grab_maximize_motion(struct shell_surface *shsurf)
+{
+	struct weston_surface *surface =
+		weston_desktop_surface_get_surface(shsurf->desktop_surface);
+
+	set_maximized(get_shell_surface(surface), true);
+	shsurf->maximized.grab_maximize_when_released = false;
+
+#ifdef WM_DEBUG
+	   weston_log("%s: maximized through grab.\n", __func__);
+#endif
+}
+
+/*
+ * grab_unmaximized_motion kicks in when a maximized window is dragged to
+ * unmaximize it early, so that the grabs is on the already back-to-normal window.
+ */
+static void
+grab_unmaximized_motion(struct weston_pointer_grab *grab)
+{
+	struct weston_pointer *pointer = grab->pointer;
+	struct weston_move_grab *move = (struct weston_move_grab *) grab;
+	struct shell_surface *shsurf = move->base.shsurf;
+	struct weston_surface *surface =
+		weston_desktop_surface_get_surface(shsurf->desktop_surface);
+	struct weston_coord_global cpos;
+	float dx, move_dx;
+	int32_t saved_height, saved_width, cx;
+
+	/* Skip if we have already unmaximized. */
+	if (shsurf->maximized.grab_unmaximized)
+		return;
+
+	/* don't reset position at next commit */
+	shsurf->maximized.grab_unmaximized = true;
+
+	/* Reposition the window such that the mouse remain within the
+	 * new bound of the window after resize. */
+	get_saved_geometry(surface, &saved_height, &saved_width);
+
+	/* calc based on pointer position based on current (maximized) window size */
+	/* move->delta.c.x is offset of pointer position from window origin */
+	dx = wl_fixed_to_double(move->delta.c.x) / surface->width;
+	dx = fabsf(dx);
+	/* calc the distance based on restored window size */
+	cx = saved_width * dx;
+	/* obtain new window offset from current pointer position */
+	cx = wl_fixed_to_int(pointer->pos.c.x) - cx;
+
+	/* calc the final new position */
+	move_dx = wl_fixed_from_int(cx) - pointer->grab_pos.c.x;
+
+#ifdef WM_DEBUG
+	   weston_log("%s: unmaximized %dx%d -> %dx%d, dx: %f as %f\n",
+				  __func__, surface->height, surface->width,
+				  saved_height, saved_width,
+		   move->delta.c.x, move_dx);
+#endif
+
+	/* recenter the window horizontally */
+	move->delta.c.x = move_dx;
+
+	/* restore from maximized */
+	set_maximized(shsurf, false);
+
+	/* and move to new position relative to pointer */
+	shsurf->maximized.grab_maximize_when_released = constrain_position(move, &cpos);
+
+	/* vertically we need to account for the title bar height */
+	move->delta.c.y -= TITLEBAR_HEIGHT;
+	cpos.c.y -= TITLEBAR_HEIGHT;
+
+	/* update position */
+	weston_view_set_position(shsurf->view, cpos);
 }
 
 static struct desktop_shell *
@@ -2105,9 +2228,9 @@ set_position_from_xwayland(struct shell_surface *shsurf)
 					     offs);
 
 #ifdef WM_DEBUG
-	weston_log("%s: XWM %d, %d; geometry %d, %d; view %f, %f\n",
+	weston_log("%s: XWM %d, %d; geometry %d, %d; offs %f, %f\n",
 		   __func__, (int)shsurf->xwayland.pos.c.x, (int)shsurf->xwayland.pos.c.y,
-		   (int)geometry.x, (int)geometry.y, pos.c.x, pos.c.y);
+		   (int)geometry.x, (int)geometry.y, offs.c.x, offs.c.y);
 #endif
 }
 
@@ -2451,6 +2574,7 @@ set_maximized(struct shell_surface *shsurf, bool maximized)
 	struct weston_desktop_surface *desktop_surface = shsurf->desktop_surface;
 	struct weston_surface *surface =
 		weston_desktop_surface_get_surface(shsurf->desktop_surface);
+	struct weston_geometry geometry;
 
 	if (weston_desktop_surface_get_fullscreen(desktop_surface))
 		return;
@@ -2467,6 +2591,11 @@ set_maximized(struct shell_surface *shsurf, bool maximized)
 
 		weston_desktop_surface_set_orientation(shsurf->desktop_surface,
 							WESTON_TOP_LEVEL_TILED_ORIENTATION_NONE);
+
+		/* save current window size to restore when un-maximizing */
+		geometry = weston_desktop_surface_get_geometry(shsurf->desktop_surface);
+		shsurf->maximized.saved_width = geometry.width;
+		shsurf->maximized.saved_height = geometry.height;
 	}
 	weston_desktop_surface_set_maximized(desktop_surface, maximized);
 	set_shsurf_size_maximized_or_fullscreen(shsurf, maximized, false);
