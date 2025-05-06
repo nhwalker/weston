@@ -400,6 +400,17 @@ weston_tf_to_colorop_curve(const struct weston_color_tf_info *tf_info, bool inve
 		/* sRGB piece-wise is the EOTF, and its inverse is the OETF. */
 		return inverse ? WDRM_COLOROP_CURVE_1D_SRGB_INV_EOTF :
 				 WDRM_COLOROP_CURVE_1D_SRGB_EOTF;
+	case WESTON_TF_ST2084_PQ:
+		/**
+		 * The PQ transfer function, scaled by 125.0f, so that 10,000
+		 * nits correspond to 125.0f.
+		 *
+		 * We handle this by adding a multiplier colorop to scale things
+		 * up or down, depending if we have the EOTF or its inverse.
+		 * See drm_color_pipeline_state_from_xform_steps().
+		 */
+		return inverse ? WDRM_COLOROP_CURVE_1D_PQ_125_INV_EOTF :
+				 WDRM_COLOROP_CURVE_1D_PQ_125_EOTF;
 	default:
 		return WDRM_COLOROP_CURVE_1D__COUNT;
 	}
@@ -718,8 +729,25 @@ curve_create_colorop_state(struct drm_color_pipeline_state *pipeline_state,
 	curve = (step == WESTON_COLOR_CURVE_STEP_PRE) ? &xform->pre_curve :
 							&xform->post_curve;
 
-	colorop = search_colorop_compatible_curve(pipeline, previous_colorop,
-						  curve, allow_lower_curve);
+	if (step == WESTON_COLOR_CURVE_STEP_POST &&
+	    curve->type == WESTON_COLOR_CURVE_TYPE_ENUM &&
+	    curve->u.enumerated.tf->tf == WESTON_TF_ST2084_PQ) {
+		/**
+		 * enum wdrm_colorop_curve_1d does not have PQ and its inverse,
+		 * but PQ and its inverse scaled by 125. This requires us to
+		 * include a multiplier colorop in the pipeline, which
+		 * complicates things a bit. As post-curves are not common in
+		 * input-to-blend color transformations (the kind of xform that
+		 * we offload through colorops), we only support offloading PQ
+		 * post-curve using 1D LUT.
+		 */
+		colorop = search_colorop_type(pipeline, previous_colorop,
+					      WDRM_COLOROP_TYPE_1D_LUT);
+	} else {
+		colorop = search_colorop_compatible_curve(pipeline, previous_colorop,
+							  curve, allow_lower_curve);
+	}
+
 	if (!colorop)
 		return NULL;
 
@@ -773,6 +801,40 @@ mapping_create_colorop_state(struct drm_color_pipeline_state *pipeline_state,
 	return drm_colorop_state_create(pipeline_state, colorop, object);
 }
 
+static struct drm_colorop_state *
+multiplier_create_colorop_state(struct drm_color_pipeline_state *pipeline_state,
+				struct drm_colorop *first_colorop,
+				struct drm_colorop *last_colorop,
+				float multiplier)
+{
+	struct drm_color_pipeline *pipeline = pipeline_state->pipeline;
+	struct drm_colorop_state_object object;
+	struct drm_colorop *colorop;
+	bool found = false;
+
+	/**
+	 * The multiplier colorop must be between first_colorop and
+	 * last_colorop (excluding both).
+	 */
+	colorop = first_colorop;
+	while ((colorop = drm_colorop_iterate(pipeline, colorop))) {
+		if (colorop == last_colorop)
+			break;
+
+		if (colorop->type == WDRM_COLOROP_TYPE_MULTIPLIER) {
+			found = true;
+			break;
+		}
+	}
+	if (!found)
+		return NULL;
+
+	object.type = COLOROP_OBJECT_TYPE_MULTIPLIER;
+	object.multiplier = multiplier * (1ULL << 32);
+
+	return drm_colorop_state_create(pipeline_state, colorop, object);
+}
+
 static struct drm_color_pipeline_state *
 drm_color_pipeline_state_from_xform_steps(struct drm_color_pipeline *pipeline,
 					  struct weston_color_transform *xform,
@@ -783,6 +845,8 @@ drm_color_pipeline_state_from_xform_steps(struct drm_color_pipeline *pipeline,
 	struct drm_color_pipeline_state *pipeline_state;
 	struct drm_colorop_state *colorop_state;
 	struct drm_colorop *previous_colorop;
+	struct drm_colorop *pre_colorop = NULL;
+	struct drm_colorop *post_colorop = NULL;
 	uint32_t type;
 
 	pipeline_state = drm_color_pipeline_state_create(pipeline, xform);
@@ -800,7 +864,8 @@ drm_color_pipeline_state_from_xform_steps(struct drm_color_pipeline *pipeline,
 		if (!colorop_state)
 			goto err;
 
-		previous_colorop = colorop_state->colorop;
+		pre_colorop = colorop_state->colorop;
+		previous_colorop = pre_colorop;
 	}
 
 	/* Find colorop for color mapping. */
@@ -825,7 +890,52 @@ drm_color_pipeline_state_from_xform_steps(struct drm_color_pipeline *pipeline,
 		if (!colorop_state)
 			goto err;
 
-		previous_colorop = colorop_state->colorop;
+		post_colorop = colorop_state->colorop;
+	}
+
+	/**
+	 * Pre-curve may need a multiplier. We still don't support that for
+	 * post-curve, mainly because it's probably useless and complicates
+	 * things. See curve_create_colorop_state().
+	 */
+	if (pre_colorop->type == WDRM_COLOROP_TYPE_1D_CURVE) {
+		struct weston_color_curve *curve = &xform->pre_curve;
+		float multiplier;
+
+		assert(curve->type == WESTON_COLOR_CURVE_TYPE_ENUM);
+		if (curve->u.enumerated.tf->tf == WESTON_TF_ST2084_PQ) {
+			/**
+			 * If the colorop is 1D CURVE and our curve represents
+			 * the PQ EOTF, we need to take into consideration that
+			 * enum wdrm_colorop_curve_1d only supports PQ scaled by
+			 * 125. So We need a multiplier colorop after the curve
+			 * to normalize that to [0, 1]. This multiplier may be
+			 * before/after the color mapping, it doesn't matter.
+			 * But it needs to be before post-curve (if we have one,
+			 * which is unlikely). Something similar happens to its
+			 * inverse (PQ EOTF 125 inverse): as it expects values
+			 * in the [0, 125] range, we need a multiplier before
+			 * the pre-curve to scale up input.
+			 */
+			if (curve->u.enumerated.tf_direction == WESTON_FORWARD_TF) {
+				multiplier = 1.0f / 125.0f;
+				colorop_state =
+					multiplier_create_colorop_state(pipeline_state,
+									pre_colorop,
+									post_colorop,
+									multiplier);
+			} else {
+				multiplier = 125.0f;
+				colorop_state =
+					multiplier_create_colorop_state(pipeline_state,
+									NULL,
+									pre_colorop,
+									multiplier);
+			}
+
+			if (!colorop_state)
+				goto err;
+		}
 	}
 
 	drm_debug(b, "%s[colorop] color pipeline id %u IS compatible with xform %p;\n" \

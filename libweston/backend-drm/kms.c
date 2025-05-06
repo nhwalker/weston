@@ -1471,6 +1471,22 @@ drm_colorop_program_matrix(drmModeAtomicReq *req, struct drm_colorop *colorop,
 }
 
 static bool
+drm_colorop_program_multiplier(drmModeAtomicReq *req, struct drm_colorop *colorop,
+			       uint64_t multiplier, char **err_msg)
+{
+	int ret;
+
+	ret = colorop_add_prop(req, colorop, WDRM_COLOROP_MULTIPLIER, multiplier);
+	if (ret < 0) {
+		str_printf(err_msg, "failed to set multiplier %lu for multiplier colorop",
+				    multiplier);
+		return false;
+	}
+
+	return true;
+}
+
+static bool
 drm_colorop_program(drmModeAtomicReq *req, struct weston_color_transform *xform,
 		    struct drm_colorop_state *colorop_state, char **err_msg)
 {
@@ -1509,6 +1525,11 @@ drm_colorop_program(drmModeAtomicReq *req, struct weston_color_transform *xform,
 		ret = drm_colorop_program_3d_lut(req, compositor, colorop,
 						 colorop_state->object.lut_3d,
 						 err_msg);
+		return ret;
+	case COLOROP_OBJECT_TYPE_MULTIPLIER:
+		ret = drm_colorop_program_multiplier(req, colorop,
+						     colorop_state->object.multiplier,
+						     err_msg);
 		return ret;
 	}
 

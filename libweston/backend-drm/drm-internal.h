@@ -443,6 +443,7 @@ enum colorop_object_type {
 	COLOROP_OBJECT_TYPE_MATRIX,
 	COLOROP_OBJECT_TYPE_3x1D_LUT,
 	COLOROP_OBJECT_TYPE_3D_LUT,
+	COLOROP_OBJECT_TYPE_MULTIPLIER,
 };
 
 struct drm_colorop_state_object {
@@ -454,6 +455,7 @@ struct drm_colorop_state_object {
 	struct drm_colorop_matrix *mat;
 	struct drm_colorop_3x1d_lut *lut_3x1d;
 	struct drm_colorop_3d_lut *lut_3d;
+	uint64_t multiplier;
 };
 
 struct drm_colorop_state {
