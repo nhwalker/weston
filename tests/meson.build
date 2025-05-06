@@ -398,6 +398,20 @@ if get_option('shell-kiosk')
 	]
 endif
 
+if get_option('shell-desktop')
+	tests += [
+		{
+			'name': 'desktop-shell-fade-animation',
+			'sources': [
+				'test-close-animation.c',
+				xdg_shell_client_protocol_h,
+				xdg_shell_protocol_c,
+			],
+		},
+	]
+endif
+
+
 test_config_h = configuration_data()
 test_config_h.set_quoted('WESTON_TEST_REFERENCE_PATH', meson.current_source_dir() + '/reference')
 test_config_h.set_quoted('WESTON_MODULE_MAP', env_modmap)
