@@ -344,6 +344,9 @@ curve_to_lut_has_good_precision(struct weston_color_curve *curve)
  * @param xform The color transformation that owns the curve.
  * @param step The curve step (pre or post) from the xform.
  * @param lut_size The size of each LUT.
+ * @param forbid_bad_precision If true, this fails if we detect that we can't
+ * create a LUT from the curve without resulting in precision issues. If false,
+ * we simply log a warning.
  * @param err_msg Set on failure, untouched otherwise. Must be free()'d by caller.
  * @return NULL on failure, the 3x1D LUT on success.
  */
@@ -351,7 +354,8 @@ WL_EXPORT float *
 weston_color_curve_to_3x1D_LUT(struct weston_compositor *compositor,
 			       struct weston_color_transform *xform,
 			       enum weston_color_curve_step step,
-			       uint32_t lut_size, char **err_msg)
+			       uint32_t lut_size, bool forbid_bad_precision,
+			       char **err_msg)
 {
 	struct weston_color_curve *curve;
 	float divider = lut_size - 1;
@@ -371,9 +375,13 @@ weston_color_curve_to_3x1D_LUT(struct weston_compositor *compositor,
 	}
 
 	if (!curve_to_lut_has_good_precision(curve)) {
-		str_printf(err_msg, "can't create color LUT from curve, it would " \
-				    "result in bad precision");
-		return NULL;
+		if (forbid_bad_precision) {
+			str_printf(err_msg, "can't create color LUT from curve %p, it would " \
+					    "result in bad precision", curve);
+			return NULL;
+		}
+		weston_log("WARNING: converting curve %p to 3x1D LUT should probably " \
+			   "result in bad precision\n", curve);
 	}
 
 	switch(curve->type) {

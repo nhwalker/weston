@@ -652,7 +652,8 @@ float *
 weston_color_curve_to_3x1D_LUT(struct weston_compositor *compositor,
 			       struct weston_color_transform *xform,
 			       enum weston_color_curve_step step,
-			       uint32_t lut_size, char **err_msg);
+			       uint32_t lut_size, bool forbid_bad_precision,
+			       char **err_msg);
 
 void
 find_neighbors(struct weston_compositor *compositor, uint32_t len, float *array,
