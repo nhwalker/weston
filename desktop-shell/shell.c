@@ -81,6 +81,13 @@ shsurf_is_max_or_fullscreen(struct shell_surface *shsurf)
 		weston_desktop_surface_get_fullscreen(dsurface);
 }
 
+static int
+surface_close_animation_get_label(struct weston_surface *surface, char *buf, size_t len)
+{
+	return snprintf(buf, len, "surface closing fade out animation");
+}
+
+
 /*
  * helper to take into account panels and send the appropriate dimensions
  */
@@ -2012,6 +2019,7 @@ desktop_surface_removed(struct weston_desktop_surface *desktop_surface,
 	    shsurf->shell->win_close_animation_type == ANIMATION_FADE) {
 
 		if (shsurf->shell->compositor->state == WESTON_COMPOSITOR_ACTIVE &&
+		    shsurf->view->output &&
 		    shsurf->view->output->power_state == WESTON_OUTPUT_POWER_NORMAL) {
 			struct weston_coord_global pos;
 
@@ -2024,6 +2032,7 @@ desktop_surface_removed(struct weston_desktop_surface *desktop_surface,
 			 * migrated to a different output, so re-compute  this
 			 * as the animation requires having the same output as
 			 * the view */
+			weston_surface_set_label_func(surface, surface_close_animation_get_label);
 			shsurf->wview_anim_fade = weston_view_create(surface);
 			weston_view_set_output(shsurf->wview_anim_fade,
 					       shsurf->view->output);

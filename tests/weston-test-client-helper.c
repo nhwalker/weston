@@ -456,9 +456,10 @@ surface_enter(void *data,
 {
 	struct surface *surface = data;
 
-	surface->output = wl_output_get_user_data(output);
-
-	testlog("test-client: got surface enter output %p\n", surface->output);
+	if (output) {
+		surface->output = wl_output_get_user_data(output);
+		testlog("test-client: got surface enter output %p\n", surface->output);
+	}
 }
 
 static void
@@ -467,10 +468,11 @@ surface_leave(void *data,
 {
 	struct surface *surface = data;
 
-	surface->output = NULL;
-
-	testlog("test-client: got surface leave output %p\n",
-		wl_output_get_user_data(output));
+	if (output) {
+		surface->output = NULL;
+		testlog("test-client: got surface leave output %p\n",
+			wl_output_get_user_data(output));
+	}
 }
 
 static const struct wl_surface_listener surface_listener = {

@@ -402,6 +402,26 @@ if get_option('shell-kiosk')
 	]
 endif
 
+if get_option('shell-desktop')
+	tests += [
+		{
+			'name': 'desktop-shell-fade-animation',
+			'sources': [
+				'test-close-animation.c',
+				xdg_shell_client_protocol_h,
+				xdg_shell_protocol_c,
+			],
+                        # these tests do not properly clean-up the xdg_surface
+                        # and we don't clean any running or pending animations on
+                        # output destroy; this required to exercise the desktop-shell
+                        # API removal of window and not fail due to this leak but
+                        # rather to catch issues in desktop-shell
+                        'local_env' : { 'ASAN_OPTIONS' : 'detect_leaks=0' },
+		},
+	]
+endif
+
+
 test_config_h = configuration_data()
 test_config_h.set_quoted('WESTON_TEST_REFERENCE_PATH', meson.current_source_dir() + '/reference')
 test_config_h.set_quoted('WESTON_MODULE_MAP', env_modmap)
@@ -429,8 +449,10 @@ foreach t : tests
 
 	t_deps = [ dep_test_client, dep_libweston_private_h ]
 	t_deps += t.get('dep_objs', [])
+        t_env = t.get('local_env', {})
 
 	run_exclusive = t.get('run_exclusive', false)
+        test_env += t_env
 
 	t_exe = executable(
 		t_name,
