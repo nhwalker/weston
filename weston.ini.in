@@ -1,12 +1,24 @@
+# WARNING: This is an ini example file; refer to the manual page
+# for further explanations of these entries/sections.
+#
+# Note that not all entries can be set at the same time; (for instance)
+# depending on the shell loaded some sections like '[launcher]' or entries in
+# the '[shell]' section would be ignored; kiosk-shell ignores everything apart
+# from 'background-color' while lua-shell does the same and looks only for
+# 'lua-script'; similarly duplicated entry values are present to show up
+# other possible values
 [core]
-#modules=screen-share.so
-#xwayland=true
-#shell=desktop
+xwayland=true
+shell=desktop
+#modules=systemd-notify.so
+#shell=lua
+#shell=kiosk
 #gbm-format=xrgb2101010
 #require-input=true
+repaint-window=7
 
 [shell]
-background-image=/usr/share/backgrounds/gnome/Aqua.jpg
+background-image=/usr/share/backgrounds/mate/nature/Aqua.jpg
 background-color=0x002244
 background-type=tile
 clock-format=minutes
@@ -14,13 +26,10 @@ panel-color=0x90ff0000
 locking=true
 animation=zoom
 startup-animation=fade
-lua-script=@libexecdir@/shell.lua
-#binding-modifier=ctrl
-#num-workspaces=6
+#lua-script=@libexecdir@/shell.lua
+#binding-modifier=none
 #cursor-theme=whiteglass
 #cursor-size=24
-
-#animation=fade
 
 [launcher]
 icon=/usr/share/icons/gnome/24x24/apps/utilities-terminal.png
@@ -46,28 +55,59 @@ displayname=Weston Flower
 path=@libexecdir@/weston-keyboard
 
 #[output]
-#name=LVDS1
-#mode=1680x1050
-#transform=90
-#icc_profile=/usr/share/color/icc/colord/Bluish.icc
+#name=LVDS-1
+#mode=1680x1050@30
+#transform=normal
+#transform=rotate-90
+#transform=rotate-180
+#transform=rotate-270
+#transform=flipped
+#transform=flipped-rotate-90
+#transform=flipped-rotate-180
+#transform=flipped-rotate-270
+
+[output]
+name=eDP-1
+# generate from cvt to force a mode line
+mode=173.00 1920 2048 2248 2576  1080 1083 1088 1120 -hsync +vsync
 
 #[output]
-#name=VGA1
-#mode=173.00  1920 2048 2248 2576  1080 1083 1088 1120 -hsync +vsync
-#transform=flipped
+#name=HDMI-A-1
+#mode=1920x1080@60
+
+# 'clone-of' requires HW hardware support; check out if your display driver
+# supports this
+#[output]
+#name=HDMI-A-2
+#clone-of=HDMI-A-1
 
 #[output]
 #name=X1
 #mode=1024x768@60
-#transform=flipped-90
+#transform=rotate-180
 
-#[libinput]
-#enable-tap=true
-#tap-and-drag=true
+# 'mirror-of' can't be mirror a native DRM-backend to another native DRM-backend
+# only virtual outputs created by RDP/VNC/PipeWire
+#[output]
+#name=vnc-0
+#mode=1024x768@60
+#mirror-of=eDP-1
+
+#[output]
+#name=pipewire-0
+#mirror-of=eDP-1
+#
+#[output]
+#name=rdp-0
+#mirror-of=eDP-1
+
+[libinput]
+enable-tap=true
+tap-and-drag=true
 #tap-and-drag-lock=true
-#disable-while-typing=false
-#middle-button-emulation=true
-#left-handed=true
+disable-while-typing=false
+middle-button-emulation=true
+left-handed=true
 #rotation=90
 #accel-profile=flat
 #accel-speed=.9
@@ -81,10 +121,6 @@ path=@libexecdir@/weston-keyboard
 #constant_accel_factor = 50
 #min_accel_factor = 0.16
 #max_accel_factor = 1.0
-
-[screen-share]
-command=@bindir@/weston --backend=rdp --shell=fullscreen --no-resizeable
-#start-on-startup=false
 
 #[xwayland]
 #path=@bindir@/Xwayland
