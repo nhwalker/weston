@@ -202,8 +202,8 @@ pageflip_timer_counter_handler(void *data)
 		char desc[1024];
 
 		output->page_flips_per_timer_interval =
-			(float) (output->page_flips_counted /
-					b->perf_page_flips_stats.frame_counter_interval);
+			(float) (output->page_flips_counted * (1000UL * NSEC_PER_SEC) /
+					b->perf_page_flips_stats.timer_arm_interval);
 
 		snprintf(desc, sizeof(desc),
 			 "output %s KMS page flips", output_base->name);
@@ -216,13 +216,14 @@ pageflip_timer_counter_handler(void *data)
 
 
 	wl_event_source_timer_update(b->perf_page_flips_stats.pageflip_timer_counter,
-				     1000 * b->perf_page_flips_stats.frame_counter_interval);
+				     b->perf_page_flips_stats.timer_arm_interval /
+				     NSEC_PER_SEC);
 
 	return 0;
 }
 
 static int
-drm_backend_pageflip_counter_timer_create(struct drm_backend *b, uint32_t interval)
+drm_backend_pageflip_counter_timer_create(struct drm_backend *b, uint64_t interval)
 {
 	struct wl_event_loop *loop = NULL;
 	struct weston_compositor *ec = b->compositor;
@@ -239,7 +240,7 @@ drm_backend_pageflip_counter_timer_create(struct drm_backend *b, uint32_t interv
 		return -1;
 	}
 
-	b->perf_page_flips_stats.frame_counter_interval = interval;
+	b->perf_page_flips_stats.timer_arm_interval = interval;
 
 	return 0;
 }
@@ -251,7 +252,8 @@ drm_backend_pageflip_counter_timer_arm(struct drm_backend *b)
 		return;
 
 	wl_event_source_timer_update(b->perf_page_flips_stats.pageflip_timer_counter,
-				     1000 * b->perf_page_flips_stats.frame_counter_interval);
+				     b->perf_page_flips_stats.timer_arm_interval /
+				     NSEC_PER_SEC);
 
 	b->perf_page_flips_stats.timer_armed = true;
 }

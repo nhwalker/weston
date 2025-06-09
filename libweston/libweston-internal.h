@@ -44,7 +44,7 @@
 #include <assert.h>
 #include "color.h"
 
-#define DEFAULT_FRAME_RATE_INTERVAL 1 /* seconds */
+#define DEFAULT_FRAME_RATE_INTERVAL (200UL * NSEC_PER_SEC) /* 200ms */
 
 /* compositor <-> renderer interface */
 

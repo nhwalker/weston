@@ -3980,8 +3980,20 @@ surface_frame_rate_stats(void *data)
 {
 	struct weston_surface *surf = data;
 	struct weston_compositor *compositor = surf->compositor;
-	uint32_t frame_counter_interval =
-		compositor->perf_surface_stats.frame_counter_interval;
+	uint64_t frame_timer_interval =
+		compositor->perf_surface_stats.timer_arm_interval;
+	struct timespec now = {};
+	uint64_t delta = 0UL;
+
+	weston_compositor_read_presentation_clock(compositor, &now);
+
+	if (timespec_to_nsec(&surf->previous_timestamp) > 0)
+		delta = timespec_sub_to_nsec(&now, &surf->previous_timestamp);
+
+	if (delta > 0 && delta != compositor->perf_surface_stats.timer_arm_interval)
+		frame_timer_interval += delta;
+
+	surf->previous_timestamp = now;
 
 	if (surf->resource) {
 		char surface_desc[512];
@@ -3998,9 +4010,10 @@ surface_frame_rate_stats(void *data)
 				 "unlabelled surface %d", res_id);
 		}
 
-		surf->frame_commit_fps_counter =
-			(float) (surf->frame_commit_counter / frame_counter_interval);
 
+		surf->frame_commit_fps_counter =
+			(float) (surf->frame_commit_counter * (1000UL * NSEC_PER_SEC) /
+				 frame_timer_interval);
 		snprintf(p_counter_fc_counter, sizeof(p_counter_fc_counter),
 			 "%s #%d", (char *) surface_desc, surf->s_id);
 
@@ -4008,7 +4021,8 @@ surface_frame_rate_stats(void *data)
 					 surf->frame_commit_fps_counter);
 
 		surf->painted_frame_fps_counter =
-			(float) (surf->painted_frame_counter / frame_counter_interval);
+			(float) (surf->painted_frame_counter * (1000UL * NSEC_PER_SEC) /
+				frame_timer_interval);
 
 		snprintf(p_counter_painted_counter, sizeof(p_counter_painted_counter),
 			 "%s #%d (painted)", (char *) surface_desc, surf->s_id);
@@ -4056,13 +4070,14 @@ static int
 surface_statistics_timer_handler(void *data)
 {
 	struct weston_compositor *comp = data;
-	unsigned frm_cnt_int = comp->perf_surface_stats.frame_counter_interval;
 	struct wl_event_source *frm_cnt_timer =
 		comp->perf_surface_stats.frame_counter_timer;
+	unsigned int timer_arm_interval_msecs =
+		comp->perf_surface_stats.timer_arm_interval / NSEC_PER_SEC;
 
 	for_each_view_in_each_layer(comp, surface_frame_rate_stats);
 
-	wl_event_source_timer_update(frm_cnt_timer, 1000 * frm_cnt_int);
+	wl_event_source_timer_update(frm_cnt_timer, timer_arm_interval_msecs);
 
 	return 0;
 }
@@ -9557,10 +9572,9 @@ debug_scene_view_print(FILE *fp, struct weston_view *view, int view_idx)
 
 	if (weston_surface_is_mapped(view->surface)) {
 		fprintf(fp, "\t\tCommit frame rate: %2.2f, Painted frame "
-			     "rate: %2.2f (sampled interval: %dsec)\n",
+			     "rate: %2.2f (aggregated over 1sec)\n",
 			     view->surface->frame_commit_fps_counter,
-			     view->surface->painted_frame_fps_counter,
-			     ec->perf_surface_stats.frame_counter_interval);
+			     view->surface->painted_frame_fps_counter);
 	}
 
 }
@@ -9685,11 +9699,11 @@ weston_compositor_print_scene_graph(struct weston_compositor *ec)
 }
 
 static void
-weston_compositor_create_surface_counter_fps(struct weston_compositor *ec, uint32_t interval)
+weston_compositor_create_surface_counter_fps(struct weston_compositor *ec, uint64_t interval)
 {
 	struct wl_event_loop *loop = wl_display_get_event_loop(ec->wl_display);
 
-	ec->perf_surface_stats.frame_counter_interval = interval;
+	ec->perf_surface_stats.timer_arm_interval = interval;
 
 	ec->perf_surface_stats.frame_counter_timer =
 		wl_event_loop_add_timer(loop, surface_statistics_timer_handler, ec);
@@ -9700,7 +9714,7 @@ weston_compositor_arm_surface_counter_fps(struct weston_compositor *ec)
 {
 	assert(ec->perf_surface_stats.frame_counter_timer);
 	wl_event_source_timer_update(ec->perf_surface_stats.frame_counter_timer,
-				     1000 * ec->perf_surface_stats.frame_counter_interval);
+				     ec->perf_surface_stats.timer_arm_interval / NSEC_PER_SEC);
 }
 
 WL_EXPORT void
