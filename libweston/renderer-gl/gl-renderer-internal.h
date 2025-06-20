@@ -492,6 +492,8 @@ struct gl_renderer {
 	/* GL_EXT_robustness */
 	PFNGLGETGRAPHICSRESETSTATUSEXTPROC get_graphics_reset_status;
 
+	bool recovering;
+
 	uint64_t features;
 
 	GLenum pbo_usage;

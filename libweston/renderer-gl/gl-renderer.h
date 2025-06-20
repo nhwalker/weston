@@ -190,4 +190,11 @@ struct gl_renderer_interface {
 	 * EGL_ANDROID_native_fence_sync extension.
 	 */
 	int (*create_fence_fd)(struct weston_output *output);
+
+	/* Tell the renderer if the compositor is recovering from GPU reset.
+	 *
+	 * \param ec The compositor the renderer belongs to
+	 * \param recovering If the compositor is recovering from GPU reset
+	 */
+	void (*set_recovering)(struct weston_compositor *ec, bool recovering);
 };

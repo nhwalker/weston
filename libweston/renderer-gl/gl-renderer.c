@@ -559,6 +559,14 @@ static const struct yuv_format_descriptor yuv_formats[] = {
 };
 
 static void
+gl_renderer_set_recovering(struct weston_compositor *ec, bool recovering)
+{
+	struct gl_renderer *gr = get_renderer(ec);
+
+	gr->recovering = recovering;
+}
+
+static void
 timeline_begin_render_query(struct gl_renderer *gr, GLuint query)
 {
 	if (gl_features_has(gr, FEATURE_GPU_TIMELINE) &&
@@ -5149,4 +5157,5 @@ WL_EXPORT struct gl_renderer_interface gl_renderer_interface = {
 	.output_fbo_create = gl_renderer_output_fbo_create,
 	.output_destroy = gl_renderer_output_destroy,
 	.create_fence_fd = gl_renderer_create_fence_fd,
+	.set_recovering = gl_renderer_set_recovering,
 };
