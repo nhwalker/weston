@@ -1086,7 +1086,7 @@ drm_assign_planes(struct weston_output *output_base)
 	struct drm_pending_state *pending_state = device->repaint_data;
 	struct drm_output_state *state = NULL;
 	struct drm_plane_state *plane_state;
-	struct drm_writeback_state *wb_state = output->wb_state;
+	struct drm_writeback_state *wb_state;
 	struct weston_paint_node *pnode;
 	struct weston_plane *primary = &output_base->primary_plane;
 	enum drm_output_propose_state_mode mode = DRM_OUTPUT_PROPOSE_STATE_PLANES_ONLY;
@@ -1095,6 +1095,11 @@ drm_assign_planes(struct weston_output *output_base)
 
 	drm_debug(b, "\t[repaint] preparing state for output %s (%lu)\n",
 		  output_base->name, (unsigned long) output_base->id);
+
+	if (device->atomic_modeset) {
+		drm_output_pick_writeback_capture_task(output);
+	}
+	wb_state = output->wb_state;
 
 	if (!device->sprites_are_broken && !output_base->disable_planes &&
 	    !output->is_virtual && b->gbm) {
