@@ -62,7 +62,7 @@ drm_colorop_3x1d_lut_create(struct drm_plane *plane,
 {
 	struct drm_device *device = plane->device;
 	struct drm_colorop_3x1d_lut *colorop_lut;
-	struct drm_color_lut *drm_lut;
+	struct drm_color_lut_32 *drm_lut;
 	uint32_t blob_id;
 	unsigned int i;
 	int ret;
@@ -70,9 +70,9 @@ drm_colorop_3x1d_lut_create(struct drm_plane *plane,
 	drm_lut = xzalloc(len_lut * sizeof(*drm_lut));
 
 	for (i = 0; i < len_lut; i++) {
-		drm_lut[i].red   = lut[i] * 0xffff;
-		drm_lut[i].green = lut[i + len_lut] * 0xffff;
-		drm_lut[i].blue  = lut[i + 2 * len_lut] * 0xffff;
+		drm_lut[i].red   = lut[i] * 0xffffffff;
+		drm_lut[i].green = lut[i + len_lut] * 0xffffffff;
+		drm_lut[i].blue  = lut[i + 2 * len_lut] * 0xffffffff;
 	}
 
 	ret = drmModeCreatePropertyBlob(device->drm.fd, drm_lut,
@@ -164,7 +164,7 @@ drm_colorop_3d_lut_create(struct drm_plane *plane,
 {
 	struct drm_device *device = plane->device;
 	struct drm_colorop_3d_lut *colorop_lut;
-	struct drm_color_lut *drm_lut;
+	struct drm_color_lut_32 *drm_lut;
 	uint32_t blob_id;
 	unsigned int index_r, index_g, index_b, index;
 	int ret;
@@ -186,9 +186,9 @@ drm_colorop_3d_lut_create(struct drm_plane *plane,
 				 * (or their code).
 				 */
 				index = index_r + len_lut * (index_g + len_lut * index_b);
-				drm_lut[index].red   = lut[3 * index + 0] * 0xffff;
-				drm_lut[index].green = lut[3 * index + 1] * 0xffff;
-				drm_lut[index].blue  = lut[3 * index + 2] * 0xffff;
+				drm_lut[index].red   = lut[3 * index + 0] * 0xffffffff;
+				drm_lut[index].green = lut[3 * index + 1] * 0xffffffff;
+				drm_lut[index].blue  = lut[3 * index + 2] * 0xffffffff;
 			}
 		}
 	}
