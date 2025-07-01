@@ -142,7 +142,7 @@ const struct drm_property_info plane_props[] = {
 
 struct drm_property_enum_info colorop_type_enums[] = {
 	[WDRM_COLOROP_TYPE_1D_CURVE] = { .name = "1D Curve", },
-	[WDRM_COLOROP_TYPE_1D_LUT] = { .name = "1D Curve Custom LUT", },
+	[WDRM_COLOROP_TYPE_1D_LUT] = { .name = "1D LUT", },
 	[WDRM_COLOROP_TYPE_CTM_3X4] = { .name = "3x4 Matrix", },
 	[WDRM_COLOROP_TYPE_MULTIPLIER] = { .name = "Multiplier", },
 	[WDRM_COLOROP_TYPE_3D_LUT] = { .name = "3D LUT", },
