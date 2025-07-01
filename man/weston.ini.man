@@ -255,6 +255,12 @@ sets the color of the placeholder (unsigned integer). The hexadecimal digit
 pairs are in order red, green, and blue. This placeholder is used for
 content-protection or when we're not able to lift a surface/view in a HW plane,
 but we require direct scan-out of buffers. Defaults to 0x660000 (red grenadier).
+.TP 7
+.BI "send-frame-callback-to-occluded-surface=" false
+configures the behavior to send out frame callback to occluded surfaces. As
+normally occluded surfaces do not receive frame callback. This changes that
+behaviour to allow clients react to events even if occluded as to not get stuck
+waiting for a frame callback which will never arive.
 .\"---------------------------------------------------------------------
 .SH "LIBINPUT SECTION"
 The

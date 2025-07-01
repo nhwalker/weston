@@ -1378,6 +1378,9 @@ struct weston_compositor {
 	/* Whether to let the compositor run without any input device. */
 	bool require_input;
 
+	/* Whether to send frame callbacks to occluded surfaces */
+	bool send_frame_cb_occluded_surface;
+
 	/* Whether to load multiple backends. */
 	bool multi_backend;
 
