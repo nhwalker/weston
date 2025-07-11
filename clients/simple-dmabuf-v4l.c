@@ -1584,21 +1584,6 @@ main(int argc, char **argv)
 
 	if (!v4l_init(display, window->buffers))
 		return 1;
-    // Create a second surface for background
-    printf("Creating surface...\n");
-   // bg_surface = wl_compositor_create_surface(display->compositor);
-    /*if (display->fshell) {
-            zwp_fullscreen_shell_v1_present_surface(display->fshell,
-                                                window->surface,
-                                                ZWP_FULLSCREEN_SHELL_V1_PRESENT_METHOD_DEFAULT,
-                                                NULL);
-        zwp_fullscreen_shell_v1_present_surface(display->fshell,
-                                                bg_surface,
-                                                ZWP_FULLSCREEN_SHELL_V1_PRESENT_METHOD_DEFAULT,
-                                                NULL);
-    }*/
-    printf("Drawing background...\n");
-    //draw_argb_background(display, bg_surface);
 
     sigint.sa_handler = signal_int;
     sigemptyset(&sigint.sa_mask);
