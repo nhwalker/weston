@@ -44,6 +44,10 @@
 #include <linux/videodev2.h>
 #include <linux/input.h>
 
+#include <gbm.h>
+#include <xf86drm.h>
+#include <string.h>
+
 #include <wayland-client.h>
 #include <wayland-cursor.h>
 #include <libweston/zalloc.h>
@@ -63,9 +67,12 @@
 
 struct window;
 
+struct wp_viewporter *viewporter;
+
 static void
 redraw(void *data, struct wl_callback *callback, uint32_t time);
 
+static struct wl_surface *bg_surface = NULL;
 static int
 xioctl(int fh, int request, void *arg)
 {
@@ -104,10 +111,50 @@ struct buffer_format {
 	unsigned strides[VIDEO_MAX_PLANES];
 };
 
+static void handle_output_geometry(void *data, struct wl_output *output,
+                                    int32_t x, int32_t y,
+                                    int32_t physical_width,
+                                    int32_t physical_height,
+                                    int32_t subpixel,
+                                    const char *make,
+                                    const char *model,
+                                    int32_t transform) {
+    // geometry not needed for size
+}
+static int screen_width=0;
+static int screen_height=0;
+
+static void handle_output_mode(void *data, struct wl_output *output,
+                               uint32_t flags, int32_t width, int32_t height,
+                               int32_t refresh) {
+    if (flags & WL_OUTPUT_MODE_CURRENT) {
+        screen_width = width;
+        screen_height = height;
+        printf("Detected screen resolution: %dx%d\n", width, height);
+    }
+}
+static void handle_done(void *data, struct wl_output *wl_output) {
+    // Optional: signal completion
+}
+
+static void handle_scale(void *data, struct wl_output *wl_output, int32_t factor) {
+    // Optional: store scale factor
+}
+static const struct wl_output_listener output_listener = {
+    .geometry = handle_output_geometry,
+    .mode = handle_output_mode,
+    .done = handle_done,
+    .scale = handle_scale,
+};
+
+struct gbm_device *gbm_dev = NULL;
+
 struct display {
 	struct wl_display *display;
 	struct wl_registry *registry;
 	struct wl_compositor *compositor;
+	struct wl_subcompositor *subcompositor; 
+	struct wp_viewporter *viewporter;
 	struct wl_seat *seat;
 	struct wl_pointer *pointer;
 	struct wl_keyboard *keyboard;
@@ -117,17 +164,21 @@ struct display {
 	struct wl_surface *cursor_surface;
 	struct xdg_wm_base *wm_base;
 	struct zwp_linux_dmabuf_v1 *dmabuf;
+	struct zwp_linux_dmabuf_v1 *dmabuf_bg;
+	int drmfd_bg;
 	struct weston_direct_display_v1 *direct_display;
-	struct wp_viewporter *viewporter;
 	bool requested_format_found;
 	uint32_t opts;
 
 	int v4l_fd;
 	struct buffer_format format;
 	uint32_t drm_format;
+	int32_t screen_width;
+	int32_t screen_height;
 	struct window *window;
 };
 
+struct wl_buffer *create_argb8888_dmabuf_buffer(struct display *display);
 struct buffer {
 	struct wl_buffer *buffer;
 	struct display *display;
@@ -154,7 +205,117 @@ struct window {
 	bool fullscreen_cursor;
 };
 
+
+static void draw_argb_background(struct display *display, struct wl_surface *surface);
+
 static bool running = true;
+
+struct buffer_data {
+    struct wl_buffer *buffer;
+    int done;
+};
+
+static void dmabuf_created(void *data,
+                           struct zwp_linux_buffer_params_v1 *params,
+                           struct wl_buffer *new_buffer) {
+    struct buffer_data *bd = data;
+    bd->buffer = new_buffer;
+    bd->done = 1;
+}
+
+static void dmabuf_failed(void *data,
+                          struct zwp_linux_buffer_params_v1 *params) {
+    struct buffer_data *bd = data;
+    fprintf(stderr, "DMA-BUF wl_buffer creation failed\n");
+    bd->buffer = NULL;
+    bd->done = 1;
+}
+
+static const struct zwp_linux_buffer_params_v1_listener dmabuf_param_listener = {
+    .created = dmabuf_created,
+    .failed = dmabuf_failed,
+};
+
+struct wl_buffer *create_argb8888_dmabuf_buffer(struct display *display)
+{
+    static struct gbm_device *gbm_dev = NULL;
+    int width = screen_width;
+    int height = screen_height;
+    display->drmfd_bg = open("/dev/dri/renderD128", O_RDWR | O_CLOEXEC);
+    if (display->drmfd_bg < 0) {
+       perror("Failed to open DRM device");
+       exit(EXIT_FAILURE);
+    }
+    if (!gbm_dev) {
+        gbm_dev = gbm_create_device(display->drmfd_bg);
+        if (!gbm_dev) {
+            fprintf(stderr, "Failed to create GBM device\n");
+            return NULL;
+        }
+    }
+
+    struct gbm_bo *bo = gbm_bo_create(gbm_dev, screen_width, height,
+                                      GBM_FORMAT_ARGB8888,
+                                      GBM_BO_USE_RENDERING | GBM_BO_USE_LINEAR);
+    if (!bo) {
+        fprintf(stderr, "Failed to create GBM BO\n");
+        return NULL;
+    }
+
+    int fd = gbm_bo_get_fd(bo);
+    if (fd < 0) {
+        fprintf(stderr, "Failed to get DMABUF FD from GBM BO\n");
+        gbm_bo_destroy(bo);
+        return NULL;
+    }
+
+    uint32_t stride = gbm_bo_get_stride(bo);
+    uint32_t offset = 0;
+    uint64_t modifier = gbm_bo_get_modifier(bo);
+
+    // Optional: Fill buffer with black (ARGB = 0xFF000000)
+    {
+        void *map_data;
+        void *addr = gbm_bo_map(bo, 0, 0, screen_width, height,
+                                GBM_BO_TRANSFER_WRITE,
+                                &stride, &map_data);
+        if (addr) {
+            memset(addr, 0x00, stride * height);  // black pixels
+
+            uint32_t *pixels = (uint32_t *)addr;
+	    int pixel_stride = stride / sizeof(uint32_t);
+		for (int y = 0; y < height; y++) {
+		    for (int x = 0; x < width; x++) {
+			pixels[y * pixel_stride + x] = 0x7F707070;
+		    }
+		}
+            gbm_bo_unmap(bo, map_data);
+        }
+    }
+
+    // Prepare zwp_linux_dmabuf parameters
+    struct zwp_linux_buffer_params_v1 *params =
+        zwp_linux_dmabuf_v1_create_params(display->dmabuf);
+
+    zwp_linux_buffer_params_v1_add(params, fd, 0, offset, stride,
+                                   modifier >> 32, modifier & 0xFFFFFFFF);
+
+    struct buffer_data buf_data = { 0 };
+    zwp_linux_buffer_params_v1_add_listener(params, &dmabuf_param_listener, &buf_data);
+    zwp_linux_buffer_params_v1_create(params, width, height,
+                                      DRM_FORMAT_ARGB8888, 0);
+
+    // Block until buffer creation completes
+    while (!buf_data.done)
+        wl_display_roundtrip(display->display);
+
+    // Clean up
+    zwp_linux_buffer_params_v1_destroy(params);
+    close(fd);
+    gbm_bo_destroy(bo);
+
+    return buf_data.buffer;
+}
 
 static int
 queue(struct display *display, struct buffer *buffer)
@@ -559,7 +720,16 @@ buffer_export(struct display *display, int index, int dmafd[])
 {
 	struct v4l2_exportbuffer expbuf;
 	unsigned i;
+	void *dummy;
+	size_t length = display->format.height * display->format.strides[0];
 
+	// Dummy mmap to satisfy drivers that need it before EXPBUF
+	dummy = mmap(NULL, length, PROT_READ | PROT_WRITE, MAP_SHARED, display->v4l_fd, 0);
+	if (dummy == MAP_FAILED) {
+		perror("mmap");
+		return 0;
+	}
+	munmap(dummy, length);
 	CLEAR(expbuf);
 
 	for (i = 0; i < display->format.num_planes; ++i) {
@@ -577,6 +747,7 @@ buffer_export(struct display *display, int index, int dmafd[])
 
 	return 1;
 }
+
 
 static int
 queue_initial_buffers(struct display *display,
@@ -709,13 +880,16 @@ xdg_surface_handle_configure(void *data, struct xdg_surface *surface,
 
 	xdg_surface_ack_configure(surface, serial);
 
-	if (window->initialized && window->wait_for_configure)
+	if (window->initialized && window->wait_for_configure){
 		redraw(window, NULL, 0);
+		//draw_argb_background(window, bg_surface);
+		}
 	window->wait_for_configure = false;
+	
 }
 
 static const struct xdg_surface_listener xdg_surface_listener = {
-	xdg_surface_handle_configure,
+	.configure = xdg_surface_handle_configure,
 };
 
 static void
@@ -725,7 +899,7 @@ xdg_toplevel_handle_configure(void *data, struct xdg_toplevel *toplevel,
 {
 	struct window *window = data;
 	uint32_t *p;
-
+printf("[xdg_toplevel_handle_configure] Received configure: width=%d, height=%d\n", width, height);
 	window->fullscreen = 0;
 	wl_array_for_each(p, states) {
 		uint32_t state = *p;
@@ -736,10 +910,17 @@ xdg_toplevel_handle_configure(void *data, struct xdg_toplevel *toplevel,
 		}
 	}
 
-	if (!window->viewport)
+	if (!window->viewport){
+	printf("[xdg_toplevel_handle_configure] No viewport; skipping.\n");
 		return;
+		}
 
 	if (window->fullscreen) {
+			printf("[xdg_toplevel_handle_configure] Window is fullscreen\n");
+
+		printf("  [display format] width=%d, height=%d\n",
+		       window->display->format.width,
+		       window->display->format.height);
 		float ratio_w = (float)width / window->display->format.width;
 		float ratio_h = (float)height / window->display->format.height;
 		int32_t viewport_w;
@@ -750,12 +931,14 @@ xdg_toplevel_handle_configure(void *data, struct xdg_toplevel *toplevel,
 			viewport_h = height;
 		} else {
 			viewport_w = width;
-			viewport_h = height / ratio_h * ratio_w;
+			//viewport_h = 720;//height / ratio_h * ratio_w;
+			viewport_h = height;
 		}
-
+		printf("  [viewport set] width=%d, height=%d\n", viewport_w, viewport_h);
 		wp_viewport_set_destination(window->viewport, viewport_w,
 					    viewport_h);
 	} else {
+	printf("[xdg_toplevel_handle_configure] Not fullscreen — setting viewport to (-1, -1)\n");
 		wp_viewport_set_destination(window->viewport, -1, -1);
 	}
 }
@@ -783,6 +966,8 @@ create_window(struct display *display, uint32_t win_flags)
 	window->callback = NULL;
 	window->display = display;
 	window->surface = wl_compositor_create_surface(display->compositor);
+	uint32_t surface_id = wl_proxy_get_id((struct wl_proxy *)window->surface);
+	printf("Surface ID: %u\n", surface_id);
 
 	if (display->wm_base) {
 		if (display->viewporter) {
@@ -808,6 +993,7 @@ create_window(struct display *display, uint32_t win_flags)
 		xdg_toplevel_add_listener(window->xdg_toplevel,
 					  &xdg_toplevel_listener, window);
 
+		xdg_toplevel_set_fullscreen(window->xdg_toplevel, NULL);
 		xdg_toplevel_set_title(window->xdg_toplevel, "simple-dmabuf-v4l");
 		xdg_toplevel_set_app_id(window->xdg_toplevel,
 				"org.freedesktop.weston.simple-dmabuf-v4l");
@@ -819,6 +1005,19 @@ create_window(struct display *display, uint32_t win_flags)
 
 		window->wait_for_configure = true;
 		wl_surface_commit(window->surface);
+		bg_surface = wl_compositor_create_surface(display->compositor);
+		uint32_t id = wl_proxy_get_id((struct wl_proxy *)bg_surface);
+		printf("Subsurface surface ID: %u\n", id);
+
+		struct wl_subsurface *bg_subsurface = wl_subcompositor_get_subsurface(display->subcompositor, bg_surface, window->surface);
+		assert(bg_subsurface);
+		wl_subsurface_set_position(bg_subsurface, 0, 0);
+		wl_subsurface_place_above(bg_subsurface, window->surface);
+
+		wl_display_roundtrip(display->display);  // Let wl_output events arrive
+
+		printf("screen: %dx%d\n", screen_width, screen_height);
+		draw_argb_background(display, bg_surface);
 	} else {
 		assert(0);
 	}
@@ -897,6 +1096,7 @@ redraw(void *data, struct wl_callback *callback, uint32_t time)
 
 	window->callback = wl_surface_frame(window->surface);
 	wl_callback_add_listener(window->callback, &frame_listener, window);
+	//wl_subsurface_set_position(window->surface, 100, 100);
 	wl_surface_commit(window->surface);
 	buffer->busy = 1;
 }
@@ -911,7 +1111,14 @@ dmabuf_modifier(void *data, struct zwp_linux_dmabuf_v1 *zwp_linux_dmabuf,
 {
 	struct display *d = data;
 	uint64_t modifier = u64_from_u32s(modifier_hi, modifier_lo);
-
+/*
+	printf("  with modifier: 0x%016llx for format: 0x%08x (%c%c%c%c)\n",
+	(unsigned long long)modifier, format,
+	format & 0xFF,
+	(format >> 8) & 0xFF,
+	(format >> 16) & 0xFF,
+	(format >> 24) & 0xFF);
+*/
 	if (format == d->drm_format && modifier == DRM_FORMAT_MOD_LINEAR)
 		d->requested_format_found = true;
 }
@@ -1091,6 +1298,7 @@ static const struct xdg_wm_base_listener wm_base_listener = {
 	xdg_wm_base_ping,
 };
 
+
 static void
 registry_handle_global(void *data, struct wl_registry *registry,
                        uint32_t id, const char *interface, uint32_t version)
@@ -1105,6 +1313,11 @@ registry_handle_global(void *data, struct wl_registry *registry,
 		d->seat = wl_registry_bind(registry,
 		                           id, &wl_seat_interface, 1);
 		wl_seat_add_listener(d->seat, &seat_listener, d);
+	} else if (strcmp(interface, wl_subcompositor_interface.name) == 0) {
+                d->subcompositor = wl_registry_bind(registry, id, &wl_subcompositor_interface, 1);
+	} else if (strcmp(interface, wl_output_interface.name) == 0) {
+        	struct wl_output *output = wl_registry_bind(registry, id, &wl_output_interface, 2);
+        	wl_output_add_listener(output, &output_listener, d);
 	} else if (strcmp(interface, wl_shm_interface.name) == 0) {
 		d->shm = wl_registry_bind(registry, id,
 					  &wl_shm_interface, 1);
@@ -1192,6 +1405,7 @@ create_display(uint32_t requested_format, uint32_t opt_flags)
 	return display;
 }
 
+
 static void
 destroy_display(struct display *display)
 {
@@ -1266,9 +1480,36 @@ signal_int(int signum)
 	running = false;
 }
 
+
+static void draw_argb_background(struct display *display, struct wl_surface *surface) {
+    int width = screen_width;
+    int height = screen_height;
+
+    printf("Creating baground surface....\n");
+    if (width == 0 || height == 0) {
+        fprintf(stderr, "draw_argb_background: invalid dimensions\n");
+        return;
+    }
+
+    //struct wl_buffer *bg_buffer = create_argb8888_buffer(display);
+    struct wl_buffer *bg_buffer = create_argb8888_dmabuf_buffer(display);
+    if (!bg_buffer) {
+        printf("Buffer creation argb8888 failed...\n");
+        return;
+    }
+
+    wl_surface_attach(surface, bg_buffer, 0, 0);
+    wl_surface_damage(surface, 0, 0, 100, 100);
+    printf("Commiting baground surface....\n");
+    wl_surface_commit(surface);
+}
+
 int
 main(int argc, char **argv)
 {
+
+
+        printf("starting......");
 	struct sigaction sigint;
 	struct display *display;
 	struct window *window;
@@ -1343,34 +1584,46 @@ main(int argc, char **argv)
 
 	if (!v4l_init(display, window->buffers))
 		return 1;
+    // Create a second surface for background
+    printf("Creating surface...\n");
+   // bg_surface = wl_compositor_create_surface(display->compositor);
+    /*if (display->fshell) {
+            zwp_fullscreen_shell_v1_present_surface(display->fshell,
+                                                window->surface,
+                                                ZWP_FULLSCREEN_SHELL_V1_PRESENT_METHOD_DEFAULT,
+                                                NULL);
+        zwp_fullscreen_shell_v1_present_surface(display->fshell,
+                                                bg_surface,
+                                                ZWP_FULLSCREEN_SHELL_V1_PRESENT_METHOD_DEFAULT,
+                                                NULL);
+    }*/
+    printf("Drawing background...\n");
+    //draw_argb_background(display, bg_surface);
 
-	sigint.sa_handler = signal_int;
-	sigemptyset(&sigint.sa_mask);
-	sigint.sa_flags = SA_RESETHAND;
-	sigaction(SIGINT, &sigint, NULL);
+    sigint.sa_handler = signal_int;
+    sigemptyset(&sigint.sa_mask);
+    sigint.sa_flags = SA_RESETHAND;
+    sigaction(SIGINT, &sigint, NULL);
 
-	/* Here we retrieve the linux-dmabuf objects, or error */
-	wl_display_roundtrip(display->display);
+    wl_display_roundtrip(display->display);
 
-	/* In case of error, running will be 0 */
-	if (!running)
-		return 1;
+    if (!running)
+        return 1;
 
-	/* We got all of our buffers, we can start the capture! */
-	if (!start_capture(display))
-		return 1;
+    if (!start_capture(display))
+        return 1;
 
-	window->initialized = true;
+    window->initialized = true;
 
-	if (!window->wait_for_configure)
-		redraw(window, NULL, 0);
+    if (!window->wait_for_configure)
+        redraw(window, NULL, 0);
 
-	while (running && ret != -1)
-		ret = wl_display_dispatch(display->display);
+    while (running && ret != -1)
+        ret = wl_display_dispatch(display->display);
 
-	fprintf(stderr, "simple-dmabuf-v4l exiting\n");
-	destroy_window(window);
-	destroy_display(display);
+    fprintf(stderr, "simple-dmabuf-v4l exiting\n");
+    destroy_window(window);
+    destroy_display(display);
 
-	return 0;
+    return 0;
 }
