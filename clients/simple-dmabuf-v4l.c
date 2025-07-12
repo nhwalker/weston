@@ -1486,12 +1486,14 @@ signal_int(int signum)
 
 
 static void
-draw_argb_background(struct display *display, struct wl_surface *surface) {
+draw_argb_background(struct display *display,
+		     struct wl_surface *surface)
+{
 	int width = screen_width;
 	int height = screen_height;
-	
+
 	/*FIXME: Delay could be removed if events are handled properly*/
-	usleep(500000); 
+	usleep(500000);
 	if (width == 0 || height == 0) {
 		fprintf(stderr, "draw_argb_background: invalid dimensions\n");
 		return;
