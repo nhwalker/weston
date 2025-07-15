@@ -44,9 +44,9 @@
 #include <linux/videodev2.h>
 #include <linux/input.h>
 
-#include <gbm.h>
-#include <xf86drm.h>
-#include <string.h>
+#include <sys/ioctl.h>
+#include <linux/udmabuf.h>
+#include <linux/memfd.h>
 
 #include <wayland-client.h>
 #include <wayland-cursor.h>
@@ -247,83 +247,106 @@ static const struct zwp_linux_buffer_params_v1_listener dmabuf_param_listener = 
 	.failed = dmabuf_failed,
 };
 
+#ifndef SYS_memfd_create
+#define SYS_memfd_create 319
+#endif
+
 struct wl_buffer *
 create_argb8888_dmabuf_buffer(struct display *display)
 {
-	static struct gbm_device *gbm_dev = NULL;
+	struct zwp_linux_buffer_params_v1 *params;
+	struct udmabuf_create create;
+	struct buffer_data buf_data = { 0 };
+	uint32_t *pixels;
+	void *addr;
 	int width = screen_width;
 	int height = screen_height;
-	display->drmfd_bg = open("/dev/dri/renderD128", O_RDWR | O_CLOEXEC);
-	if (display->drmfd_bg < 0) {
-		perror("Failed to open DRM device");
-		exit(EXIT_FAILURE);
-	}
-	if (!gbm_dev) {
-		gbm_dev = gbm_create_device(display->drmfd_bg);
-	if (!gbm_dev) {
-		fprintf(stderr, "Failed to create GBM device\n");
-	return NULL;
-	}
-	}
+	size_t stride = width * 4;
+	size_t size = stride * height;
+	int memfd, udmabuf_fd, dma_fd;
+	int seals;
 
-	struct gbm_bo *bo = gbm_bo_create(gbm_dev, screen_width, height,
-					  GBM_FORMAT_ARGB8888,
-					  GBM_BO_USE_RENDERING | GBM_BO_USE_LINEAR);
-	if (!bo) {
-		fprintf(stderr, "Failed to create GBM BO\n");
+	/* Step 1: Create memfd */
+	memfd = memfd_create("udmabuf", MFD_CLOEXEC | MFD_ALLOW_SEALING);
+	if (memfd < 0) {
+		perror("memfd_create failed");
 		return NULL;
 	}
 
-	int fd = gbm_bo_get_fd(bo);
-	if (fd < 0) {
-		fprintf(stderr, "Failed to get DMABUF FD from GBM BO\n");
-		gbm_bo_destroy(bo);
+	if (ftruncate(memfd, size) < 0) {
+		perror("ftruncate failed");
+		close(memfd);
 		return NULL;
 	}
 
-	uint32_t stride = gbm_bo_get_stride(bo);
-	uint32_t offset = 0;
-	uint64_t modifier = gbm_bo_get_modifier(bo);
+	seals = F_SEAL_SHRINK | F_SEAL_GROW | F_SEAL_SEAL;
+	if (fcntl(memfd, F_ADD_SEALS, seals) < 0) {
+		perror("fcntl(F_ADD_SEALS) failed");
+		close(memfd);
+		return NULL;
+	}
 
-	{
-		void *map_data;
-		void *addr = gbm_bo_map(bo, 0, 0, screen_width, height,
-					GBM_BO_TRANSFER_WRITE,
-					&stride, &map_data);
-		if (addr) {
-			memset(addr, 0x00, stride * height);  // black pixels
+	/* Step 2: Map memory and initialize with ARGB */
+	addr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, memfd, 0);
+	if (addr == MAP_FAILED) {
+		perror("mmap failed");
+		close(memfd);
+		return NULL;
+	}
 
-			uint32_t *pixels = (uint32_t *)addr;
-			int pixel_stride = stride / sizeof(uint32_t);
-			for (int y = 0; y < height; y++) {
-				for (int x = 0; x < width; x++) {
-				pixels[y * pixel_stride + x] = 0x7F707070;
-				}
-			}
-			gbm_bo_unmap(bo, map_data);
+	pixels = (uint32_t *)addr;
+	for (int y = 0; y < height; y++) {
+		for (int x = 0; x < width; x++) {
+			pixels[y * width + x] = 0x7F707070; /* ARGB8888 */
 		}
 	}
 
-	// Prepare zwp_linux_dmabuf parameters
-	struct zwp_linux_buffer_params_v1 *params =
-	zwp_linux_dmabuf_v1_create_params(display->dmabuf);
+	munmap(addr, size);
 
-	zwp_linux_buffer_params_v1_add(params, fd, 0, offset, stride,
-				       modifier >> 32, modifier & 0xFFFFFFFF);
+	/* Step 3: Create DMA-BUF using udmabuf */
+	udmabuf_fd = open("/dev/udmabuf", O_RDWR);
+	if (udmabuf_fd < 0) {
+		perror("open /dev/udmabuf failed");
+		close(memfd);
+		return NULL;
+	}
 
-	struct buffer_data buf_data = { 0 };
-	zwp_linux_buffer_params_v1_add_listener(params, &dmabuf_param_listener, &buf_data);
+	memset(&create, 0, sizeof(create));
+	create.memfd = memfd;
+	create.flags = UDMABUF_FLAGS_CLOEXEC;
+	create.offset = 0;
+	create.size = size;
+
+	dma_fd = ioctl(udmabuf_fd, UDMABUF_CREATE, &create);
+	if (dma_fd < 0) {
+		perror("UDMABUF_CREATE ioctl failed");
+		close(udmabuf_fd);
+		close(memfd);
+		return NULL;
+	}
+
+	close(udmabuf_fd);
+	close(memfd);
+
+	/* Step 4: Create wl_buffer using linux-dmabuf */
+	params = zwp_linux_dmabuf_v1_create_params(display->dmabuf);
+	zwp_linux_buffer_params_v1_add(params, dma_fd,
+					0,        /* plane index */
+					0,        /* offset */
+					stride,   /* stride */
+					0, 0);    /* modifier_lo, modifier_hi */
+
+	zwp_linux_buffer_params_v1_add_listener(params,
+						&dmabuf_param_listener, &buf_data);
+
 	zwp_linux_buffer_params_v1_create(params, width, height,
 					  DRM_FORMAT_ARGB8888, 0);
 
-	// Block until buffer creation completes
 	while (!buf_data.done)
 		wl_display_roundtrip(display->display);
 
-	// Clean up
 	zwp_linux_buffer_params_v1_destroy(params);
-	close(fd);
-	gbm_bo_destroy(bo);
+	close(dma_fd);
 
 	return buf_data.buffer;
 }
@@ -404,10 +427,10 @@ set_format(struct display *display, uint32_t format)
 
 	/* No need to set the format if it already is the one we want */
 	if (display->format.type == V4L2_BUF_TYPE_VIDEO_CAPTURE &&
-	    format_matches)
+	     format_matches)
 		return 1;
 	if (display->format.type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE &&
-	    format_matches)
+	     format_matches)
 		return fmt.fmt.pix_mp.num_planes;
 
 	fmt.fmt.pix.pixelformat = format;
@@ -498,7 +521,7 @@ v4l_connect(struct display *display, const char *dev_name)
 	if (xioctl(display->v4l_fd, VIDIOC_REQBUFS, &req) == -1) {
 		if (errno == EINVAL) {
 			fprintf(stderr, "%s does not support dmabuf\n",
-				dev_name);
+                               dev_name);
 		} else {
 			perror("VIDIOC_REQBUFS");
 		}
@@ -1114,14 +1137,7 @@ dmabuf_modifier(void *data, struct zwp_linux_dmabuf_v1 *zwp_linux_dmabuf,
 {
 	struct display *d = data;
 	uint64_t modifier = u64_from_u32s(modifier_hi, modifier_lo);
-/*
-	printf("  with modifier: 0x%016llx for format: 0x%08x (%c%c%c%c)\n",
-	(unsigned long long)modifier, format,
-	format & 0xFF,
-	(format >> 8) & 0xFF,
-	(format >> 16) & 0xFF,
-	(format >> 24) & 0xFF);
-*/
+
 	if (format == d->drm_format && modifier == DRM_FORMAT_MOD_LINEAR)
 		d->requested_format_found = true;
 }
