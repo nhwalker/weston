@@ -1471,7 +1471,7 @@ usage(const char *argv0)
 	       "- d-display skip importing dmabuf-based buffer into the GPU\n  "
 	       "and attempt pass the buffer straight to the display controller\n"
 	       "- fullscreen make the window fullscreen and scale up the image\n"
-	       "- dmabuf-bg    Enable DMA-BUF ARGB8888 background surface\n"
+	       "- dmabuf-bg Enable DMA-BUF ARGB8888 background surface\n"
 	       "- fs-cursor show the cursor in fullscreen mode\n",
 	       argv0);
 
