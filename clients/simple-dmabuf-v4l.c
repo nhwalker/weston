@@ -382,7 +382,7 @@ queue(struct display *display, struct buffer *buffer)
 	if (display->format.type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
 		if (display->format.num_planes != buf.length) {
 			fprintf(stderr, "Wrong number of planes returned by "
-				"QUERYBUF\n");
+			                "QUERYBUF\n");
 			return 0;
 		}
 
@@ -427,10 +427,10 @@ set_format(struct display *display, uint32_t format)
 
 	/* No need to set the format if it already is the one we want */
 	if (display->format.type == V4L2_BUF_TYPE_VIDEO_CAPTURE &&
-	     format_matches)
+            format_matches)
 		return 1;
 	if (display->format.type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE &&
-	     format_matches)
+            format_matches)
 		return fmt.fmt.pix_mp.num_planes;
 
 	fmt.fmt.pix.pixelformat = format;
@@ -521,7 +521,7 @@ v4l_connect(struct display *display, const char *dev_name)
 	if (xioctl(display->v4l_fd, VIDIOC_REQBUFS, &req) == -1) {
 		if (errno == EINVAL) {
 			fprintf(stderr, "%s does not support dmabuf\n",
-                               dev_name);
+			        dev_name);
 		} else {
 			perror("VIDIOC_REQBUFS");
 		}
@@ -618,12 +618,12 @@ create_dmabuf_buffer(struct display *display, struct buffer *buffer)
 				buffer->index, i, buffer->dmabuf_fds[i],
 				display->format.strides[i], modifier);
 		zwp_linux_buffer_params_v1_add(params,
-					       buffer->dmabuf_fds[i],
-					       i, /* plane_idx */
-					       buffer->data_offsets[i], /* offset */
-					       display->format.strides[i],
-					       modifier >> 32,
-					       modifier & 0xffffffff);
+		                               buffer->dmabuf_fds[i],
+		                               i, /* plane_idx */
+		                               buffer->data_offsets[i], /* offset */
+		                               display->format.strides[i],
+		                               modifier >> 32,
+		                               modifier & 0xffffffff);
 	}
 
 	/* Some v4l2 devices can output NV12, but will do so without the MPLANE
@@ -702,12 +702,12 @@ create_dmabuf_buffer(struct display *display, struct buffer *buffer)
 				 *   the stride for Cr and Cb.
 				 */
 				const uint32_t num_chrom_parts =
-					layout->chrom_packing == CHROM_COMBINED ? 2 : 1;
+                                        layout->chrom_packing == CHROM_COMBINED ? 2 : 1;
 				stride_extra_plane =
 					stride0 * num_chrom_parts /
 					layout->chroma_subsample_hori;
 				vrtres_extra_plane =
-					display->format.height /
+                                        display->format.height /
 					layout->chroma_subsample_vert;
 				break;
 			}
@@ -743,10 +743,10 @@ create_dmabuf_buffer(struct display *display, struct buffer *buffer)
 		flags
 	);
 	zwp_linux_buffer_params_v1_create(params,
-					  display->format.width,
-					  display->format.height,
-					  display->drm_format,
-					  flags);
+	                                  display->format.width,
+	                                  display->format.height,
+	                                  display->drm_format,
+	                                  flags);
 }
 
 static int
@@ -782,10 +782,9 @@ buffer_export(struct display *display, int index, int dmafd[])
 	return 1;
 }
 
-
 static int
 queue_initial_buffers(struct display *display,
-		      struct buffer buffers[NUM_BUFFERS])
+                      struct buffer buffers[NUM_BUFFERS])
 {
 	struct buffer *buffer;
 	int index;
@@ -920,7 +919,7 @@ xdg_surface_handle_configure(void *data, struct xdg_surface *surface,
 }
 
 static const struct xdg_surface_listener xdg_surface_listener = {
-	.configure = xdg_surface_handle_configure,
+	xdg_surface_handle_configure,
 };
 
 static void
@@ -1145,7 +1144,7 @@ dmabuf_modifier(void *data, struct zwp_linux_dmabuf_v1 *zwp_linux_dmabuf,
 
 static void
 dmabuf_format(void *data, struct zwp_linux_dmabuf_v1 *zwp_linux_dmabuf,
-	      uint32_t format)
+              uint32_t format)
 {
 	/* deprecated */
 }
@@ -1226,7 +1225,7 @@ static const struct wl_pointer_listener pointer_listener = {
 
 static void
 keyboard_handle_keymap(void *data, struct wl_keyboard *keyboard,
-		       uint32_t format, int fd, uint32_t size)
+                       uint32_t format, int fd, uint32_t size)
 {
 	/* Just so we don’t leak the keymap fd */
 	close(fd);
@@ -1234,21 +1233,21 @@ keyboard_handle_keymap(void *data, struct wl_keyboard *keyboard,
 
 static void
 keyboard_handle_enter(void *data, struct wl_keyboard *keyboard,
-		      uint32_t serial, struct wl_surface *surface,
-		      struct wl_array *keys)
+                      uint32_t serial, struct wl_surface *surface,
+                      struct wl_array *keys)
 {
 }
 
 static void
 keyboard_handle_leave(void *data, struct wl_keyboard *keyboard,
-		      uint32_t serial, struct wl_surface *surface)
+                      uint32_t serial, struct wl_surface *surface)
 {
 }
 
 static void
 keyboard_handle_key(void *data, struct wl_keyboard *keyboard,
-		    uint32_t serial, uint32_t time, uint32_t key,
-		    uint32_t state)
+                    uint32_t serial, uint32_t time, uint32_t key,
+                    uint32_t state)
 {
 	struct display *d = data;
 
@@ -1266,9 +1265,9 @@ keyboard_handle_key(void *data, struct wl_keyboard *keyboard,
 
 static void
 keyboard_handle_modifiers(void *data, struct wl_keyboard *keyboard,
-			  uint32_t serial, uint32_t mods_depressed,
-			  uint32_t mods_latched, uint32_t mods_locked,
-			  uint32_t group)
+                          uint32_t serial, uint32_t mods_depressed,
+                          uint32_t mods_latched, uint32_t mods_locked,
+                          uint32_t group)
 {
 }
 
@@ -1282,7 +1281,7 @@ static const struct wl_keyboard_listener keyboard_listener = {
 
 static void
 seat_handle_capabilities(void *data, struct wl_seat *seat,
-			 enum wl_seat_capability caps)
+                         enum wl_seat_capability caps)
 {
 	struct display *d = data;
 
@@ -1320,17 +1319,17 @@ static const struct xdg_wm_base_listener wm_base_listener = {
 
 static void
 registry_handle_global(void *data, struct wl_registry *registry,
-		       uint32_t id, const char *interface, uint32_t version)
+                       uint32_t id, const char *interface, uint32_t version)
 {
 	struct display *d = data;
 
 	if (strcmp(interface, wl_compositor_interface.name) == 0) {
 		d->compositor =
 			wl_registry_bind(registry,
-					 id, &wl_compositor_interface, 1);
+			                 id, &wl_compositor_interface, 1);
 	} else if (strcmp(interface, wl_seat_interface.name) == 0) {
 		d->seat = wl_registry_bind(registry,
-					   id, &wl_seat_interface, 1);
+		                           id, &wl_seat_interface, 1);
 		wl_seat_add_listener(d->seat, &seat_listener, d);
 	} else if (strcmp(interface, wl_subcompositor_interface.name) == 0) {
 		d->subcompositor = wl_registry_bind(registry, id, &wl_subcompositor_interface, 1);
@@ -1357,9 +1356,9 @@ registry_handle_global(void *data, struct wl_registry *registry,
 		xdg_wm_base_add_listener(d->wm_base, &wm_base_listener, d);
 	} else if (strcmp(interface, zwp_linux_dmabuf_v1_interface.name) == 0) {
 		d->dmabuf = wl_registry_bind(registry,
-					     id, &zwp_linux_dmabuf_v1_interface, 3);
+		                             id, &zwp_linux_dmabuf_v1_interface, 3);
 		zwp_linux_dmabuf_v1_add_listener(d->dmabuf, &dmabuf_listener,
-						 d);
+		                                 d);
 	} else if (strcmp(interface, weston_direct_display_v1_interface.name) == 0) {
 		d->direct_display = wl_registry_bind(registry,
 						     id, &weston_direct_display_v1_interface, 1);
@@ -1372,7 +1371,7 @@ registry_handle_global(void *data, struct wl_registry *registry,
 
 static void
 registry_handle_global_remove(void *data, struct wl_registry *registry,
-			      uint32_t name)
+                              uint32_t name)
 {
 }
 
@@ -1398,7 +1397,7 @@ create_display(uint32_t requested_format, uint32_t opt_flags)
 
 	display->registry = wl_display_get_registry(display->display);
 	wl_registry_add_listener(display->registry,
-				 &registry_listener, display);
+	                         &registry_listener, display);
 	wl_display_roundtrip(display->display);
 	if (display->dmabuf == NULL) {
 		fprintf(stderr, "No zwp_linux_dmabuf global\n");
@@ -1423,7 +1422,6 @@ create_display(uint32_t requested_format, uint32_t opt_flags)
 
 	return display;
 }
-
 
 static void
 destroy_display(struct display *display)
