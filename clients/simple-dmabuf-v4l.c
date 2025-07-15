@@ -297,7 +297,12 @@ create_argb8888_dmabuf_buffer(struct display *display)
 	pixels = (uint32_t *)addr;
 	for (int y = 0; y < height; y++) {
 		for (int x = 0; x < width; x++) {
-			pixels[y * width + x] = 0x7F707070; /* ARGB8888 */
+			int top = (y < height / 2);
+			int left = (x < width / 2);
+			if ((top && left) || (!top && !left))
+				pixels[y * width + x] = 0x00707070; /* Fully transparent */
+			else
+				pixels[y * width + x] = 0x7F707070; /* Semi-transparent */
 		}
 	}
 
