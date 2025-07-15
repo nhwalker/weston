@@ -12,6 +12,7 @@ install_headers(
 	'windowed-output-api.h',
 	'weston-log.h',
 	'zalloc.h',
+	'pixel-formats.h',
 	'remoting-plugin.h',
 	'pipewire-plugin.h',
 	'shell-utils.h',
