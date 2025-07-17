@@ -4600,6 +4600,9 @@ gl_renderer_destroy(struct weston_compositor *ec)
 {
 	struct gl_renderer *gr = get_renderer(ec);
 
+	if (gr->recovering)
+		return gl_renderer_destroy_context(ec);
+
 	wl_signal_emit(&gr->destroy_signal, gr);
 
 	gl_renderer_allocator_destroy(gr->allocator);
@@ -4810,6 +4813,9 @@ gl_renderer_display_create(struct weston_compositor *ec,
 			   const struct gl_renderer_display_options *options)
 {
 	struct gl_renderer *gr;
+
+	if ((get_renderer(ec)) && get_renderer(ec)->recovering)
+		return gl_renderer_init_context(ec, options);
 
 	gr = zalloc(sizeof *gr);
 	if (gr == NULL)
