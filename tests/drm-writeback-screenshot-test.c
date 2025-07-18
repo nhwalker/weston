@@ -30,14 +30,30 @@
 #include "weston-output-capture-client-protocol.h"
 #include "weston-test-assert.h"
 
+struct setup_args {
+	struct fixture_metadata meta;
+	enum weston_renderer_type renderer;
+};
+
+static const struct setup_args my_setup_args[] = {
+	{
+		.meta.name = "Pixman (without TEST_ONLY commit)",
+		.renderer = WESTON_RENDERER_PIXMAN,
+	},
+	{
+		.meta.name = "GL (with TEST_ONLY commit)",
+		.renderer = WESTON_RENDERER_GL,
+	},
+};
+
 static enum test_result_code
-fixture_setup(struct weston_test_harness *harness)
+fixture_setup(struct weston_test_harness *harness, const struct setup_args *arg)
 {
 	struct compositor_setup setup;
 
 	compositor_setup_defaults(&setup);
 	setup.backend = WESTON_BACKEND_DRM;
-	setup.renderer = WESTON_RENDERER_PIXMAN;
+	setup.renderer = arg->renderer;
 	setup.shell = SHELL_TEST_DESKTOP;
 	setup.logging_scopes = "log,drm-backend";
 
@@ -47,7 +63,7 @@ fixture_setup(struct weston_test_harness *harness)
 
 	return weston_test_harness_execute_as_client(harness, &setup);
 }
-DECLARE_FIXTURE_SETUP(fixture_setup);
+DECLARE_FIXTURE_SETUP_WITH_ARG(fixture_setup, my_setup_args, meta);
 
 static void
 draw_stuff(pixman_image_t *image)
