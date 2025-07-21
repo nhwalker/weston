@@ -1366,6 +1366,14 @@ weston_keyboard_destroy(struct weston_keyboard *keyboard)
 	wl_list_remove(&keyboard->resource_list);
 	wl_list_remove(&keyboard->focus_resource_list);
 
+	weston_keyboard_destroy_keymap(keyboard->xkb_state.active_keymap);
+	weston_keyboard_destroy_keymap(keyboard->xkb_state.default_keymap);
+
+	if (keyboard->xkb_state.cached_keymap->keymap)
+		xkb_keymap_unref(keyboard->xkb_state.cached_keymap->keymap);
+
+	weston_keyboard_destroy_keymap(keyboard->xkb_state.cached_keymap);
+
 	xkb_state_unref(keyboard->xkb_state.state);
 	if (keyboard->xkb_info)
 		weston_xkb_info_destroy(keyboard->xkb_info);
@@ -2694,6 +2702,9 @@ notify_key(struct weston_seat *seat, const struct timespec *time, uint32_t key,
 		*k = key;
 	}
 
+	if (keyboard->pending_keymap)
+		update_keymap(seat);
+
 	if (state == WL_KEYBOARD_KEY_STATE_PRESSED) {
 		weston_compositor_idle_inhibit(compositor);
 	} else {
@@ -2708,10 +2719,6 @@ notify_key(struct weston_seat *seat, const struct timespec *time, uint32_t key,
 	}
 
 	grab->interface->key(grab, time, key, state);
-
-	if (keyboard->pending_keymap &&
-	    keyboard->keys.size == 0)
-		update_keymap(seat);
 
 	if (update_state == STATE_UPDATE_AUTOMATIC) {
 		update_modifier_state(seat,
@@ -4102,6 +4109,43 @@ weston_seat_update_keymap(struct weston_seat *seat, struct xkb_keymap *keymap)
 		update_keymap(seat);
 }
 
+WL_EXPORT struct weston_keyboard_keymap *
+weston_keyboard_create_keymap(struct xkb_keymap *keymap, const char *layout_name)
+{
+	struct weston_keyboard_keymap *keyboard_keymap;
+
+	keyboard_keymap = zalloc(sizeof(*keyboard_keymap));
+	keyboard_keymap->keymap = keymap;
+
+	if (layout_name)
+		keyboard_keymap->layout_name = strdup(layout_name);
+
+	return keyboard_keymap;
+}
+
+WL_EXPORT void
+weston_keyboard_destroy_keymap(struct weston_keyboard_keymap *keyboard_keymap)
+{
+	free(keyboard_keymap->layout_name);
+	free(keyboard_keymap);
+}
+
+WL_EXPORT void
+weston_keyboard_update_keymap(struct weston_keyboard_keymap *keyboard_keymap,
+			      struct xkb_keymap *keymap, const char *keyboard_layout)
+{
+	assert(keyboard_keymap);
+
+	if (keymap)
+		keyboard_keymap->keymap = keymap;
+
+	if (keyboard_layout) {
+		free(keyboard_keymap->layout_name);
+		keyboard_keymap->layout_name = strdup(keyboard_layout);
+	}
+}
+
+
 WL_EXPORT int
 weston_seat_init_keyboard(struct weston_seat *seat, struct xkb_keymap *keymap)
 {
@@ -4138,6 +4182,14 @@ weston_seat_init_keyboard(struct weston_seat *seat, struct xkb_keymap *keymap)
 	}
 
 	keyboard->xkb_state.leds = 0;
+	keyboard->xkb_state.default_keymap =
+		weston_keyboard_create_keymap(keyboard->xkb_info->keymap,
+					      seat->compositor->xkb_names.layout);
+	keyboard->xkb_state.active_keymap =
+		weston_keyboard_create_keymap(keyboard->xkb_info->keymap,
+					      seat->compositor->xkb_names.layout);
+	keyboard->xkb_state.cached_keymap =
+		weston_keyboard_create_keymap(NULL, NULL);
 
 	seat->keyboard_state = keyboard;
 	seat->keyboard_device_count = 1;

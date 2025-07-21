@@ -412,6 +412,13 @@ If set, specifies the directory where to look for
 .B XDG_RUNTIME_DIR
 The directory for Weston's socket and lock files.
 Wayland clients will automatically use this.
+.TP
+.B KEYBOARD_LAYOUT
+Note that this environment variable is intented to be read by udev and not the
+shell. It can be used to map a particular keyboard to a specific keyboard
+layout based on additional udev rules like ones usually used when filtering
+specific devices. Use the similar shortname keyboard string name as you would
+use when setting the keymap_layout entry in the KEYBOARD section.
 .
 .\" ***************************************************************
 .SH PROGRAM EXECUTION

@@ -1010,6 +1010,11 @@ struct weston_xkb_info {
 #endif
 };
 
+struct weston_keyboard_keymap {
+	char *layout_name;
+	struct xkb_keymap *keymap;
+};
+
 struct weston_keyboard {
 	struct weston_seat *seat;
 
@@ -1042,6 +1047,9 @@ struct weston_keyboard {
 	struct {
 		struct xkb_state *state;
 		enum weston_led leds;
+		struct weston_keyboard_keymap *active_keymap;
+		struct weston_keyboard_keymap *default_keymap;
+		struct weston_keyboard_keymap *cached_keymap;
 	} xkb_state;
 	struct xkb_keymap *pending_keymap;
 

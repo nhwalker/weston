@@ -720,6 +720,10 @@ sets the keymap model (string). See the Models section in
 sets the comma separated list of keyboard layout codes (string). See the
 Layouts section in
 .B "xkeyboard-config(7)."
+Note that this applies to all keyboards. For assigning
+a certain keyboard keymap layout to a particular keyboard see
+KEYBOARD_LAYOUT in
+.B "weston(1)".
 .TP 7
 .BI "keymap_variant=" "euro,,intl"
 sets the comma separated list of keyboard layout variants (string). The number
