@@ -242,6 +242,8 @@ struct drm_device {
 
 	/* struct drm_colorop_3x1d_lut_blob::link  */
 	struct wl_list drm_colorop_3x1d_lut_blob_list;
+	/* struct drm_colorop_matrix_blob::link */
+	struct wl_list drm_colorop_matrix_blob_list;
 };
 
 struct drm_backend {
@@ -407,6 +409,18 @@ struct drm_colorop_3x1d_lut_blob {
 	uint32_t blob_id;
 };
 
+struct drm_colorop_matrix_blob {
+	/* drm_device::drm_colorop_matrix_blob_list */
+	struct wl_list link;
+	struct drm_device *device;
+
+	/* Lifetime matches the xform. */
+	struct weston_color_transform *xform;
+	struct wl_listener destroy_listener;
+
+	uint32_t blob_id;
+};
+
 struct drm_colorop {
 	struct drm_color_pipeline *pipeline;
 	struct wl_list link; /* drm_pipeline::colorop_list */
@@ -425,10 +439,41 @@ struct drm_colorop {
 	struct drm_property_info props[WDRM_COLOROP__COUNT];
 };
 
+enum colorop_object_type {
+	COLOROP_OBJECT_TYPE_CURVE = 0,
+	COLOROP_OBJECT_TYPE_MATRIX,
+	COLOROP_OBJECT_TYPE_3x1D_LUT,
+};
+
+struct drm_colorop_state_object {
+	/* Defines which of the below is valid. The others are zero. */
+	enum colorop_object_type type;
+
+	uint64_t curve_type_prop_val;
+	uint32_t matrix_blob_id;
+	uint32_t lut_3x1d_blob_id;
+};
+
+struct drm_colorop_state {
+	struct drm_colorop *colorop;
+	/* struct drm_color_pipeline_state::colorop_state_list */
+	struct wl_list link;
+
+	/* Object that should be programmed through the colorop. */
+	struct drm_colorop_state_object object;
+};
+
 struct drm_color_pipeline {
 	struct drm_plane *plane;
 	struct wl_list colorop_list; /* drm_colorop::link */
 	uint32_t id;
+};
+
+struct drm_color_pipeline_state {
+	struct drm_color_pipeline *pipeline;
+
+	/* struct drm_colorop_state::link */
+	struct wl_list colorop_state_list;
 };
 
 /**
@@ -450,6 +495,9 @@ struct drm_plane_state {
 	} fb_ref;
 
 	struct weston_view *ev; /**< maintained for drm_assign_planes only */
+
+	/* only when a color transformation is being offloaded */
+	struct drm_color_pipeline_state *pipeline_state;
 
 	int32_t src_x, src_y;
 	uint32_t src_w, src_h;
@@ -811,6 +859,17 @@ drm_output_get_handle_type_name(struct drm_plane_handle *h)
 {
 	return drm_output_get_plane_type_name_internal(NULL, h);
 }
+
+void
+drm_color_pipeline_state_destroy(struct drm_color_pipeline_state *state);
+
+struct drm_color_pipeline_state *
+drm_color_pipeline_state_from_xform(struct drm_plane *plane,
+				    struct weston_color_transform *xform,
+				    const char *indent);
+
+const char *
+drm_colorop_type_to_str(struct drm_colorop *colorop);
 
 struct drm_colorop_3x1d_lut_blob *
 drm_colorop_3x1d_lut_blob_create(struct drm_device *device,
