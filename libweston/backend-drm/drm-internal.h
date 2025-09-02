@@ -383,6 +383,11 @@ struct drm_output_state {
 	bool planes_enabled;
 };
 
+enum drm_colorop_3x1d_lut_blob_representation {
+	DRM_COLOROP_3X1D_LUT_BLOB_REPRESENTATION_U16 = 0,
+	DRM_COLOROP_3X1D_LUT_BLOB_REPRESENTATION_U32,
+};
+
 struct drm_colorop_3x1d_lut_blob {
 	/* drm_device::drm_colorop_3x1d_lut_blob_list */
 	struct wl_list link;
@@ -394,6 +399,8 @@ struct drm_colorop_3x1d_lut_blob {
 
 	/* Which curve of the xform the 3x1D LUT was generated from. */
 	enum weston_color_curve_step curve_step;
+
+	enum drm_colorop_3x1d_lut_blob_representation representation;
 
 	uint32_t lut_len;
 
@@ -809,12 +816,14 @@ struct drm_colorop_3x1d_lut_blob *
 drm_colorop_3x1d_lut_blob_create(struct drm_device *device,
 				 struct weston_color_transform *xform,
 				 enum weston_color_curve_step curve_step,
-				 uint32_t lut_len, uint32_t blob_id);
+				 enum drm_colorop_3x1d_lut_blob_representation representation,
+				 struct weston_vec3f *cm_lut, uint32_t lut_len);
 
 struct drm_colorop_3x1d_lut_blob *
 drm_colorop_3x1d_lut_blob_search(struct drm_device *device,
 				 struct weston_color_transform *xform,
 				 enum weston_color_curve_step curve_step,
+				 enum drm_colorop_3x1d_lut_blob_representation representation,
 				 uint32_t lut_len);
 
 struct drm_crtc *
