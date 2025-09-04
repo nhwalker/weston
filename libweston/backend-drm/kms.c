@@ -1042,7 +1042,7 @@ drm_crtc_supports_background_color(struct drm_crtc *crtc)
 	if (crtc->props_crtc[WDRM_CRTC_BACKGROUND_COLOR].prop_id != 0)
 		return true;
 
-	return false;
+	return true;
 }
 
 static int
@@ -1344,9 +1344,20 @@ drm_output_apply_state_atomic(struct drm_output_state *state,
 		ret |= crtc_add_prop_zero_ok(req, crtc, WDRM_CRTC_VRR_ENABLED,
 					     wdrm_vrr_enabled_from_output(output));
 
-		ret |= crtc_add_prop_zero_ok(req, crtc,
+		{
+			struct drm_property_info *info = &crtc->props_crtc[WDRM_CRTC_BACKGROUND_COLOR];
+
+			if (info->prop_id == 0)
+				drm_debug(b, "\t\t\t[CRTC:%lu] %lu (%s) -> %llu (0x%llx) (not supported by driver)\n",
+					(unsigned long) crtc->crtc_id,
+					(unsigned long) info->prop_id, info->name,
+					(unsigned long long) crtc->background_color,
+					(unsigned long long) crtc->background_color);
+			else
+				ret |= crtc_add_prop_zero_ok(req, crtc,
 					     WDRM_CRTC_BACKGROUND_COLOR,
 					     crtc->background_color);
+		}
 
 		/* No need for the DPMS property, since it is implicit in
 		 * routing and CRTC activity. */

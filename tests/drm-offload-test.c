@@ -430,10 +430,8 @@ TEST(drm_offload_fullscreen_semi_transparent_black_background) {
 
 /*
  * Test that a fullscreen client with opaque-white single-pixel-buffer with a
- * smaller-than-fullscreen-sized dmabuf subsurface above is *not* presented via
+ * smaller-than-fullscreen-sized dmabuf subsurface above is presented via
  * direct-scanout.
- *
- * This should be optimized in the future.
  */
 TEST(drm_offload_fullscreen_semi_transparent_white_background) {
 	struct xdg_client *xdg_client;
@@ -501,7 +499,7 @@ TEST(drm_offload_fullscreen_semi_transparent_white_background) {
 	wl_surface_commit(overlay_surface);
 	wl_surface_commit(surface);
 	presentation_wait_nofail(client, &result);
-	test_assert_enum(result, FB_PRESENTED);
+	test_assert_enum(result, FB_PRESENTED_ZERO_COPY);
 
 	wp_viewport_destroy(viewport);
 	wl_subsurface_destroy(overlay_subsurface);
@@ -770,9 +768,7 @@ TEST(drm_offload_fullscreen_black_background_red_subsurface_underlay) {
 
 /*
  * Test that a windowed / not-fullscreen client on top of a solid background is
- * *not* presented via direct-scanout.
- *
- * This should be optimized in the future.
+ * presented via direct-scanout.
  */
 TEST(drm_offload_windowed) {
 	struct xdg_client *xdg_client;
@@ -816,7 +812,7 @@ TEST(drm_offload_windowed) {
 					      &result);
 	wl_surface_commit(surface);
 	presentation_wait_nofail(client, &result);
-	test_assert_enum(result, FB_PRESENTED);
+	test_assert_enum(result, FB_PRESENTED_ZERO_COPY);
 
 	client_buffer_util_destroy_buffer(buffer);
 	destroy_xdg_surface(xdg_surface);
