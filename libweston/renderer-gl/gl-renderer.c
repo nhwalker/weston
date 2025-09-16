@@ -66,6 +66,7 @@
 #include "shared/weston-drm-fourcc.h"
 #include "shared/weston-egl-ext.h"
 #include "shared/xalloc.h"
+#include "shared/weston-assert.h"
 
 #define BUFFER_DAMAGE_COUNT 2
 
@@ -2479,6 +2480,34 @@ blit_shadow_to_output(struct weston_output *output,
 	pixman_region32_fini(&translated_damage);
 }
 
+static int gl_renderer_check_reset(struct gl_renderer *gr)
+{
+        bool has_reset = false;
+        int i = 0;
+
+        if (!gl_features_has(gr, FEATURE_GRAPHICS_RESET_RECOVERY))
+                return 0;
+
+        /* Assume GPU reset should be finished within 5s */
+        for (i = 0; i < 100000; i++) {
+                unsigned status;
+
+                status = gr->get_graphics_reset_status();
+                if (status == GL_NO_ERROR)
+                        break;
+
+                has_reset = true;
+                usleep(50);
+        }
+        if (!has_reset)
+                return 0;
+
+        /* if GPU reset is failed, nothing we can do */
+        weston_assert_uint_lt(gr->compositor, i, 100000);
+
+        return -EAGAIN;
+}
+
 /* NOTE: We now allow falling back to ARGB gl visuals when XRGB is
  * unavailable, so we're assuming the background has no transparency
  * and that everything with a blend, like drop shadows, will have something
@@ -2703,6 +2732,9 @@ gl_renderer_repaint_output(struct weston_output *output,
 	gr->wireframe_dirty = false;
 
 	gl_renderer_garbage_collect_programs(gr);
+
+	if (gl_renderer_check_reset(gr))
+		return WESTON_RENDERER_ERROR_LOST;
 
 out:
 	return WESTON_RENDERER_ERROR_NONE;
