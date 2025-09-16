@@ -261,6 +261,9 @@ struct drm_backend {
 		struct wl_event_source *pageflip_timer_counter;
 		bool timer_armed;
 	} perf_page_flips_stats;
+
+	/* True, if GL renderer is recovering from GPU reset */
+	bool gl_recovering;
 };
 
 struct drm_mode {
