@@ -4555,13 +4555,11 @@ gl_renderer_allocator_create(struct gl_renderer *gr,
 }
 
 static void
-gl_renderer_destroy(struct weston_compositor *ec)
+gl_renderer_destroy_context(struct weston_compositor *ec)
 {
 	struct gl_renderer *gr = get_renderer(ec);
 	struct dmabuf_format *format, *next_format;
 	struct gl_capture_task *gl_task, *tmp;
-
-	wl_signal_emit(&gr->destroy_signal, gr);
 
 	if (gr->display_bound)
 		gr->unbind_display(gr->egl_display, ec->wl_display);
@@ -4570,8 +4568,11 @@ gl_renderer_destroy(struct weston_compositor *ec)
 		destroy_capture_task(gl_task);
 
 	gl_renderer_shader_list_destroy(gr);
-	if (gr->fallback_shader)
+	if (gr->fallback_shader) {
 		gl_shader_destroy(gr, gr->fallback_shader);
+		gr->fallback_shader = NULL;
+	}
+	gr->current_shader = NULL;
 
 	if (gr->wireframe_tex)
 		gl_texture_fini(&gr->wireframe_tex);
@@ -4587,10 +4588,21 @@ gl_renderer_destroy(struct weston_compositor *ec)
 	weston_drm_format_array_fini(&gr->supported_dmabuf_formats);
 	free(gr->supported_rendering_formats);
 
-	gl_renderer_allocator_destroy(gr->allocator);
-
 	eglTerminate(gr->egl_display);
 	eglReleaseThread();
+
+	weston_log_scope_destroy(gr->shader_scope);
+	gr->shader_scope = NULL;
+}
+
+static void
+gl_renderer_destroy(struct weston_compositor *ec)
+{
+	struct gl_renderer *gr = get_renderer(ec);
+
+	wl_signal_emit(&gr->destroy_signal, gr);
+
+	gl_renderer_allocator_destroy(gr->allocator);
 
 	wl_array_release(&gr->position_stream);
 	wl_array_release(&gr->barycentric_stream);
@@ -4599,8 +4611,8 @@ gl_renderer_destroy(struct weston_compositor *ec)
 	if (gr->debug_mode_binding)
 		weston_binding_destroy(gr->debug_mode_binding);
 
-	weston_log_scope_destroy(gr->shader_scope);
 	weston_log_scope_destroy(gr->renderer_scope);
+	gl_renderer_destroy_context(ec);
 	free(gr);
 	ec->renderer = NULL;
 }
@@ -4638,55 +4650,27 @@ create_default_dmabuf_feedback(struct weston_compositor *ec,
 }
 
 static int
-gl_renderer_display_create(struct weston_compositor *ec,
-			   const struct gl_renderer_display_options *options)
+gl_renderer_init_context(struct weston_compositor *ec,
+                         const struct gl_renderer_display_options *options)
 {
-	struct gl_renderer *gr;
+	struct gl_renderer *gr = get_renderer(ec);
 	const struct pixel_format_info *info;
 	int ret, nformats, i, j;
 	bool supported;
 
-	gr = zalloc(sizeof *gr);
-	if (gr == NULL)
-		return -1;
-
-	gr->compositor = ec;
 	wl_list_init(&gr->shader_list);
-	gr->platform = options->egl_platform;
 
-	gr->renderer_scope = weston_compositor_add_log_scope(ec, "gl-renderer",
-		"GL-renderer verbose messages\n", NULL, NULL, gr);
 	gr->shader_scope = gl_shader_scope_create(gr);
 
 	if (gl_renderer_setup_egl_client_extensions(gr) < 0)
 		goto fail;
 
-	gr->base.read_pixels = gl_renderer_read_pixels;
-	gr->base.repaint_output = gl_renderer_repaint_output;
-	gr->base.resize_output = gl_renderer_resize_output;
-	gr->base.create_renderbuffer = gl_renderer_create_renderbuffer;
-	gr->base.destroy_renderbuffer = gl_renderer_destroy_renderbuffer;
-	gr->base.flush_damage = gl_renderer_flush_damage;
-	gr->base.attach = gl_renderer_attach;
-	gr->base.destroy = gl_renderer_destroy;
-	gr->base.surface_copy_content = gl_renderer_surface_copy_content;
-	gr->base.fill_buffer_info = gl_renderer_fill_buffer_info;
-	gr->base.buffer_init = gl_renderer_buffer_init;
-	gr->base.output_set_border = gl_renderer_output_set_border;
-	gr->base.type = WESTON_RENDERER_GL;
-
 	if (gl_renderer_setup_egl_display(gr, options->egl_native_display) < 0)
 		goto fail;
-
-	gr->allocator = gl_renderer_allocator_create(gr, options);
-	if (!gr->allocator)
-		weston_log("failed to initialize allocator\n");
 
 	weston_drm_format_array_init(&gr->supported_dmabuf_formats);
 
 	log_egl_info(gr, gr->egl_display);
-
-	ec->renderer = &gr->base;
 
 	if (gl_renderer_setup_egl_extensions(ec) < 0)
 		goto fail_with_error;
@@ -4716,9 +4700,6 @@ gl_renderer_display_create(struct weston_compositor *ec,
 
 	if (gl_renderer_setup(ec) < 0)
 		goto fail_terminate;
-
-	if (gr->allocator)
-		gr->base.dmabuf_alloc = gl_renderer_dmabuf_alloc;
 
 	if (gr->platform == EGL_PLATFORM_GBM_KHR) {
 		gr->supported_rendering_formats =
@@ -4750,9 +4731,8 @@ gl_renderer_display_create(struct weston_compositor *ec,
 				goto fail_feedback;
 		}
 	}
-	wl_list_init(&gr->dmabuf_formats);
 
-	wl_signal_init(&gr->destroy_signal);
+	wl_list_init(&gr->dmabuf_formats);
 
 	/* Register supported wl_shm RGB formats. */
 	nformats = pixel_format_get_info_count();
@@ -4822,10 +4802,66 @@ fail_terminate:
 	eglTerminate(gr->egl_display);
 fail:
 	weston_log_scope_destroy(gr->shader_scope);
-	weston_log_scope_destroy(gr->renderer_scope);
-	free(gr);
-	ec->renderer = NULL;
 	return -1;
+}
+
+static int
+gl_renderer_display_create(struct weston_compositor *ec,
+			   const struct gl_renderer_display_options *options)
+{
+	struct gl_renderer *gr;
+
+	gr = zalloc(sizeof *gr);
+	if (gr == NULL)
+		return -1;
+
+	gr->compositor = ec;
+	gr->platform = options->egl_platform;
+
+	gr->renderer_scope = weston_compositor_add_log_scope(ec, "gl-renderer",
+		"GL-renderer verbose messages\n", NULL, NULL, gr);
+
+	gr->base.read_pixels = gl_renderer_read_pixels;
+	gr->base.repaint_output = gl_renderer_repaint_output;
+	gr->base.resize_output = gl_renderer_resize_output;
+	gr->base.create_renderbuffer = gl_renderer_create_renderbuffer;
+	gr->base.destroy_renderbuffer = gl_renderer_destroy_renderbuffer;
+	gr->base.flush_damage = gl_renderer_flush_damage;
+	gr->base.attach = gl_renderer_attach;
+	gr->base.destroy = gl_renderer_destroy;
+	gr->base.surface_copy_content = gl_renderer_surface_copy_content;
+	gr->base.fill_buffer_info = gl_renderer_fill_buffer_info;
+	gr->base.buffer_init = gl_renderer_buffer_init;
+	gr->base.output_set_border = gl_renderer_output_set_border;
+	gr->base.type = WESTON_RENDERER_GL;
+
+	gr->allocator = gl_renderer_allocator_create(gr, options);
+	if (!gr->allocator)
+		weston_log("failed to initialize allocator\n");
+
+	ec->renderer = &gr->base;
+
+	if (gr->allocator)
+		gr->base.dmabuf_alloc = gl_renderer_dmabuf_alloc;
+
+	wl_signal_init(&gr->destroy_signal);
+
+        /*
+         * Perform the (E)GL initialization operations as the final step
+         * Don't call any other non-GL initialization operations afterward.
+         */
+        if (gl_renderer_init_context(ec, options))
+                goto fail_context;
+
+	return 0;
+
+fail_context:
+        if (gr->allocator)
+                gl_renderer_allocator_destroy(gr->allocator);
+        weston_log_scope_destroy(gr->renderer_scope);
+        free(gr);
+        ec->renderer = NULL;
+        return -1;
 }
 
 static void
