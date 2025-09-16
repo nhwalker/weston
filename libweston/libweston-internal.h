@@ -83,12 +83,20 @@ enum weston_renderer_border_side {
 	WESTON_RENDERER_BORDER_BOTTOM = 3,
 };
 
+/**
+ * This is used to know what happened to the renderer
+ */
+enum weston_renderer_error  {
+	WESTON_RENDERER_ERROR_NONE = 0,
+	WESTON_RENDERER_ERROR_LOST = 1,
+};
+
 struct weston_renderer {
 	int (*read_pixels)(struct weston_output *output,
 			   const struct pixel_format_info *format, void *pixels,
 			   uint32_t x, uint32_t y,
 			   uint32_t width, uint32_t height);
-	void (*repaint_output)(struct weston_output *output,
+	enum weston_renderer_error (*repaint_output)(struct weston_output *output,
 			       pixman_region32_t *output_damage,
 			       weston_renderbuffer_t renderbuffer);
 

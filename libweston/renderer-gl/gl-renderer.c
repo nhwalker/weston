@@ -2487,7 +2487,7 @@ blit_shadow_to_output(struct weston_output *output,
  * Depending on the underlying hardware, violating that assumption could
  * result in seeing through to another display plane.
  */
-static void
+static enum weston_renderer_error
 gl_renderer_repaint_output(struct weston_output *output,
 			   pixman_region32_t *output_damage,
 			   weston_renderbuffer_t renderbuffer)
@@ -2512,7 +2512,7 @@ gl_renderer_repaint_output(struct weston_output *output,
 		go->fb_size.height - go->area.height - go->area.y : go->area.y;
 
 	if (use_output(output) < 0)
-		return;
+		goto out;
 
 	rb = gl_renderer_update_renderbuffers(output, output_damage,
 					      renderbuffer);
@@ -2703,6 +2703,9 @@ gl_renderer_repaint_output(struct weston_output *output,
 	gr->wireframe_dirty = false;
 
 	gl_renderer_garbage_collect_programs(gr);
+
+out:
+	return WESTON_RENDERER_ERROR_NONE;
 }
 
 static int
