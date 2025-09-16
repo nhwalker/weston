@@ -73,6 +73,7 @@ static const struct gl_extension_table device_table[] = {
 static const struct gl_extension_table display_table[] = {
 	EXT("EGL_ANDROID_native_fence_sync", EXTENSION_ANDROID_NATIVE_FENCE_SYNC),
 	EXT("EGL_EXT_buffer_age", EXTENSION_EXT_BUFFER_AGE),
+	EXT("EGL_EXT_create_context_robustness", EXTENSION_EXT_CREATE_CONTEXT_ROBUSTNESS),
 	EXT("EGL_EXT_image_dma_buf_import", EXTENSION_EXT_IMAGE_DMA_BUF_IMPORT),
 	EXT("EGL_EXT_image_dma_buf_import_modifiers", EXTENSION_EXT_IMAGE_DMA_BUF_IMPORT_MODIFIERS),
 	EXT("EGL_EXT_pixel_format_float", EXTENSION_EXT_PIXEL_FORMAT_FLOAT),

@@ -315,6 +315,7 @@ static const struct gl_extension_table extension_table[] = {
 	EXT("GL_EXT_EGL_image_storage", EXTENSION_EXT_EGL_IMAGE_STORAGE),
 	EXT("GL_EXT_map_buffer_range", EXTENSION_EXT_MAP_BUFFER_RANGE),
 	EXT("GL_EXT_read_format_bgra", EXTENSION_EXT_READ_FORMAT_BGRA),
+	EXT("GL_EXT_robustness", EXTENSION_EXT_ROBUSTNESS),
 	EXT("GL_EXT_texture_format_BGRA8888", EXTENSION_EXT_TEXTURE_FORMAT_BGRA8888),
 	EXT("GL_EXT_texture_norm16", EXTENSION_EXT_TEXTURE_NORM16),
 	EXT("GL_EXT_texture_rg", EXTENSION_EXT_TEXTURE_RG),
@@ -4889,6 +4890,12 @@ gl_renderer_setup(struct weston_compositor *ec)
 		context_attribs[nattr++] = EGL_CONTEXT_PRIORITY_HIGH_IMG;
 	}
 
+	/* Try to support GPU reset recovery */
+	if (egl_display_has(gr, EXTENSION_EXT_CREATE_CONTEXT_ROBUSTNESS)) {
+		context_attribs[nattr++] = EGL_CONTEXT_OPENGL_RESET_NOTIFICATION_STRATEGY_KHR;
+		context_attribs[nattr++] = EGL_LOSE_CONTEXT_ON_RESET_KHR;
+	}
+
 	assert(nattr < ARRAY_LENGTH(context_attribs));
 	context_attribs[nattr] = EGL_NONE;
 
@@ -4944,6 +4951,19 @@ gl_renderer_setup(struct weston_compositor *ec)
 	if (!gl_fbo_is_format_supported(gr, GL_RGBA8)) {
 		weston_log("GL_RGBA8 FBO format not available.\n");
 		return -1;
+	}
+
+	/* Graphics reset recovery feature. */
+	if (gl_extensions_has(gr, EXTENSION_EXT_ROBUSTNESS)) {
+		GET_PROC_ADDRESS(gr->get_graphics_reset_status,
+				 "glGetGraphicsResetStatusEXT");
+		if (egl_display_has(gr, EXTENSION_EXT_CREATE_CONTEXT_ROBUSTNESS)) {
+			GLint strategy = 0;
+
+			glGetIntegerv(GL_RESET_NOTIFICATION_STRATEGY_EXT, &strategy);
+			if (strategy == GL_LOSE_CONTEXT_ON_RESET_EXT)
+				gr->features |= FEATURE_GRAPHICS_RESET_RECOVERY;
+		}
 	}
 
 	if (gl_extensions_has(gr, EXTENSION_OES_EGL_IMAGE)) {
@@ -5116,6 +5136,8 @@ gl_renderer_setup(struct weston_compositor *ec)
 	weston_log_continue(STAMP_SPACE "Required precision: %s\n",
 			    yesno(gr->gl_version >= gl_version(3, 0) ||
 				  gl_extensions_has(gr, EXTENSION_OES_REQUIRED_INTERNALFORMAT)));
+	weston_log_continue(STAMP_SPACE "Graphics reset recovery: %s\n",
+			    yesno(gl_features_has(gr, FEATURE_GRAPHICS_RESET_RECOVERY)));
 
 	return 0;
 }
