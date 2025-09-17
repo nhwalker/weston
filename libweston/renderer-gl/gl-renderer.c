@@ -278,6 +278,7 @@ struct gl_buffer_state {
 	struct wl_listener destroy_listener;
 
 	struct wl_list link; /* link to shm_bufs of gl renderer */
+	void *saved_gs; /* gl_surface_state, saved for gb recreation */
 };
 
 struct gl_surface_state {
@@ -3023,7 +3024,7 @@ gl_renderer_attach_shm(struct weston_surface *es, struct weston_buffer *buffer)
 	 * than allocating a new one. */
 	assert(!gs->buffer ||
 	      (old_buffer && old_buffer->type == WESTON_BUFFER_SHM));
-	if (gs->buffer &&
+	if (gs->buffer && !(gr->recovering) &&
 	    buffer->width == old_buffer->width &&
 	    buffer->height == old_buffer->height &&
 	    buffer->pixel_format == old_buffer->pixel_format) {
@@ -3038,6 +3039,7 @@ gl_renderer_attach_shm(struct weston_surface *es, struct weston_buffer *buffer)
 
 	gb = xzalloc(sizeof(*gb));
 	gb->gr = gr;
+	gb->saved_gs = gs;
 
 	wl_list_init(&gb->destroy_listener.link);
 	wl_list_init(&gb->link);
@@ -3064,7 +3066,10 @@ gl_renderer_attach_shm(struct weston_surface *es, struct weston_buffer *buffer)
 					   texture_format[i].swizzles.array,
 					   false);
 	}
-	wl_list_insert(&gr->shm_bufs, &gb->link);
+
+	/* For recovery, we will manually add the new gb to shm_bufs */
+	if (!gr->recovering)
+		wl_list_insert(&gr->shm_bufs, &gb->link);
 }
 
 static bool
@@ -4604,6 +4609,7 @@ gl_renderer_destroy_context(struct weston_compositor *ec)
 	struct gl_renderer *gr = get_renderer(ec);
 	struct dmabuf_format *format, *next_format;
 	struct gl_capture_task *gl_task, *tmp;
+	struct gl_buffer_state *gb;
 
 	if (gr->display_bound)
 		gr->unbind_display(gr->egl_display, ec->wl_display);
@@ -4620,6 +4626,23 @@ gl_renderer_destroy_context(struct weston_compositor *ec)
 
 	if (gr->wireframe_tex)
 		gl_texture_fini(&gr->wireframe_tex);
+
+        /*
+         * Destroy the GL textures of the SHM buffer as they are invalid in
+         * the new context.
+         * After recreate the EGL context, gl_renderer_attach_shm() will be
+         * called to recreate all the SHM buffer status
+         */
+        if (gr->recovering) {
+                wl_list_for_each(gb, &gr->shm_bufs, link) {
+                        int i;
+
+                        for (i = 0; i < gb->num_textures; i++)
+                                gl_texture_fini(&gb->textures[i]);
+
+                        gb->num_textures = 0;
+                }
+        }
 
 	/* Work around crash in egl_dri2.c's dri2_make_current() - when does this apply? */
 	eglMakeCurrent(gr->egl_display,
@@ -4694,6 +4717,39 @@ create_default_dmabuf_feedback(struct weston_compositor *ec,
 	}
 
 	return 0;
+}
+
+static int
+gl_renderer_recover_resources(struct weston_compositor *ec)
+{
+        struct gl_renderer *gr = get_renderer(ec);
+        struct gl_buffer_state *gb, *tmp;
+        struct wl_list tmp_gb_list;
+
+        wl_list_init(&tmp_gb_list);
+        wl_list_for_each_safe(gb, tmp, &gr->shm_bufs, link) {
+                struct gl_surface_state *gs = gb->saved_gs;
+                struct weston_surface *es = gs->surface;
+                struct gl_buffer_state *new_gb;
+                struct weston_buffer *buffer;
+
+                assert(es);
+                assert(gb == gs->buffer);
+
+                /* Destroy the original gb and recreate it */
+                buffer = es->buffer_ref.buffer;
+                assert(buffer);
+                gl_renderer_attach_shm(es, buffer);
+                new_gb = gs->buffer;
+
+                wl_list_insert(&tmp_gb_list, &new_gb->link);
+        }
+
+        assert(wl_list_empty(&gr->shm_bufs));
+        /* Manually add the new gbs to shm_bufs */
+        wl_list_insert_list(&gr->shm_bufs, &tmp_gb_list);
+
+        return 0;
 }
 
 static int
@@ -4816,6 +4872,9 @@ gl_renderer_init_context(struct weston_compositor *ec,
 			wl_display_add_shm_format(ec->wl_display,
 						  yuv_formats[i].format);
 	}
+
+	if (gr->recovering && gl_renderer_recover_resources(ec))
+		goto fail_with_error;
 
 	/**
 	 * Keep this at the end of the function. We don't want to change the
