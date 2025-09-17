@@ -279,6 +279,8 @@ struct gl_buffer_state {
 
 	struct wl_list link; /* link to shm_bufs of gl renderer */
 	void *saved_gs; /* gl_surface_state, saved for gb recreation */
+	struct linux_dmabuf_buffer *saved_dmabuf;
+	struct weston_buffer *saved_buffer;
 };
 
 struct gl_surface_state {
@@ -3700,6 +3702,7 @@ gl_renderer_import_dmabuf(struct weston_compositor *ec,
 		return false;
 
 	wl_list_insert(&gr->dma_bufs, &gb->link);
+	gb->saved_dmabuf = dmabuf;
 	linux_dmabuf_buffer_set_user_data(dmabuf, gb,
 		gl_renderer_destroy_dmabuf);
 
@@ -3763,6 +3766,8 @@ gl_renderer_attach_buffer(struct weston_surface *surface,
 	gb = buffer->renderer_private;
 
 	gs->buffer = gb;
+	gb->saved_gs = gs;
+	gb->saved_buffer = buffer;
 
 	if (gb->specified)
 		return;
@@ -3948,6 +3953,8 @@ gl_renderer_buffer_init(struct weston_compositor *etc,
 	assert(gb);
 	linux_dmabuf_buffer_set_user_data(buffer->dmabuf, NULL, NULL);
 	buffer->renderer_private = gb;
+	gb->saved_dmabuf = NULL;
+	gb->saved_buffer = buffer;
 	gb->destroy_listener.notify = handle_buffer_destroy;
 	wl_signal_add(&buffer->destroy_signal, &gb->destroy_listener);
 }
@@ -4645,6 +4652,23 @@ gl_renderer_destroy_context(struct weston_compositor *ec)
                 }
         }
 
+        /* Destroy all the GL/EGL resources for dma_bufs */
+        if (gr->recovering) {
+                wl_list_for_each(gb, &gr->dma_bufs, link) {
+                        int i;
+
+                        glDeleteTextures(gb->num_textures, gb->textures);
+                        gb->num_textures = 0;
+
+                        for (i = 0; i < gb->num_images; i++) {
+                                gr->destroy_image(gr->egl_display,
+                                                  gb->images[i]);
+                                gb->images[i] = NULL;
+                        }
+                        gb->num_images = 0;
+                }
+        }
+
 	/* Work around crash in egl_dri2.c's dri2_make_current() - when does this apply? */
 	eglMakeCurrent(gr->egl_display,
 		       EGL_NO_SURFACE, EGL_NO_SURFACE,
@@ -4774,6 +4798,90 @@ gl_renderer_recover_resources(struct weston_compositor *ec)
                         }
                 }
         }
+
+        /* Restore dma_bufs */
+        wl_list_init(&tmp_gb_list);
+        wl_list_for_each_safe(gb, tmp, &gr->dma_bufs, link) {
+                #define BUFFER_RECREATE() do { \
+                        destroy_buffer_state(gb); \
+                        new_gb = import_dmabuf(gr, dmabuf); \
+                        if (!new_gb) { \
+                                return -EINVAL; \
+                        } \
+                } while(0)
+
+                #define BUFFER_REATTACH() do { \
+                        linux_dmabuf_buffer_set_user_data(dmabuf, NULL, NULL); \
+                        buffer->renderer_private = new_gb; \
+                        new_gb->destroy_listener.notify = handle_buffer_destroy; \
+                        wl_signal_add(&buffer->destroy_signal, \
+                                      &new_gb->destroy_listener); \
+                } while(0)
+
+                struct weston_buffer *buffer = gb->saved_buffer;
+                struct linux_dmabuf_buffer *dmabuf = gb->saved_dmabuf;
+                struct gl_surface_state *gs = gb->saved_gs;
+                struct gl_buffer_state *new_gb;
+
+                /*
+                 * dmabuf is slightly complicated. Probably there are three
+                 * states of a dma buffer:
+                 * 1, Buffer has been created by gl_renderer_import_dmabuf().
+                 * 2, Buffer has been attached to a weston_buffer by
+                 *      gl_renderer_buffer_init()
+                 * 3, Buffer has been bound to a surface by
+                 *      gl_renderer_attach_buffer
+                 */
+
+                if (dmabuf) {
+                        /* State is created */
+                        void *user_data =
+                                linux_dmabuf_buffer_get_user_data(dmabuf);
+
+                        assert(gb == user_data);
+
+                        /* Just recreate it */
+                        linux_dmabuf_buffer_set_user_data(dmabuf, NULL, NULL);
+                        BUFFER_RECREATE();
+                        linux_dmabuf_buffer_set_user_data(dmabuf, new_gb,
+                                                gl_renderer_destroy_dmabuf);
+
+                        new_gb->saved_dmabuf = dmabuf;
+                } else if (!gs && buffer) {
+                        /* State is attached */
+                        dmabuf = buffer->dmabuf;
+                        if (!dmabuf)
+                                continue;
+
+                        assert(buffer->renderer_private == gb);
+
+                        BUFFER_RECREATE();
+                        BUFFER_REATTACH();
+                        new_gb->saved_buffer = buffer;
+                } else if (gs && buffer) {
+                        /* State is bound */
+                        struct weston_surface *surface = gs->surface;
+                        dmabuf = buffer->dmabuf;
+                        if (!dmabuf)
+                                continue;
+
+                        BUFFER_RECREATE();
+                        BUFFER_REATTACH();
+
+                        /* bind to surface */
+                        gl_renderer_attach_buffer(surface, buffer);
+                } else {
+                        return -EINVAL;
+                }
+
+                wl_list_insert(&tmp_gb_list, &new_gb->link);
+
+                #undef BUFFER_RECREATE
+                #undef BUFFER_REATTACH
+        }
+
+        /* Manually add the new gbs to dma_bufs */
+        wl_list_insert_list(&gr->dma_bufs, &tmp_gb_list);
 
         return 0;
 }
