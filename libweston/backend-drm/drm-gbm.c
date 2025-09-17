@@ -798,8 +798,33 @@ drm_handle_gl_renderer_error(struct weston_compositor *compositor, int err)
                 renderer->gl->set_recovering(compositor, true);
 
                 /* 1, Destroy the renderer outputs */
-                wl_list_for_each(output, &compositor->output_list, link)
+                wl_list_for_each(output, &compositor->output_list, link) {
+                        struct drm_output *drm = to_drm_output(output);
+                        struct drm_plane *scanout = drm->scanout_plane;
+
+                        /*
+                         * When the output is destroyed, its associated
+                         * EGLSurface will also be destroyed. Consequently, the
+                         * GBM (Graphics Buffer Manager) BOs (Buffer Objects)
+                         * backing this surface will be freed. As a result, the
+                         * user_data associated with the BO will be destroyed by
+                         * drm_fb_destroy_gbm(), since drm_fb_get_from_bo()
+                         * installs this free callback for the user_data (fb)
+                         * related to the GBM BO. See the implementation  of
+                         * eglDestroySurface() in Mesa, the dri2_drm_destroy_surface()
+                         * will call gbm_bo_destroy() to destroy the GBM BO.
+                         * The Mesa GMB implementation of gbm_bo_destroy() then
+                         * will finally call drm_fb_destroy_gbm() to destroy the
+                         * user_data(fb) regardless of refcount, so ensure we
+                         * destroy them here before invoking output_destroy.
+                         */
+                        if (scanout && scanout->state_cur &&
+                            scanout->state_cur->fb &&
+                            scanout->state_cur->fb->type == BUFFER_GBM_SURFACE)
+                                drm_plane_reset_state(scanout);
+
                         renderer->gl->output_destroy(output);
+                }
 
                 /* 2, Destroy the renderer */
                 renderer->destroy(compositor);
