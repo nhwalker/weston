@@ -4724,6 +4724,7 @@ gl_renderer_recover_resources(struct weston_compositor *ec)
 {
         struct gl_renderer *gr = get_renderer(ec);
         struct gl_buffer_state *gb, *tmp;
+	struct weston_output *output;
         struct wl_list tmp_gb_list;
 
         wl_list_init(&tmp_gb_list);
@@ -4748,6 +4749,30 @@ gl_renderer_recover_resources(struct weston_compositor *ec)
         assert(wl_list_empty(&gr->shm_bufs));
         /* Manually add the new gbs to shm_bufs */
         wl_list_insert_list(&gr->shm_bufs, &tmp_gb_list);
+
+        /*
+         * Since all the buffer statuses have been recreated, mark them all as
+         * dirty to avoid garbage caused by original damage information
+         */
+        wl_list_for_each(output, &ec->output_list, link) {
+                struct weston_paint_node *pnode;
+
+                wl_list_for_each(pnode, &output->paint_node_z_order_list,
+                                 z_order_link) {
+                        struct weston_surface *surface = pnode->surface;
+                        struct weston_buffer *buffer = surface->buffer_ref.buffer;
+
+                        if (buffer->type == WESTON_BUFFER_SHM) {
+                                pixman_region32_t region;
+
+                                pixman_region32_init_rect(&region, 0, 0,
+                                                          buffer->width,
+                                                          buffer->height);
+                                pixman_region32_copy(&surface->damage, &region);
+                                ec->renderer->flush_damage(pnode);
+                        }
+                }
+        }
 
         return 0;
 }
