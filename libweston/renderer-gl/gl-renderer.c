@@ -3699,6 +3699,7 @@ gl_renderer_import_dmabuf(struct weston_compositor *ec,
 	if (!gb)
 		return false;
 
+	wl_list_insert(&gr->dma_bufs, &gb->link);
 	linux_dmabuf_buffer_set_user_data(dmabuf, gb,
 		gl_renderer_destroy_dmabuf);
 
@@ -4980,6 +4981,7 @@ gl_renderer_display_create(struct weston_compositor *ec,
 
 	wl_signal_init(&gr->destroy_signal);
 	wl_list_init(&gr->shm_bufs);
+	wl_list_init(&gr->dma_bufs);
 
         /*
          * Perform the (E)GL initialization operations as the final step

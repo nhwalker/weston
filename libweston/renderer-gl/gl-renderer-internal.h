@@ -501,6 +501,7 @@ struct gl_renderer {
 
 	bool blend_state;
 
+	struct wl_list dma_bufs;
 	struct wl_list shm_bufs;
 	struct wl_list dmabuf_images;
 	struct wl_list dmabuf_formats;
