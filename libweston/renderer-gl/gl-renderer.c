@@ -276,6 +276,8 @@ struct gl_buffer_state {
 	bool specified;
 
 	struct wl_listener destroy_listener;
+
+	struct wl_list link; /* link to shm_bufs of gl renderer */
 };
 
 struct gl_surface_state {
@@ -2875,6 +2877,8 @@ destroy_buffer_state(struct gl_buffer_state *gb)
 	pixman_region32_fini(&gb->texture_damage);
 	wl_list_remove(&gb->destroy_listener.link);
 
+	wl_list_remove(&gb->link);
+
 	free(gb);
 }
 
@@ -3036,6 +3040,7 @@ gl_renderer_attach_shm(struct weston_surface *es, struct weston_buffer *buffer)
 	gb->gr = gr;
 
 	wl_list_init(&gb->destroy_listener.link);
+	wl_list_init(&gb->link);
 	pixman_region32_init(&gb->texture_damage);
 
 	gb->pitch = pitch;
@@ -3059,6 +3064,7 @@ gl_renderer_attach_shm(struct weston_surface *es, struct weston_buffer *buffer)
 					   texture_format[i].swizzles.array,
 					   false);
 	}
+	wl_list_insert(&gr->shm_bufs, &gb->link);
 }
 
 static bool
@@ -3085,6 +3091,7 @@ gl_renderer_fill_buffer_info(struct weston_compositor *ec,
 
 	gb->gr = gr;
 	pixman_region32_init(&gb->texture_damage);
+	wl_list_init(&gb->link);
 
 	buffer->legacy_buffer = (struct wl_buffer *)buffer->resource;
 	ret &= gr->query_buffer(gr->egl_display, buffer->legacy_buffer,
@@ -3519,6 +3526,7 @@ import_dmabuf(struct gl_renderer *gr,
 	gb->gr = gr;
 	pixman_region32_init(&gb->texture_damage);
 	wl_list_init(&gb->destroy_listener.link);
+	wl_list_init(&gb->link);
 
 	quirks = &gr->compositor->test_data.test_quirks;
 	if (quirks->gl_force_import_yuv_fallback &&
@@ -3708,6 +3716,7 @@ ensure_renderer_gl_buffer_state(struct weston_surface *surface,
 	gb = zalloc(sizeof(*gb));
 	gb->gr = gr;
 	pixman_region32_init(&gb->texture_damage);
+	wl_list_init(&gb->link);
 	buffer->renderer_private = gb;
 	gb->destroy_listener.notify = handle_buffer_destroy;
 	wl_signal_add(&buffer->destroy_signal, &gb->destroy_listener);
@@ -4886,6 +4895,7 @@ gl_renderer_display_create(struct weston_compositor *ec,
 		gr->base.dmabuf_alloc = gl_renderer_dmabuf_alloc;
 
 	wl_signal_init(&gr->destroy_signal);
+	wl_list_init(&gr->shm_bufs);
 
         /*
          * Perform the (E)GL initialization operations as the final step
