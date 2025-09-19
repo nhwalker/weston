@@ -242,6 +242,8 @@ struct drm_device {
 
 	/* struct drm_colorop_3x1d_lut_blob::link  */
 	struct wl_list drm_colorop_3x1d_lut_blob_list;
+	/* struct drm_colorop_clut_blob::link */
+	struct wl_list drm_colorop_clut_blob_list;
 	/* struct drm_colorop_matrix_blob::link */
 	struct wl_list drm_colorop_matrix_blob_list;
 };
@@ -409,6 +411,22 @@ struct drm_colorop_3x1d_lut_blob {
 	uint32_t blob_id;
 };
 
+struct drm_colorop_clut_blob {
+	/* drm_device::drm_colorop_clut_blob_list */
+	struct wl_list link;
+	struct drm_device *device;
+
+	/* Lifetime matches the xform. */
+	struct weston_color_transform *xform;
+	struct wl_listener destroy_listener;
+
+	uint32_t shaper_len;
+	uint32_t clut_len;
+
+	uint32_t shaper_blob_id;
+	uint32_t clut_blob_id;
+};
+
 struct drm_colorop_matrix_blob {
 	/* drm_device::drm_colorop_matrix_blob_list */
 	struct wl_list link;
@@ -443,6 +461,7 @@ enum colorop_object_type {
 	COLOROP_OBJECT_TYPE_CURVE = 0,
 	COLOROP_OBJECT_TYPE_MATRIX,
 	COLOROP_OBJECT_TYPE_3x1D_LUT,
+	COLOROP_OBJECT_TYPE_3D_LUT,
 };
 
 struct drm_colorop_state_object {
@@ -452,6 +471,7 @@ struct drm_colorop_state_object {
 	uint64_t curve_type_prop_val;
 	uint32_t matrix_blob_id;
 	uint32_t lut_3x1d_blob_id;
+	uint32_t lut_3d_blob_id;
 };
 
 struct drm_colorop_state {

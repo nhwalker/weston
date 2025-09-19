@@ -25,6 +25,8 @@
 
 #include "config.h"
 
+#include <libweston/linalg-3.h>
+
 #include "color-properties.h"
 #include "drm-internal.h"
 #include "shared/string-helpers.h"
@@ -261,6 +263,156 @@ drm_colorop_3x1d_lut_blob_from_curve(struct drm_device *device,
 	}
 
 	return colorop_lut;
+}
+
+static void
+drm_colorop_clut_blob_destroy(struct drm_colorop_clut_blob *clut)
+{
+	wl_list_remove(&clut->destroy_listener.link);
+	wl_list_remove(&clut->link);
+	drmModeDestroyPropertyBlob(clut->device->kms_device->fd, clut->clut_blob_id);
+	drmModeDestroyPropertyBlob(clut->device->kms_device->fd, clut->shaper_blob_id);
+	free(clut);
+}
+
+static void
+drm_colorop_clut_blob_destroy_handler(struct wl_listener *l, void *data)
+{
+	struct drm_colorop_clut_blob *clut;
+
+	clut = wl_container_of(l, clut, destroy_listener);
+	assert(clut->xform == data);
+
+	drm_colorop_clut_blob_destroy(clut);
+}
+
+static struct drm_colorop_clut_blob *
+drm_colorop_clut_blob_create(struct drm_device *device,
+			     struct weston_color_transform *xform,
+			     uint32_t len_shaper, float *cm_shaper,
+			     uint32_t len_clut, float *cm_clut)
+{
+	struct drm_backend *b = device->backend;
+	struct drm_colorop_clut_blob *clut;
+	struct drm_color_lut32 *drm_clut;
+	struct drm_color_lut32 *drm_shaper;
+	uint32_t clut_blob_id, shaper_blob_id;
+	struct weston_vec3f v;
+	unsigned int i, index_r, index_g, index_b, index, index_cm;
+	int ret;
+
+	drm_clut = xcalloc(len_clut * len_clut * len_clut, sizeof(*drm_clut));
+	drm_shaper = xcalloc(len_shaper, sizeof(*drm_shaper));
+
+	for (i = 0; i < len_shaper; i++) {
+		v = WESTON_VEC3F(cm_shaper[i],
+				 cm_shaper[i + len_shaper],
+				 cm_shaper[i + 2 * len_shaper]);
+		drm_shaper[i] = drm_vec3f_to_u32(v);
+	}
+
+	ret = drmModeCreatePropertyBlob(device->kms_device->fd, drm_shaper,
+					len_shaper * sizeof(*drm_shaper),
+					&shaper_blob_id);
+	if (ret < 0) {
+		drm_debug(b, "[colorop] failed to create blob for colorop shaper\n");
+		goto out;
+	}
+
+	/**
+	 * Kernel uAPI doc states that the KMS 3D LUT indexes are traversed in
+	 * RGB order (B index growing first, then G and lastly R). But our 3D
+	 * cLUT is traversed in BGR order (R growing first, and so on). So that
+	 * requires this index mapping from us here.
+	 */
+	for (index_b = 0; index_b < len_clut; index_b++) {
+		for (index_g = 0; index_g < len_clut; index_g++) {
+			for (index_r = 0; index_r < len_clut; index_r++) {
+				index_cm = index_r + len_clut * (index_g + len_clut * index_b);
+				index    = index_b + len_clut * (index_g + len_clut * index_r);
+				v = WESTON_VEC3F(cm_clut[3 * index_cm],
+						 cm_clut[3 * index_cm + 1],
+						 cm_clut[3 * index_cm + 2]);
+				drm_clut[index] = drm_vec3f_to_u32(v);
+			}
+		}
+	}
+	ret = drmModeCreatePropertyBlob(device->kms_device->fd, drm_clut,
+					len_clut * len_clut * len_clut * sizeof(*drm_clut),
+					&clut_blob_id);
+	if (ret < 0) {
+		drmModeDestroyPropertyBlob(device->kms_device->fd, shaper_blob_id);
+		drm_debug(b, "[colorop] failed to create blob for colorop 3D cLUT\n");
+		goto out;
+	}
+
+out:
+	free(drm_clut);
+	free(drm_shaper);
+
+	if (ret < 0)
+		return NULL;
+
+	clut = xzalloc(sizeof(*clut));
+
+	clut->device = device;
+	clut->xform = xform;
+	clut->shaper_len = len_shaper;
+	clut->clut_len = len_clut;
+	clut->shaper_blob_id = shaper_blob_id;
+	clut->clut_blob_id = clut_blob_id;
+
+	wl_list_insert(&device->drm_colorop_clut_blob_list, &clut->link);
+
+	clut->destroy_listener.notify = drm_colorop_clut_blob_destroy_handler;
+	wl_signal_add(&xform->destroy_signal, &clut->destroy_listener);
+
+	return clut;
+}
+
+static struct drm_colorop_clut_blob *
+drm_colorop_clut_blob_search(struct drm_device *device,
+			     struct weston_color_transform *xform,
+			     uint32_t clut_len, uint32_t shaper_len)
+{
+	struct drm_colorop_clut_blob *clut;
+
+	wl_list_for_each(clut, &device->drm_colorop_clut_blob_list, link)
+		if (clut->xform == xform &&
+		    clut->clut_len == clut_len && clut->shaper_len == shaper_len)
+			return clut;
+
+	return NULL;
+}
+
+static struct drm_colorop_clut_blob *
+drm_colorop_clut_blob_from_xform(struct drm_device *device,
+				 struct weston_color_transform *xform,
+				 uint32_t len_shaper, uint32_t len_clut)
+{
+	float *cm_shaper = NULL;
+	float *cm_clut = NULL;
+	struct drm_colorop_clut_blob *colorop_clut = NULL;
+
+	colorop_clut = drm_colorop_clut_blob_search(device, xform, len_shaper, len_clut);
+	if (colorop_clut)
+		return colorop_clut;
+
+	/* Get shaper + 3D cLUT from xform. */
+	cm_shaper = xcalloc(3 * len_shaper, sizeof(*cm_shaper));
+	cm_clut = xcalloc(3 * len_clut * len_clut * len_clut, sizeof(*cm_clut));
+	if (!xform->to_clut(xform, len_shaper, cm_shaper, len_clut, cm_clut))
+		goto out;
+
+	colorop_clut = drm_colorop_clut_blob_create(device, xform,
+						    len_shaper, cm_shaper,
+						    len_clut, cm_clut);
+
+out:
+	free(cm_shaper);
+	free(cm_clut);
+
+	return colorop_clut;
 }
 
 static void
@@ -868,6 +1020,59 @@ err:
 	return NULL;
 }
 
+static struct drm_color_pipeline_state *
+drm_color_pipeline_state_from_xform_decomposed(struct drm_color_pipeline *pipeline,
+					       struct weston_color_transform *xform,
+					       const char *indent)
+{
+	struct drm_device *device = pipeline->plane->device;
+	struct drm_backend *b = device->backend;
+	struct drm_color_pipeline_state *pipeline_state = NULL;
+	struct drm_colorop *colorop_shaper, *colorop_clut;
+	struct drm_colorop_state_object so_clut = { 0 };
+	struct drm_colorop_state_object so_shaper = { 0 };
+	struct drm_colorop_clut_blob *clut;
+
+	/* Find colorop for shaper (3x1D LUT). */
+	colorop_shaper = search_colorop_type(pipeline,
+					     NULL, /* previous colorop (none) */
+					     WDRM_COLOROP_TYPE_1D_LUT);
+	if (!colorop_shaper)
+		goto out;
+
+	/* Find colorop for 3D cLUT. */
+	colorop_clut = search_colorop_type(pipeline,
+					   colorop_shaper, /* previous colorop */
+					   WDRM_COLOROP_TYPE_3D_LUT);
+	if (!colorop_clut)
+		goto out;
+
+	clut = drm_colorop_clut_blob_from_xform(device, xform,
+						colorop_shaper->size,
+						colorop_clut->size);
+	if (!clut)
+		goto out;
+
+	/* Create pipeline state and fill with the colorops. */
+	pipeline_state = drm_color_pipeline_state_create(pipeline);
+
+	so_shaper.type = COLOROP_OBJECT_TYPE_3x1D_LUT;
+	so_shaper.lut_3x1d_blob_id = clut->shaper_blob_id;
+	drm_colorop_state_create(pipeline_state, colorop_shaper, so_shaper);
+
+	so_clut.type = COLOROP_OBJECT_TYPE_3D_LUT;
+	so_clut.lut_3d_blob_id = clut->clut_blob_id;
+	drm_colorop_state_create(pipeline_state, colorop_clut, so_clut);
+
+out:
+	drm_debug(b, "%s[colorop] color pipeline id %u %s compatible with xform id %u;\n" \
+		     "%s          xform decomposed into shaper + 3D LUT\n",
+		     indent, pipeline->id,
+		     pipeline_state ? "IS" : "NOT",
+		     xform->id, indent);
+	return pipeline_state;
+}
+
 /**
  * Given a color transformation, returns a color pipeline state that can
  * be used to offload such xform to KMS.
@@ -913,6 +1118,20 @@ drm_color_pipeline_state_from_xform(struct drm_plane *plane,
 					return pipeline_state;
 			}
 		}
+	}
+
+	/**
+	 * Either the pipelines are not compatible with our xform or we were
+	 * unable to optimize the xform to steps. Our last resource would be
+	 * crafting a shaper + 3D LUT from the xform. Let's check if any
+	 * pipelines would be able to handle that.
+	 */
+	for (i = 0; i < plane->num_color_pipelines; i++) {
+		pipeline_state =
+			drm_color_pipeline_state_from_xform_decomposed(&plane->pipelines[i],
+								       xform, indent);
+		if (pipeline_state)
+			return pipeline_state;
 	}
 
 	return NULL;
