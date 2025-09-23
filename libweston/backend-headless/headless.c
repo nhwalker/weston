@@ -34,6 +34,7 @@
 #include <string.h>
 #include <sys/time.h>
 #include <stdbool.h>
+#include <linux/input.h>
 
 #include <libweston/libweston.h>
 #include <libweston/backend-headless.h>
@@ -56,11 +57,47 @@
 
 #define DEFAULT_OUTPUT_REPAINT_REFRESH 60000 /* In mHz. */
 
+// A buffer size enough to store a key name plus the trailing zero
+#define KEY_NAME_BUF_SIZE 10
+
+struct key_code {
+	char *name;
+	uint32_t id;
+	bool modifier;
+	bool pressed;
+} key_codes_list[] = {
+	{.name = "SHIFT",  .id = KEY_LEFTSHIFT,  .modifier = true,  .pressed = false },
+	{.name = "ALT",    .id = KEY_LEFTALT,    .modifier = true,  .pressed = false },
+	{.name = "SUPER",  .id = KEY_LEFTMETA,   .modifier = true,  .pressed = false },
+	{.name = "CTRL",   .id = KEY_LEFTCTRL,   .modifier = true,  .pressed = false },
+	{.name = "SHIFTR", .id = KEY_RIGHTSHIFT, .modifier = true,  .pressed = false },
+	{.name = "ALTR",   .id = KEY_RIGHTALT,   .modifier = true,  .pressed = false },
+	{.name = "SUPERR", .id = KEY_RIGHTMETA,  .modifier = true,  .pressed = false },
+	{.name = "CTRLR",  .id = KEY_RIGHTCTRL,  .modifier = true,  .pressed = false },
+	{.name = "RETURN", .id = KEY_ENTER,      .modifier = false, .pressed = false },
+	{.name = "F1",     .id = KEY_F1,         .modifier = false, .pressed = false },
+	{.name = "F2",     .id = KEY_F2,         .modifier = false, .pressed = false },
+	{.name = "F3",     .id = KEY_F3,         .modifier = false, .pressed = false },
+	{.name = "F4",     .id = KEY_F4,         .modifier = false, .pressed = false },
+	{.name = "F5",     .id = KEY_F5,         .modifier = false, .pressed = false },
+	{.name = "F6",     .id = KEY_F6,         .modifier = false, .pressed = false },
+	{.name = "F7",     .id = KEY_F7,         .modifier = false, .pressed = false },
+	{.name = "F8",     .id = KEY_F8,         .modifier = false, .pressed = false },
+	{.name = "F9",     .id = KEY_F9,         .modifier = false, .pressed = false },
+	{.name = "F10",    .id = KEY_F10,        .modifier = false, .pressed = false },
+	{.name = "F11",    .id = KEY_F11,        .modifier = false, .pressed = false },
+	{.name = "F12",    .id = KEY_F12,        .modifier = false, .pressed = false },
+	{.name = "R",      .id = KEY_R,          .modifier = false, .pressed = false },
+	{.name = "S",      .id = KEY_S,          .modifier = false, .pressed = false },
+	{.name = NULL, .id = 0,                  .modifier = false, .pressed = false },
+};
+
 struct headless_backend {
 	struct weston_backend base;
 	struct weston_compositor *compositor;
 
 	struct weston_seat fake_seat;
+	int fake_input_fd;
 
 	bool decorate;
 	struct theme *theme;
@@ -420,6 +457,62 @@ err_renderer:
 }
 
 static int
+on_std_input(int fd, unsigned int mask, void *data)
+{
+	struct headless_backend *backend = data;
+	static char buffer[KEY_NAME_BUF_SIZE] = {0};
+	static int bufpos = 0;
+	unsigned char received;
+	struct timespec time;
+	struct key_code *element;
+
+	read(fd, &received, 1);
+	if (received > 127)
+		return 1; // ignore non-ASCII characters
+	if ((received >= 'a') && (received <= 'z'))
+		received -= 32; // switch letters to uppercase
+
+	buffer[bufpos] = received;
+
+	if (bufpos < (KEY_NAME_BUF_SIZE - 1))
+		bufpos++;
+
+	if ((received != '\n') && (received != '\r') && (received != ' '))
+		return 1;
+
+	buffer[bufpos - 1] = 0; // terminate the received word
+	bufpos = 0;
+
+	for (element = key_codes_list; element->name != NULL; element++) {
+		if (0 != strcmp (element->name, buffer))
+			continue;
+		if (element->pressed)
+			break;
+		weston_compositor_get_time(&time);
+		notify_key(&backend->fake_seat, &time, element->id, WL_KEYBOARD_KEY_STATE_PRESSED, STATE_UPDATE_AUTOMATIC);
+		if (element->modifier) {
+			element->pressed = true;
+		} else {
+			usleep(1);
+			weston_compositor_get_time(&time);
+			notify_key(&backend->fake_seat, &time, element->id, WL_KEYBOARD_KEY_STATE_RELEASED, STATE_UPDATE_AUTOMATIC);
+		}
+	}
+
+	if ((received == '\n') || (received == '\r')) {
+		// reset modifier keys
+		for (element = key_codes_list; element->name != NULL; element++) {
+			if (!element->pressed)
+				continue;
+			weston_compositor_get_time(&time);
+			notify_key(&backend->fake_seat, &time, element->id, WL_KEYBOARD_KEY_STATE_RELEASED, STATE_UPDATE_AUTOMATIC);
+			element->pressed = false;
+		}
+	}
+	return 1;
+}
+
+static int
 headless_output_enable(struct weston_output *base)
 {
 	struct headless_output *output = to_headless_output(base);
@@ -431,7 +524,12 @@ headless_output_enable(struct weston_output *base)
 
 	b = output->backend;
 
+	weston_seat_init(&b->fake_seat, b->compositor, "seat0");
+	weston_seat_init_keyboard(&b->fake_seat, NULL);
+
 	loop = wl_display_get_event_loop(b->compositor->wl_display);
+	wl_event_loop_add_fd(loop, 0,
+		WL_EVENT_READABLE, on_std_input, b);
 	output->finish_frame_timer =
 		wl_event_loop_add_timer(loop, finish_frame_handler, output);
 
@@ -605,6 +703,9 @@ headless_destroy(struct weston_backend *backend)
 	struct weston_compositor *ec = b->compositor;
 	struct weston_head *base, *next;
 
+	if (b->fake_input_fd != 0)
+		close (b->fake_input_fd);
+
 	wl_list_remove(&b->base.link);
 
 	wl_list_for_each_safe(base, next, &ec->head_list, compositor_link) {
@@ -640,6 +741,7 @@ headless_backend_create(struct weston_compositor *compositor,
 	if (b == NULL)
 		return NULL;
 
+	b->fake_input_fd = 0; // by default, STDIN
 	b->compositor = compositor;
 	wl_list_insert(&compositor->backend_list, &b->base.link);
 
