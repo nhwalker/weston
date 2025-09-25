@@ -144,6 +144,9 @@ weston_head_init(struct weston_head *head, const char *name);
 void
 weston_head_release(struct weston_head *head);
 
+struct weston_head *
+weston_compositor_find_head(struct weston_compositor *compositor, char *name);
+
 void
 weston_head_set_connection_status(struct weston_head *head, bool connected);
 

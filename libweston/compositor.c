@@ -5979,6 +5979,24 @@ weston_head_init(struct weston_head *head, const char *name)
 	weston_head_set_monitor_strings(head, NULL, NULL, NULL);
 }
 
+/** Find a weston_head by given name
+ *
+ * \param compositor The Compositor.
+ * \param name The head name, e.g. the connector name or equivalent.
+ */
+WL_EXPORT struct weston_head *
+weston_compositor_find_head(struct weston_compositor *compositor, char *name)
+{
+	struct weston_head *head;
+
+	wl_list_for_each(head, &compositor->head_list, compositor_link) {
+		if (!strcmp(head->name, name))
+			return head;
+	}
+
+	return NULL;
+}
+
 /** Send output heads changed signal
  *
  * \param output The output that changed.
