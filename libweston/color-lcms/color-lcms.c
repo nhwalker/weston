@@ -35,7 +35,7 @@
 #include "color-properties.h"
 #include "shared/helpers.h"
 #include "shared/xalloc.h"
-#include "shared/weston-assert.h"
+#include <libweston/weston-assert.h>
 
 const char *
 cmlcms_category_name(enum cmlcms_category cat)

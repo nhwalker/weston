@@ -35,7 +35,7 @@
 #include "gl-renderer.h"
 #include "gl-renderer-internal.h"
 
-#include "shared/weston-assert.h"
+#include <libweston/weston-assert.h>
 #include "shared/weston-egl-ext.h"
 
 struct gl_renderer_color_curve {

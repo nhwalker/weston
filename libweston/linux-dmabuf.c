@@ -38,7 +38,7 @@
 #include "shared/os-compatibility.h"
 #include "shared/helpers.h"
 #include "libweston-internal.h"
-#include "shared/weston-assert.h"
+#include <libweston/weston-assert.h>
 #include "shared/weston-drm-fourcc.h"
 
 static void

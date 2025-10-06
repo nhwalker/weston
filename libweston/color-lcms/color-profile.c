@@ -36,7 +36,7 @@
 #include "shared/helpers.h"
 #include "shared/string-helpers.h"
 #include "shared/xalloc.h"
-#include "shared/weston-assert.h"
+#include <libweston/weston-assert.h>
 
 struct xyz_arr_flt {
 	float v[3];

@@ -29,7 +29,7 @@
 #include <errno.h>
 
 #include "libweston/libweston-internal.h"
-#include "shared/weston-assert.h"
+#include <libweston/weston-assert.h>
 
 int
 weston_assert_counter_get(void);

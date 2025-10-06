@@ -73,7 +73,7 @@
 #include "shared/string-helpers.h"
 #include "shared/timespec-util.h"
 #include "shared/xalloc.h"
-#include "shared/weston-assert.h"
+#include <libweston/weston-assert.h>
 #include "tearing-control-v1-server-protocol.h"
 #include "git-version.h"
 #include <libweston/version.h>

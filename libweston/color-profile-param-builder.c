@@ -30,7 +30,7 @@
 #include "shared/helpers.h"
 #include "shared/string-helpers.h"
 #include "shared/xalloc.h"
-#include "shared/weston-assert.h"
+#include <libweston/weston-assert.h>
 
 /** Enum that helps keep track of what params have been set. */
 enum weston_color_profile_params_set {

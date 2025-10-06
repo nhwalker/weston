@@ -34,6 +34,17 @@
 
 struct weston_compositor;
 
+/**
+ * Weston-assert macros
+ *
+ * This header contains macros that should be used by libweston and its internal
+ * users. The main advantages are:
+ *
+ * 1. Not disabled depending on the build type.
+ * 2. When an weston-assert is hit, we print more meaningful messages.
+ * 3. We log the messages using our log infrastructure. (TODO)
+ */
+
 __attribute__((noreturn, format(printf, 2, 3)))
 static inline void
 weston_assert_fail_(const struct weston_compositor *compositor, const char *fmt, ...)

@@ -37,7 +37,7 @@
 #include "color-properties.h"
 #include "shared/helpers.h"
 #include "shared/string-helpers.h"
-#include "shared/weston-assert.h"
+#include <libweston/weston-assert.h>
 #include "shared/xalloc.h"
 
 /**

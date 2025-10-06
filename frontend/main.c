@@ -55,7 +55,6 @@
 #include "shared/process-util.h"
 #include "shared/string-helpers.h"
 #include "shared/xalloc.h"
-#include "shared/weston-assert.h"
 #include "git-version.h"
 #include <libweston/version.h>
 #include "weston.h"
@@ -69,6 +68,7 @@
 #include <libweston/backend-x11.h>
 #include <libweston/backend-wayland.h>
 #include <libweston/windowed-output-api.h>
+#include <libweston/weston-assert.h>
 #include <libweston/weston-log.h>
 #include <libweston/remoting-plugin.h>
 #include <libweston/pipewire-plugin.h>

@@ -30,7 +30,7 @@
 #include "color-operations.h"
 
 #include "shared/helpers.h"
-#include "shared/weston-assert.h"
+#include <libweston/weston-assert.h>
 
 static float
 linpow(float x, const union weston_color_curve_parametric_chan_data *p)
