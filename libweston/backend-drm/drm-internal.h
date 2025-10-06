@@ -921,6 +921,9 @@ drm_plane_supports_color_range(struct drm_plane *plane,
 void
 drm_output_render(struct drm_output_state *state);
 
+void
+drm_output_pick_writeback_capture_task(struct drm_output *output);
+
 int
 parse_gbm_format(const char *s, const struct pixel_format_info *default_format,
 		 const struct pixel_format_info **format);

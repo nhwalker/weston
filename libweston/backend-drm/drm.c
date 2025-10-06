@@ -677,7 +677,7 @@ drm_writeback_state_free(struct drm_writeback_state *state)
 	free(state);
 }
 
-static void
+void
 drm_output_pick_writeback_capture_task(struct drm_output *output)
 {
 	struct weston_capture_task *ct;
@@ -856,9 +856,6 @@ drm_output_repaint(struct weston_output *output_base)
 
 	if (drm_output_ensure_hdr_output_metadata_blob(output) < 0)
 		goto err;
-
-	if (device->atomic_modeset)
-		drm_output_pick_writeback_capture_task(output);
 
 	drm_output_render(state);
 	scanout_state = drm_output_state_get_plane(state,
