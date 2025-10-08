@@ -58,7 +58,7 @@ static bool
 client_buffer_util_fill_buffer_args(struct client_buffer *buf,
 				    bool align_for_gpu)
 {
-	buf->dmabuf_fd = -1;
+	buf->fd = -1;
 
 	switch (buf->fmt->format) {
 	case DRM_FORMAT_RGBX4444:
@@ -214,8 +214,8 @@ client_buffer_util_destroy_buffer(struct client_buffer *buf)
 		wl_buffer_destroy(buf->wl_buffer);
 	if (buf->data)
 		munmap(buf->data, buf->bytes);
-	if (buf->dmabuf_fd > -1)
-		close(buf->dmabuf_fd);
+	if (buf->fd > -1)
+		close(buf->fd);
 	free(buf);
 }
 
@@ -358,8 +358,8 @@ client_buffer_util_create_dmabuf_buffer(struct wl_display *display,
 	create.offset = 0;
 	create.size = buf->bytes;
 
-	buf->dmabuf_fd = ioctl (udmabuf_fd, UDMABUF_CREATE, &create);
-	if (buf->dmabuf_fd == -1) {
+	buf->fd = ioctl (udmabuf_fd, UDMABUF_CREATE, &create);
+	if (buf->fd == -1) {
 		fprintf(stderr, "creating udmabuf failed: %s\n", strerror (errno));
 		goto error;
 	}
@@ -370,7 +370,7 @@ client_buffer_util_create_dmabuf_buffer(struct wl_display *display,
 	udmabuf_fd = -1;
 
 	buf->data = mmap(NULL, buf->bytes, PROT_READ | PROT_WRITE, MAP_SHARED,
-			 buf->dmabuf_fd, 0);
+			 buf->fd, 0);
 	if (buf->data == MAP_FAILED) {
 		fprintf(stderr, "mmap() failed: %s\n", strerror (errno));
 		goto error;
@@ -382,7 +382,7 @@ client_buffer_util_create_dmabuf_buffer(struct wl_display *display,
 
 	for (unsigned int i = 0; i < pixel_format_get_plane_count(buf->fmt); i++) {
 		zwp_linux_buffer_params_v1_add(params,
-					       buf->dmabuf_fd,
+					       buf->fd,
 					       i /* plane id */,
 					       buf->offsets[i],
 					       buf->strides[i],
@@ -434,7 +434,7 @@ client_buffer_util_maybe_sync_dmabuf_start(struct client_buffer *buf)
 		return;
 
 	do {
-		ret = ioctl(buf->dmabuf_fd, DMA_BUF_IOCTL_SYNC, &sync);
+		ret = ioctl(buf->fd, DMA_BUF_IOCTL_SYNC, &sync);
 	} while (ret && (errno == EINTR || errno == EAGAIN));
 }
 
@@ -448,6 +448,6 @@ client_buffer_util_maybe_sync_dmabuf_end(struct client_buffer *buf)
 		return;
 
 	do {
-		ret = ioctl(buf->dmabuf_fd, DMA_BUF_IOCTL_SYNC, &sync);
+		ret = ioctl(buf->fd, DMA_BUF_IOCTL_SYNC, &sync);
 	} while (ret && (errno == EINTR || errno == EAGAIN));
 }

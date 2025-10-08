@@ -48,7 +48,7 @@ struct client_buffer {
 	struct wl_buffer *wl_buffer;
 	void *data;
 	size_t bytes;
-	int dmabuf_fd;
+	int fd;
 	int width;
 	int height;
 	size_t bytes_per_line[MAX_DMABUF_PLANES];
