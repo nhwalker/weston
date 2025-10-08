@@ -63,6 +63,15 @@ void
 client_buffer_util_destroy_buffer(struct client_buffer *buf);
 
 struct client_buffer *
+client_buffer_util_allocate_shm_buffer(const struct pixel_format_info *fmt,
+				       int width,
+				       int height);
+
+struct wl_buffer *
+client_buffer_util_get_proxy_shm(struct client_buffer *buf,
+				 struct wl_shm *shm);
+
+struct client_buffer *
 client_buffer_util_create_shm_buffer(struct wl_shm *shm,
 				     const struct pixel_format_info *fmt,
 				     int width,

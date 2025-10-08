@@ -27,6 +27,7 @@
 
 #include "client-buffer-util.h"
 
+#include <assert.h>
 #include <fcntl.h>
 #include <linux/dma-buf.h>
 #include <linux/udmabuf.h>
@@ -220,57 +221,77 @@ client_buffer_util_destroy_buffer(struct client_buffer *buf)
 }
 
 struct client_buffer *
-client_buffer_util_create_shm_buffer(struct wl_shm *shm,
-				     const struct pixel_format_info *fmt,
-				     int width,
-				     int height)
+client_buffer_util_allocate_shm_buffer(const struct pixel_format_info *fmt,
+				       int width,
+				       int height)
 {
 	struct client_buffer *buf;
-	struct wl_shm_pool *pool;
-	int fd = -1;
 
 	buf = xzalloc(sizeof *buf);
 	buf->fmt = fmt;
 	buf->type = CLIENT_BUFFER_TYPE_SHM;
 	buf->width = width;
 	buf->height = height;
+	buf->fd = -1;
 
 	if (!client_buffer_util_fill_buffer_args(buf, false))
 		goto error;
 
-	fd = os_create_anonymous_file(buf->bytes);
-	if (fd == -1) {
+	buf->fd = os_create_anonymous_file(buf->bytes);
+	if (buf->fd == -1) {
 		fprintf(stderr, "os_create_anonymous_file() failed: %s\n",
 			strerror (errno));
 		goto error;
 	}
 
 	buf->data = mmap(NULL, buf->bytes,
-			 PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+			 PROT_READ | PROT_WRITE, MAP_SHARED, buf->fd, 0);
 	if (buf->data == MAP_FAILED) {
 		fprintf(stderr, "mmap() failed: %s\n", strerror (errno));
-		goto error;
-	}
-
-	pool = wl_shm_create_pool(shm, fd, buf->bytes);
-	buf->wl_buffer = wl_shm_pool_create_buffer(pool, 0, buf->width,
-						   buf->height, buf->strides[0],
-						   pixel_format_get_shm_format(fmt));
-	wl_shm_pool_destroy(pool);
-	close(fd);
-
-	if (!buf->wl_buffer) {
-		fprintf(stderr, "wl_shm_pool_create_buffer() failed\n");
 		goto error;
 	}
 
 	return buf;
 
 error:
-	if (fd != -1)
-		close(fd);
 	client_buffer_util_destroy_buffer(buf);
 	return NULL;
+}
+
+struct wl_buffer *
+client_buffer_util_get_proxy_shm(struct client_buffer *buf, struct wl_shm *shm)
+{
+	struct wl_shm_pool *pool;
+	struct wl_buffer *ret;
+
+	pool = wl_shm_create_pool(shm, buf->fd, buf->bytes);
+	ret = wl_shm_pool_create_buffer(pool, 0, buf->width,
+					buf->height, buf->strides[0],
+					pixel_format_get_shm_format(buf->fmt));
+	wl_shm_pool_destroy(pool);
+
+	return ret;
+}
+
+struct client_buffer *
+client_buffer_util_create_shm_buffer(struct wl_shm *shm,
+				     const struct pixel_format_info *fmt,
+				     int width,
+				     int height)
+{
+	struct client_buffer *buf;
+
+	buf = client_buffer_util_allocate_shm_buffer(fmt, width, height);
+	if (!buf)
+		return NULL;
+
+	buf->wl_buffer = client_buffer_util_get_proxy_shm(buf, shm);
+	if (!buf->wl_buffer) {
+		client_buffer_util_destroy_buffer(buf);
+		return NULL;
+	}
+
+	return buf;
 }
 
 struct buffer_create_data {
