@@ -430,7 +430,7 @@ client_buffer_util_maybe_sync_dmabuf_start(struct client_buffer *buf)
 	struct dma_buf_sync sync = { DMA_BUF_SYNC_START | DMA_BUF_SYNC_READ | DMA_BUF_SYNC_WRITE };
 	int ret;
 
-	if (buf->dmabuf_fd == -1)
+	if (buf->type != CLIENT_BUFFER_TYPE_DMABUF)
 		return;
 
 	do {
@@ -444,7 +444,7 @@ client_buffer_util_maybe_sync_dmabuf_end(struct client_buffer *buf)
 	struct dma_buf_sync sync = { DMA_BUF_SYNC_END | DMA_BUF_SYNC_READ | DMA_BUF_SYNC_WRITE };
 	int ret;
 
-	if (buf->dmabuf_fd == -1)
+	if (buf->type != CLIENT_BUFFER_TYPE_DMABUF)
 		return;
 
 	do {
