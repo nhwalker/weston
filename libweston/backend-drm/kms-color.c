@@ -30,6 +30,7 @@
 #include <assert.h>
 #include <string.h>
 #include <math.h>
+#include <shared/weston-assert.h>
 
 #include "drm-internal.h"
 
@@ -192,4 +193,32 @@ wdrm_colorspace_from_output(struct weston_output *output)
 	}
 
 	return cm->wdrm;
+}
+
+enum wdrm_color_format
+wdrm_color_format_from_output(struct weston_output *output)
+{
+       enum weston_color_format color_format = output->color_format;
+
+       if (!color_format)
+               return WDRM_COLOR_FORMAT_AUTO;
+
+       weston_assert_true(output->compositor,
+			  weston_output_get_supported_color_formats(output) &
+			  color_format);
+
+       switch (color_format) {
+       case WESTON_COLOR_FORMAT_AUTO:
+               return WDRM_COLOR_FORMAT_AUTO;
+       case WESTON_COLOR_FORMAT_RGB:
+               return WDRM_COLOR_FORMAT_RGB;
+       case WESTON_COLOR_FORMAT_YUV444:
+               return WDRM_COLOR_FORMAT_YUV444;
+       case WESTON_COLOR_FORMAT_YUV422:
+               return WDRM_COLOR_FORMAT_YUV422;
+       case WESTON_COLOR_FORMAT_YUV420:
+               return WDRM_COLOR_FORMAT_YUV420;
+       default:
+               return WDRM_COLOR_FORMAT__COUNT;
+       }
 }

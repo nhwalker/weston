@@ -7035,6 +7035,32 @@ weston_head_set_supported_colorimetry_mask(struct weston_head *head,
 	weston_head_set_device_changed(head);
 }
 
+/** Store the set of supported color formats
+ *
+ * \param head The head to modify.
+ * \param color_format_mask A bit mask with the possible bits or'ed together
+ * from enum weston_color_format.
+ *
+ * This may set the device_changed flag.
+ *
+ * \ingroup head
+ * \internal
+ */
+WL_EXPORT void
+weston_head_set_supported_color_format_mask(struct weston_head *head,
+                                           uint32_t color_format_mask)
+{
+       weston_assert_legal_bits(head->compositor, color_format_mask,
+                                WESTON_COLOR_FORMAT_ALL_MASK);
+
+       if (head->supported_color_format_mask == color_format_mask)
+               return;
+
+       head->supported_color_format_mask = color_format_mask;
+
+       weston_head_set_device_changed(head);
+}
+
 WL_EXPORT void
 weston_head_set_supported_vrr_modes_mask(struct weston_head *head,
                                          uint32_t vrr_mode_mask)
