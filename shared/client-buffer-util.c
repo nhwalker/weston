@@ -295,7 +295,7 @@ client_buffer_util_create_shm_buffer(struct wl_shm *shm,
 }
 
 struct buffer_create_data {
-	struct client_buffer *buf;
+	struct wl_buffer **buf;
 	bool failed;
 };
 
@@ -305,11 +305,14 @@ create_succeeded(void *data,
 		 struct wl_buffer *new_buffer)
 {
 	struct buffer_create_data *create_data = data;
+	struct wl_buffer *buf;
 
-	create_data->buf->wl_buffer = new_buffer;
-	wl_proxy_set_queue ((struct wl_proxy *) create_data->buf->wl_buffer, NULL);
+	buf = new_buffer;
+	wl_proxy_set_queue ((struct wl_proxy *) buf, NULL);
 
 	zwp_linux_buffer_params_v1_destroy(params);
+
+	*create_data->buf = buf;
 }
 
 static void
@@ -327,16 +330,11 @@ static const struct zwp_linux_buffer_params_v1_listener params_listener = {
 };
 
 struct client_buffer *
-client_buffer_util_create_dmabuf_buffer(struct wl_display *display,
-					struct zwp_linux_dmabuf_v1 *dmabuf,
-					const struct pixel_format_info *fmt,
-					int width,
-					int height)
+client_buffer_util_allocate_dmabuf_buffer(const struct pixel_format_info *fmt,
+					  int width,
+					  int height)
 {
 	struct client_buffer *buf;
-	struct buffer_create_data create_data = { 0 };
-	struct zwp_linux_buffer_params_v1 *params;
-	struct wl_event_queue *event_queue;
 	struct udmabuf_create create;
 	int udmabuf_fd = -1;
 	int mem_fd = -1;
@@ -397,9 +395,29 @@ client_buffer_util_create_dmabuf_buffer(struct wl_display *display,
 		goto error;
 	}
 
-	params = zwp_linux_dmabuf_v1_create_params(dmabuf);
-	event_queue = wl_display_create_queue (display);
-	wl_proxy_set_queue ((struct wl_proxy *) params, event_queue);
+	return buf;
+
+error:
+	if (udmabuf_fd != -1)
+		close(udmabuf_fd);
+	if (mem_fd != -1)
+		close(mem_fd);
+	client_buffer_util_destroy_buffer(buf);
+	return NULL;
+}
+
+struct wl_buffer *
+client_buffer_util_get_proxy_dmabuf(struct client_buffer *buf,
+				    struct wl_display *display,
+				    struct zwp_linux_dmabuf_v1 *dmabuf)
+{
+	struct buffer_create_data create_data = { 0 };
+	struct wl_event_queue *event_queue = wl_display_create_queue(display);
+	struct zwp_linux_buffer_params_v1 *params =
+		zwp_linux_dmabuf_v1_create_params(dmabuf);
+	struct wl_buffer *ret = NULL;
+
+	wl_proxy_set_queue((struct wl_proxy *) params, event_queue);
 
 	for (unsigned int i = 0; i < pixel_format_get_plane_count(buf->fmt); i++) {
 		zwp_linux_buffer_params_v1_add(params,
@@ -411,7 +429,7 @@ client_buffer_util_create_dmabuf_buffer(struct wl_display *display,
 		                               DRM_FORMAT_MOD_LINEAR & 0xffffffff);
 	}
 
-	create_data.buf = buf;
+	create_data.buf = &ret;
 	zwp_linux_buffer_params_v1_add_listener(params,
 						&params_listener,
 						&create_data);
@@ -419,30 +437,43 @@ client_buffer_util_create_dmabuf_buffer(struct wl_display *display,
 	zwp_linux_buffer_params_v1_create(params,
 					  buf->width,
 					  buf->height,
-					  fmt->format,
+					  buf->fmt->format,
 					  0 /* flags */);
 
-	while (!buf->wl_buffer && !create_data.failed) {
+	while (!ret && !create_data.failed) {
 		if (wl_display_dispatch_queue(display, event_queue) == -1)
 			break;
 	}
 
 	wl_event_queue_destroy(event_queue);
 
-	if (!buf->wl_buffer) {
+	if (!ret)
 		fprintf(stderr, "zwp_linux_buffer_params_v1_create() failed\n");
-		goto error;
+
+	return ret;
+}
+
+struct client_buffer *
+client_buffer_util_create_dmabuf_buffer(struct wl_display *display,
+					struct zwp_linux_dmabuf_v1 *dmabuf,
+					const struct pixel_format_info *fmt,
+					int width,
+					int height)
+{
+	struct client_buffer *buf;
+
+	buf = client_buffer_util_allocate_dmabuf_buffer(fmt, width, height);
+	if (!buf)
+		return NULL;
+
+	buf->wl_buffer =
+		client_buffer_util_get_proxy_dmabuf(buf, display, dmabuf);
+	if (!buf->wl_buffer) {
+		client_buffer_util_destroy_buffer(buf);
+		return NULL;
 	}
 
 	return buf;
-
-error:
-	if (udmabuf_fd != -1)
-		close(udmabuf_fd);
-	if (mem_fd != -1)
-		close(mem_fd);
-	client_buffer_util_destroy_buffer(buf);
-	return NULL;
 }
 
 void
