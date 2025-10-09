@@ -39,6 +39,8 @@
 #include <wayland-cursor.h>
 
 #include <GLES2/gl2.h>
+#include <GLES2/gl2ext.h>
+#include <GLES3/gl32.h>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 
@@ -86,6 +88,7 @@ struct display {
 
 	PFNEGLSWAPBUFFERSWITHDAMAGEEXTPROC swap_buffers_with_damage;
 	PFNEGLQUERYSUPPORTEDCOMPRESSIONRATESEXTPROC query_compression_rates;
+	PFNGLGETGRAPHICSRESETSTATUSEXTPROC get_graphics_reset_status;
 };
 
 struct geometry {
@@ -106,6 +109,9 @@ struct window {
 		GLuint rotation_uniform;
 		GLuint pos;
 		GLuint col;
+		GLuint frag;
+		GLuint vert;
+		GLuint program;
 	} gl;
 
 	uint32_t frames;
@@ -200,7 +206,9 @@ init_egl(struct display *display, struct window *window)
 	};
 
 	static const EGLint context_attribs[] = {
-		EGL_CONTEXT_CLIENT_VERSION, 2,
+		EGL_CONTEXT_CLIENT_VERSION, 3,
+		EGL_CONTEXT_OPENGL_RESET_NOTIFICATION_STRATEGY_KHR,
+		EGL_LOSE_CONTEXT_ON_RESET_KHR,
 		EGL_NONE
 	};
 	const char *extensions;
@@ -310,6 +318,17 @@ init_egl(struct display *display, struct window *window)
 			eglGetProcAddress("eglQuerySupportedCompressionRatesEXT");
 		printf("has EGL_EXT_surface_compression\n");
 	}
+
+	if (extensions &&
+	    weston_check_egl_extension(extensions, "EGL_EXT_create_context_robustness")) {
+		display->get_graphics_reset_status =
+			(PFNGLGETGRAPHICSRESETSTATUSEXTPROC)
+			eglGetProcAddress("glGetGraphicsResetStatusEXT");
+		if (display->get_graphics_reset_status)
+			printf("glGetGraphicsResetStatusEXT is valid!\n");
+		else
+			printf("glGetGraphicsResetStatusEXT is invalid!\n");
+	}
 }
 
 static void
@@ -317,6 +336,21 @@ fini_egl(struct display *display)
 {
 	eglTerminate(display->egl.dpy);
 	eglReleaseThread();
+}
+
+static void
+fini_gl(struct window *window)
+{
+	glDeleteShader(window->gl.frag);
+	glDeleteShader(window->gl.vert);
+	glDeleteProgram(window->gl.program);
+
+	eglMakeCurrent(window->display->egl.dpy, EGL_NO_SURFACE, EGL_NO_SURFACE,
+		       EGL_NO_CONTEXT);
+
+	weston_platform_destroy_egl_surface(window->display->egl.dpy,
+					    window->egl_surface);
+	wl_egl_window_destroy(window->native);
 }
 
 static GLuint
@@ -477,6 +511,7 @@ init_gl(struct window *window)
 	EGLBoolean ret;
 	EGLint attribs[5] = { EGL_NONE };
 	uint32_t num_attribs = 0;
+	GLint strategy = 0;
 
 	if (window->needs_buffer_geometry_update)
 		update_buffer_geometry(window);
@@ -561,12 +596,20 @@ init_gl(struct window *window)
 
 	window->gl.pos = 0;
 	window->gl.col = 1;
+	window->gl.frag = frag;
+	window->gl.program = program;
 
 	glBindAttribLocation(program, window->gl.pos, "pos");
 	glBindAttribLocation(program, window->gl.col, "color");
 
 	window->gl.rotation_uniform =
 		glGetUniformLocation(program, "rotation");
+
+	glGetIntegerv(GL_RESET_NOTIFICATION_STRATEGY_EXT, &strategy);
+	if (strategy == GL_LOSE_CONTEXT_ON_RESET_EXT)
+		printf("Create GL robust context successfully!\n");
+	else
+		printf("Failed to create GL robust context successfully!\n");
 }
 
 static void
@@ -901,8 +944,36 @@ destroy_surface(struct window *window)
 	wl_surface_destroy(window->surface);
 }
 
+static int check_gpu_reset_status(struct display *display)
+{
+	bool has_reset = false;
+	int i = 0;
 
-static void
+	if (!display->get_graphics_reset_status)
+		return 0;
+
+	/* Assume GPU reset should be finished within 5s */
+	for (i = 0; i < 100000; i++) {
+		unsigned status;
+
+		status = display->get_graphics_reset_status();
+		if (status == GL_NO_ERROR)
+			break;
+
+		has_reset = true;
+		usleep(50);
+	}
+
+	if (!has_reset)
+		return 0;
+
+	/* if GPU reset is failed, nothing we can do */
+	assert(i < 100000);
+
+	return -EAGAIN;
+}
+
+static int
 redraw(struct window *window)
 {
 	struct display *display = window->display;
@@ -995,6 +1066,8 @@ redraw(struct window *window)
 		draw_triangle(window, buffer_age);
 
 	window->frames++;
+
+	return check_gpu_reset_status(display);
 }
 
 static void
@@ -1469,14 +1542,11 @@ main(int argc, char **argv)
 		goto out_no_xdg_shell;
 	}
 
-	init_egl(&display, &window);
 	create_surface(&window);
 
 	/* we already have wait_for_configure set after create_surface() */
 	while (running && ret != -1 && window.wait_for_configure)
 		ret = wl_display_dispatch(display.display);
-
-	init_gl(&window);
 
 	display.cursor_surface =
 		wl_compositor_create_surface(display.compositor);
@@ -1486,9 +1556,20 @@ main(int argc, char **argv)
 	sigint.sa_flags = SA_RESETHAND;
 	sigaction(SIGINT, &sigint, NULL);
 
+init_gl_egl:
+	init_egl(&display, &window);
+	init_gl(&window);
+
 	while (running && ret != -1) {
+		int draw;
+
 		ret = wl_display_dispatch_pending(display.display);
-		redraw(&window);
+		draw = redraw(&window);
+		if (draw) {
+			fini_gl(&window);
+			fini_egl(&display);
+			goto init_gl_egl;
+		}
 	}
 
 	fprintf(stderr, "simple-egl exiting\n");

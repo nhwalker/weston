@@ -66,6 +66,7 @@
 #include "shared/weston-drm-fourcc.h"
 #include "shared/weston-egl-ext.h"
 #include "shared/xalloc.h"
+#include "shared/weston-assert.h"
 
 #define BUFFER_DAMAGE_COUNT 2
 
@@ -275,6 +276,11 @@ struct gl_buffer_state {
 	bool specified;
 
 	struct wl_listener destroy_listener;
+
+	struct wl_list link; /* link to shm_bufs of gl renderer */
+	void *saved_gs; /* gl_surface_state, saved for gb recreation */
+	struct linux_dmabuf_buffer *saved_dmabuf;
+	struct weston_buffer *saved_buffer;
 };
 
 struct gl_surface_state {
@@ -315,6 +321,7 @@ static const struct gl_extension_table extension_table[] = {
 	EXT("GL_EXT_EGL_image_storage", EXTENSION_EXT_EGL_IMAGE_STORAGE),
 	EXT("GL_EXT_map_buffer_range", EXTENSION_EXT_MAP_BUFFER_RANGE),
 	EXT("GL_EXT_read_format_bgra", EXTENSION_EXT_READ_FORMAT_BGRA),
+	EXT("GL_EXT_robustness", EXTENSION_EXT_ROBUSTNESS),
 	EXT("GL_EXT_texture_format_BGRA8888", EXTENSION_EXT_TEXTURE_FORMAT_BGRA8888),
 	EXT("GL_EXT_texture_norm16", EXTENSION_EXT_TEXTURE_NORM16),
 	EXT("GL_EXT_texture_rg", EXTENSION_EXT_TEXTURE_RG),
@@ -556,6 +563,14 @@ static const struct yuv_format_descriptor yuv_formats[] = {
 		}
 	}
 };
+
+static void
+gl_renderer_set_recovering(struct weston_compositor *ec, bool recovering)
+{
+	struct gl_renderer *gr = get_renderer(ec);
+
+	gr->recovering = recovering;
+}
 
 static void
 timeline_begin_render_query(struct gl_renderer *gr, GLuint query)
@@ -2476,6 +2491,34 @@ blit_shadow_to_output(struct weston_output *output,
 	pixman_region32_fini(&translated_damage);
 }
 
+static int gl_renderer_check_reset(struct gl_renderer *gr)
+{
+        bool has_reset = false;
+        int i = 0;
+
+        if (!gl_features_has(gr, FEATURE_GRAPHICS_RESET_RECOVERY))
+                return 0;
+
+        /* Assume GPU reset should be finished within 5s */
+        for (i = 0; i < 100000; i++) {
+                unsigned status;
+
+                status = gr->get_graphics_reset_status();
+                if (status == GL_NO_ERROR)
+                        break;
+
+                has_reset = true;
+                usleep(50);
+        }
+        if (!has_reset)
+                return 0;
+
+        /* if GPU reset is failed, nothing we can do */
+        weston_assert_uint_lt(gr->compositor, i, 100000);
+
+        return -EAGAIN;
+}
+
 /* NOTE: We now allow falling back to ARGB gl visuals when XRGB is
  * unavailable, so we're assuming the background has no transparency
  * and that everything with a blend, like drop shadows, will have something
@@ -2484,7 +2527,7 @@ blit_shadow_to_output(struct weston_output *output,
  * Depending on the underlying hardware, violating that assumption could
  * result in seeing through to another display plane.
  */
-static void
+static enum weston_renderer_error
 gl_renderer_repaint_output(struct weston_output *output,
 			   pixman_region32_t *output_damage,
 			   weston_renderbuffer_t renderbuffer)
@@ -2509,7 +2552,7 @@ gl_renderer_repaint_output(struct weston_output *output,
 		go->fb_size.height - go->area.height - go->area.y : go->area.y;
 
 	if (use_output(output) < 0)
-		return;
+		goto out;
 
 	rb = gl_renderer_update_renderbuffers(output, output_damage,
 					      renderbuffer);
@@ -2700,6 +2743,12 @@ gl_renderer_repaint_output(struct weston_output *output,
 	gr->wireframe_dirty = false;
 
 	gl_renderer_garbage_collect_programs(gr);
+
+	if (gl_renderer_check_reset(gr))
+		return WESTON_RENDERER_ERROR_LOST;
+
+out:
+	return WESTON_RENDERER_ERROR_NONE;
 }
 
 static int
@@ -2836,6 +2885,8 @@ destroy_buffer_state(struct gl_buffer_state *gb)
 
 	pixman_region32_fini(&gb->texture_damage);
 	wl_list_remove(&gb->destroy_listener.link);
+
+	wl_list_remove(&gb->link);
 
 	free(gb);
 }
@@ -2981,7 +3032,7 @@ gl_renderer_attach_shm(struct weston_surface *es, struct weston_buffer *buffer)
 	 * than allocating a new one. */
 	assert(!gs->buffer ||
 	      (old_buffer && old_buffer->type == WESTON_BUFFER_SHM));
-	if (gs->buffer &&
+	if (gs->buffer && !(gr->recovering) &&
 	    buffer->width == old_buffer->width &&
 	    buffer->height == old_buffer->height &&
 	    buffer->pixel_format == old_buffer->pixel_format) {
@@ -2996,8 +3047,10 @@ gl_renderer_attach_shm(struct weston_surface *es, struct weston_buffer *buffer)
 
 	gb = xzalloc(sizeof(*gb));
 	gb->gr = gr;
+	gb->saved_gs = gs;
 
 	wl_list_init(&gb->destroy_listener.link);
+	wl_list_init(&gb->link);
 	pixman_region32_init(&gb->texture_damage);
 
 	gb->pitch = pitch;
@@ -3021,6 +3074,10 @@ gl_renderer_attach_shm(struct weston_surface *es, struct weston_buffer *buffer)
 					   texture_format[i].swizzles.array,
 					   false);
 	}
+
+	/* For recovery, we will manually add the new gb to shm_bufs */
+	if (!gr->recovering)
+		wl_list_insert(&gr->shm_bufs, &gb->link);
 }
 
 static bool
@@ -3047,6 +3104,7 @@ gl_renderer_fill_buffer_info(struct weston_compositor *ec,
 
 	gb->gr = gr;
 	pixman_region32_init(&gb->texture_damage);
+	wl_list_init(&gb->link);
 
 	buffer->legacy_buffer = (struct wl_buffer *)buffer->resource;
 	ret &= gr->query_buffer(gr->egl_display, buffer->legacy_buffer,
@@ -3481,6 +3539,7 @@ import_dmabuf(struct gl_renderer *gr,
 	gb->gr = gr;
 	pixman_region32_init(&gb->texture_damage);
 	wl_list_init(&gb->destroy_listener.link);
+	wl_list_init(&gb->link);
 
 	quirks = &gr->compositor->test_data.test_quirks;
 	if (quirks->gl_force_import_yuv_fallback &&
@@ -3648,6 +3707,8 @@ gl_renderer_import_dmabuf(struct weston_compositor *ec,
 	if (!gb)
 		return false;
 
+	wl_list_insert(&gr->dma_bufs, &gb->link);
+	gb->saved_dmabuf = dmabuf;
 	linux_dmabuf_buffer_set_user_data(dmabuf, gb,
 		gl_renderer_destroy_dmabuf);
 
@@ -3670,6 +3731,7 @@ ensure_renderer_gl_buffer_state(struct weston_surface *surface,
 	gb = zalloc(sizeof(*gb));
 	gb->gr = gr;
 	pixman_region32_init(&gb->texture_damage);
+	wl_list_init(&gb->link);
 	buffer->renderer_private = gb;
 	gb->destroy_listener.notify = handle_buffer_destroy;
 	wl_signal_add(&buffer->destroy_signal, &gb->destroy_listener);
@@ -3710,6 +3772,8 @@ gl_renderer_attach_buffer(struct weston_surface *surface,
 	gb = buffer->renderer_private;
 
 	gs->buffer = gb;
+	gb->saved_gs = gs;
+	gb->saved_buffer = buffer;
 
 	if (gb->specified)
 		return;
@@ -3895,6 +3959,8 @@ gl_renderer_buffer_init(struct weston_compositor *etc,
 	assert(gb);
 	linux_dmabuf_buffer_set_user_data(buffer->dmabuf, NULL, NULL);
 	buffer->renderer_private = gb;
+	gb->saved_dmabuf = NULL;
+	gb->saved_buffer = buffer;
 	gb->destroy_listener.notify = handle_buffer_destroy;
 	wl_signal_add(&buffer->destroy_signal, &gb->destroy_listener);
 }
@@ -4554,13 +4620,12 @@ gl_renderer_allocator_create(struct gl_renderer *gr,
 }
 
 static void
-gl_renderer_destroy(struct weston_compositor *ec)
+gl_renderer_destroy_context(struct weston_compositor *ec)
 {
 	struct gl_renderer *gr = get_renderer(ec);
 	struct dmabuf_format *format, *next_format;
 	struct gl_capture_task *gl_task, *tmp;
-
-	wl_signal_emit(&gr->destroy_signal, gr);
+	struct gl_buffer_state *gb;
 
 	if (gr->display_bound)
 		gr->unbind_display(gr->egl_display, ec->wl_display);
@@ -4569,11 +4634,48 @@ gl_renderer_destroy(struct weston_compositor *ec)
 		destroy_capture_task(gl_task);
 
 	gl_renderer_shader_list_destroy(gr);
-	if (gr->fallback_shader)
+	if (gr->fallback_shader) {
 		gl_shader_destroy(gr, gr->fallback_shader);
+		gr->fallback_shader = NULL;
+	}
+	gr->current_shader = NULL;
 
 	if (gr->wireframe_tex)
 		gl_texture_fini(&gr->wireframe_tex);
+
+        /*
+         * Destroy the GL textures of the SHM buffer as they are invalid in
+         * the new context.
+         * After recreate the EGL context, gl_renderer_attach_shm() will be
+         * called to recreate all the SHM buffer status
+         */
+        if (gr->recovering) {
+                wl_list_for_each(gb, &gr->shm_bufs, link) {
+                        int i;
+
+                        for (i = 0; i < gb->num_textures; i++)
+                                gl_texture_fini(&gb->textures[i]);
+
+                        gb->num_textures = 0;
+                }
+        }
+
+        /* Destroy all the GL/EGL resources for dma_bufs */
+        if (gr->recovering) {
+                wl_list_for_each(gb, &gr->dma_bufs, link) {
+                        int i;
+
+                        glDeleteTextures(gb->num_textures, gb->textures);
+                        gb->num_textures = 0;
+
+                        for (i = 0; i < gb->num_images; i++) {
+                                gr->destroy_image(gr->egl_display,
+                                                  gb->images[i]);
+                                gb->images[i] = NULL;
+                        }
+                        gb->num_images = 0;
+                }
+        }
 
 	/* Work around crash in egl_dri2.c's dri2_make_current() - when does this apply? */
 	eglMakeCurrent(gr->egl_display,
@@ -4586,10 +4688,24 @@ gl_renderer_destroy(struct weston_compositor *ec)
 	weston_drm_format_array_fini(&gr->supported_dmabuf_formats);
 	free(gr->supported_rendering_formats);
 
-	gl_renderer_allocator_destroy(gr->allocator);
-
 	eglTerminate(gr->egl_display);
 	eglReleaseThread();
+
+	weston_log_scope_destroy(gr->shader_scope);
+	gr->shader_scope = NULL;
+}
+
+static void
+gl_renderer_destroy(struct weston_compositor *ec)
+{
+	struct gl_renderer *gr = get_renderer(ec);
+
+	if (gr->recovering)
+		return gl_renderer_destroy_context(ec);
+
+	wl_signal_emit(&gr->destroy_signal, gr);
+
+	gl_renderer_allocator_destroy(gr->allocator);
 
 	wl_array_release(&gr->position_stream);
 	wl_array_release(&gr->barycentric_stream);
@@ -4598,8 +4714,8 @@ gl_renderer_destroy(struct weston_compositor *ec)
 	if (gr->debug_mode_binding)
 		weston_binding_destroy(gr->debug_mode_binding);
 
-	weston_log_scope_destroy(gr->shader_scope);
 	weston_log_scope_destroy(gr->renderer_scope);
+	gl_renderer_destroy_context(ec);
 	free(gr);
 	ec->renderer = NULL;
 }
@@ -4637,55 +4753,169 @@ create_default_dmabuf_feedback(struct weston_compositor *ec,
 }
 
 static int
-gl_renderer_display_create(struct weston_compositor *ec,
-			   const struct gl_renderer_display_options *options)
+gl_renderer_recover_resources(struct weston_compositor *ec)
 {
-	struct gl_renderer *gr;
+        struct gl_renderer *gr = get_renderer(ec);
+        struct gl_buffer_state *gb, *tmp;
+	struct weston_output *output;
+        struct wl_list tmp_gb_list;
+
+        wl_list_init(&tmp_gb_list);
+        wl_list_for_each_safe(gb, tmp, &gr->shm_bufs, link) {
+                struct gl_surface_state *gs = gb->saved_gs;
+                struct weston_surface *es = gs->surface;
+                struct gl_buffer_state *new_gb;
+                struct weston_buffer *buffer;
+
+                assert(es);
+                assert(gb == gs->buffer);
+
+                /* Destroy the original gb and recreate it */
+                buffer = es->buffer_ref.buffer;
+                assert(buffer);
+                gl_renderer_attach_shm(es, buffer);
+                new_gb = gs->buffer;
+
+                wl_list_insert(&tmp_gb_list, &new_gb->link);
+        }
+
+        assert(wl_list_empty(&gr->shm_bufs));
+        /* Manually add the new gbs to shm_bufs */
+        wl_list_insert_list(&gr->shm_bufs, &tmp_gb_list);
+
+        /*
+         * Since all the buffer statuses have been recreated, mark them all as
+         * dirty to avoid garbage caused by original damage information
+         */
+        wl_list_for_each(output, &ec->output_list, link) {
+                struct weston_paint_node *pnode;
+
+                wl_list_for_each(pnode, &output->paint_node_z_order_list,
+                                 z_order_link) {
+                        struct weston_surface *surface = pnode->surface;
+                        struct weston_buffer *buffer = surface->buffer_ref.buffer;
+
+                        if (buffer->type == WESTON_BUFFER_SHM) {
+                                pixman_region32_t region;
+
+                                pixman_region32_init_rect(&region, 0, 0,
+                                                          buffer->width,
+                                                          buffer->height);
+                                pixman_region32_copy(&surface->damage, &region);
+                                ec->renderer->flush_damage(pnode);
+                        }
+                }
+        }
+
+        /* Restore dma_bufs */
+        wl_list_init(&tmp_gb_list);
+        wl_list_for_each_safe(gb, tmp, &gr->dma_bufs, link) {
+                #define BUFFER_RECREATE() do { \
+                        destroy_buffer_state(gb); \
+                        new_gb = import_dmabuf(gr, dmabuf); \
+                        if (!new_gb) { \
+                                return -EINVAL; \
+                        } \
+                } while(0)
+
+                #define BUFFER_REATTACH() do { \
+                        linux_dmabuf_buffer_set_user_data(dmabuf, NULL, NULL); \
+                        buffer->renderer_private = new_gb; \
+                        new_gb->destroy_listener.notify = handle_buffer_destroy; \
+                        wl_signal_add(&buffer->destroy_signal, \
+                                      &new_gb->destroy_listener); \
+                } while(0)
+
+                struct weston_buffer *buffer = gb->saved_buffer;
+                struct linux_dmabuf_buffer *dmabuf = gb->saved_dmabuf;
+                struct gl_surface_state *gs = gb->saved_gs;
+                struct gl_buffer_state *new_gb;
+
+                /*
+                 * dmabuf is slightly complicated. Probably there are three
+                 * states of a dma buffer:
+                 * 1, Buffer has been created by gl_renderer_import_dmabuf().
+                 * 2, Buffer has been attached to a weston_buffer by
+                 *      gl_renderer_buffer_init()
+                 * 3, Buffer has been bound to a surface by
+                 *      gl_renderer_attach_buffer
+                 */
+
+                if (dmabuf) {
+                        /* State is created */
+                        void *user_data =
+                                linux_dmabuf_buffer_get_user_data(dmabuf);
+
+                        assert(gb == user_data);
+
+                        /* Just recreate it */
+                        linux_dmabuf_buffer_set_user_data(dmabuf, NULL, NULL);
+                        BUFFER_RECREATE();
+                        linux_dmabuf_buffer_set_user_data(dmabuf, new_gb,
+                                                gl_renderer_destroy_dmabuf);
+
+                        new_gb->saved_dmabuf = dmabuf;
+                } else if (!gs && buffer) {
+                        /* State is attached */
+                        dmabuf = buffer->dmabuf;
+                        if (!dmabuf)
+                                continue;
+
+                        assert(buffer->renderer_private == gb);
+
+                        BUFFER_RECREATE();
+                        BUFFER_REATTACH();
+                        new_gb->saved_buffer = buffer;
+                } else if (gs && buffer) {
+                        /* State is bound */
+                        struct weston_surface *surface = gs->surface;
+                        dmabuf = buffer->dmabuf;
+                        if (!dmabuf)
+                                continue;
+
+                        BUFFER_RECREATE();
+                        BUFFER_REATTACH();
+
+                        /* bind to surface */
+                        gl_renderer_attach_buffer(surface, buffer);
+                } else {
+                        return -EINVAL;
+                }
+
+                wl_list_insert(&tmp_gb_list, &new_gb->link);
+
+                #undef BUFFER_RECREATE
+                #undef BUFFER_REATTACH
+        }
+
+        /* Manually add the new gbs to dma_bufs */
+        wl_list_insert_list(&gr->dma_bufs, &tmp_gb_list);
+
+        return 0;
+}
+
+static int
+gl_renderer_init_context(struct weston_compositor *ec,
+                         const struct gl_renderer_display_options *options)
+{
+	struct gl_renderer *gr = get_renderer(ec);
 	const struct pixel_format_info *info;
 	int ret, nformats, i, j;
 	bool supported;
 
-	gr = zalloc(sizeof *gr);
-	if (gr == NULL)
-		return -1;
-
-	gr->compositor = ec;
 	wl_list_init(&gr->shader_list);
-	gr->platform = options->egl_platform;
 
-	gr->renderer_scope = weston_compositor_add_log_scope(ec, "gl-renderer",
-		"GL-renderer verbose messages\n", NULL, NULL, gr);
 	gr->shader_scope = gl_shader_scope_create(gr);
 
 	if (gl_renderer_setup_egl_client_extensions(gr) < 0)
 		goto fail;
 
-	gr->base.read_pixels = gl_renderer_read_pixels;
-	gr->base.repaint_output = gl_renderer_repaint_output;
-	gr->base.resize_output = gl_renderer_resize_output;
-	gr->base.create_renderbuffer = gl_renderer_create_renderbuffer;
-	gr->base.destroy_renderbuffer = gl_renderer_destroy_renderbuffer;
-	gr->base.flush_damage = gl_renderer_flush_damage;
-	gr->base.attach = gl_renderer_attach;
-	gr->base.destroy = gl_renderer_destroy;
-	gr->base.surface_copy_content = gl_renderer_surface_copy_content;
-	gr->base.fill_buffer_info = gl_renderer_fill_buffer_info;
-	gr->base.buffer_init = gl_renderer_buffer_init;
-	gr->base.output_set_border = gl_renderer_output_set_border;
-	gr->base.type = WESTON_RENDERER_GL;
-
 	if (gl_renderer_setup_egl_display(gr, options->egl_native_display) < 0)
 		goto fail;
-
-	gr->allocator = gl_renderer_allocator_create(gr, options);
-	if (!gr->allocator)
-		weston_log("failed to initialize allocator\n");
 
 	weston_drm_format_array_init(&gr->supported_dmabuf_formats);
 
 	log_egl_info(gr, gr->egl_display);
-
-	ec->renderer = &gr->base;
 
 	if (gl_renderer_setup_egl_extensions(ec) < 0)
 		goto fail_with_error;
@@ -4715,9 +4945,6 @@ gl_renderer_display_create(struct weston_compositor *ec,
 
 	if (gl_renderer_setup(ec) < 0)
 		goto fail_terminate;
-
-	if (gr->allocator)
-		gr->base.dmabuf_alloc = gl_renderer_dmabuf_alloc;
 
 	if (gr->platform == EGL_PLATFORM_GBM_KHR) {
 		gr->supported_rendering_formats =
@@ -4749,9 +4976,8 @@ gl_renderer_display_create(struct weston_compositor *ec,
 				goto fail_feedback;
 		}
 	}
-	wl_list_init(&gr->dmabuf_formats);
 
-	wl_signal_init(&gr->destroy_signal);
+	wl_list_init(&gr->dmabuf_formats);
 
 	/* Register supported wl_shm RGB formats. */
 	nformats = pixel_format_get_info_count();
@@ -4789,6 +5015,9 @@ gl_renderer_display_create(struct weston_compositor *ec,
 						  yuv_formats[i].format);
 	}
 
+	if (gr->recovering && gl_renderer_recover_resources(ec))
+		goto fail_with_error;
+
 	/**
 	 * Keep this at the end of the function. We don't want to change the
 	 * caps if something fails, as the compositor may fallback to another
@@ -4821,10 +5050,71 @@ fail_terminate:
 	eglTerminate(gr->egl_display);
 fail:
 	weston_log_scope_destroy(gr->shader_scope);
-	weston_log_scope_destroy(gr->renderer_scope);
-	free(gr);
-	ec->renderer = NULL;
 	return -1;
+}
+
+static int
+gl_renderer_display_create(struct weston_compositor *ec,
+			   const struct gl_renderer_display_options *options)
+{
+	struct gl_renderer *gr;
+
+	if ((get_renderer(ec)) && get_renderer(ec)->recovering)
+		return gl_renderer_init_context(ec, options);
+
+	gr = zalloc(sizeof *gr);
+	if (gr == NULL)
+		return -1;
+
+	gr->compositor = ec;
+	gr->platform = options->egl_platform;
+
+	gr->renderer_scope = weston_compositor_add_log_scope(ec, "gl-renderer",
+		"GL-renderer verbose messages\n", NULL, NULL, gr);
+
+	gr->base.read_pixels = gl_renderer_read_pixels;
+	gr->base.repaint_output = gl_renderer_repaint_output;
+	gr->base.resize_output = gl_renderer_resize_output;
+	gr->base.create_renderbuffer = gl_renderer_create_renderbuffer;
+	gr->base.destroy_renderbuffer = gl_renderer_destroy_renderbuffer;
+	gr->base.flush_damage = gl_renderer_flush_damage;
+	gr->base.attach = gl_renderer_attach;
+	gr->base.destroy = gl_renderer_destroy;
+	gr->base.surface_copy_content = gl_renderer_surface_copy_content;
+	gr->base.fill_buffer_info = gl_renderer_fill_buffer_info;
+	gr->base.buffer_init = gl_renderer_buffer_init;
+	gr->base.output_set_border = gl_renderer_output_set_border;
+	gr->base.type = WESTON_RENDERER_GL;
+
+	gr->allocator = gl_renderer_allocator_create(gr, options);
+	if (!gr->allocator)
+		weston_log("failed to initialize allocator\n");
+
+	ec->renderer = &gr->base;
+
+	if (gr->allocator)
+		gr->base.dmabuf_alloc = gl_renderer_dmabuf_alloc;
+
+	wl_signal_init(&gr->destroy_signal);
+	wl_list_init(&gr->shm_bufs);
+	wl_list_init(&gr->dma_bufs);
+
+        /*
+         * Perform the (E)GL initialization operations as the final step
+         * Don't call any other non-GL initialization operations afterward.
+         */
+        if (gl_renderer_init_context(ec, options))
+                goto fail_context;
+
+	return 0;
+
+fail_context:
+        if (gr->allocator)
+                gl_renderer_allocator_destroy(gr->allocator);
+        weston_log_scope_destroy(gr->renderer_scope);
+        free(gr);
+        ec->renderer = NULL;
+        return -1;
 }
 
 static void
@@ -4897,6 +5187,12 @@ gl_renderer_setup(struct weston_compositor *ec)
 		context_attribs[nattr++] = EGL_CONTEXT_PRIORITY_HIGH_IMG;
 	}
 
+	/* Try to support GPU reset recovery */
+	if (egl_display_has(gr, EXTENSION_EXT_CREATE_CONTEXT_ROBUSTNESS)) {
+		context_attribs[nattr++] = EGL_CONTEXT_OPENGL_RESET_NOTIFICATION_STRATEGY_KHR;
+		context_attribs[nattr++] = EGL_LOSE_CONTEXT_ON_RESET_KHR;
+	}
+
 	assert(nattr < ARRAY_LENGTH(context_attribs));
 	context_attribs[nattr] = EGL_NONE;
 
@@ -4952,6 +5248,19 @@ gl_renderer_setup(struct weston_compositor *ec)
 	if (!gl_fbo_is_format_supported(gr, GL_RGBA8)) {
 		weston_log("GL_RGBA8 FBO format not available.\n");
 		return -1;
+	}
+
+	/* Graphics reset recovery feature. */
+	if (gl_extensions_has(gr, EXTENSION_EXT_ROBUSTNESS)) {
+		GET_PROC_ADDRESS(gr->get_graphics_reset_status,
+				 "glGetGraphicsResetStatusEXT");
+		if (egl_display_has(gr, EXTENSION_EXT_CREATE_CONTEXT_ROBUSTNESS)) {
+			GLint strategy = 0;
+
+			glGetIntegerv(GL_RESET_NOTIFICATION_STRATEGY_EXT, &strategy);
+			if (strategy == GL_LOSE_CONTEXT_ON_RESET_EXT)
+				gr->features |= FEATURE_GRAPHICS_RESET_RECOVERY;
+		}
 	}
 
 	if (gl_extensions_has(gr, EXTENSION_OES_EGL_IMAGE)) {
@@ -5124,6 +5433,8 @@ gl_renderer_setup(struct weston_compositor *ec)
 	weston_log_continue(STAMP_SPACE "Required precision: %s\n",
 			    yesno(gr->gl_version >= gl_version(3, 0) ||
 				  gl_extensions_has(gr, EXTENSION_OES_REQUIRED_INTERNALFORMAT)));
+	weston_log_continue(STAMP_SPACE "Graphics reset recovery: %s\n",
+			    yesno(gl_features_has(gr, FEATURE_GRAPHICS_RESET_RECOVERY)));
 
 	return 0;
 }
@@ -5135,4 +5446,5 @@ WL_EXPORT struct gl_renderer_interface gl_renderer_interface = {
 	.output_fbo_create = gl_renderer_output_fbo_create,
 	.output_destroy = gl_renderer_output_destroy,
 	.create_fence_fd = gl_renderer_create_fence_fd,
+	.set_recovering = gl_renderer_set_recovering,
 };

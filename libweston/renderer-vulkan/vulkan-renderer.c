@@ -2391,7 +2391,7 @@ vulkan_renderer_recreate_swapchain(struct weston_output *output,
 	vulkan_renderer_create_swapchain(output, fb_size);
 }
 
-static void
+static enum weston_renderer_error
 vulkan_renderer_repaint_output(struct weston_output *output,
 			       pixman_region32_t *output_damage,
 			       weston_renderbuffer_t renderbuffer)
@@ -2661,6 +2661,8 @@ vulkan_renderer_repaint_output(struct weston_output *output,
 	pixman_region32_clear(&rb->damage);
 
 	vo->frame_index = (vo->frame_index + 1) % vo->num_frames;
+
+	return WESTON_RENDERER_ERROR_NONE;
 }
 
 static void

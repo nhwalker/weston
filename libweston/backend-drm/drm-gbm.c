@@ -80,9 +80,13 @@ drm_backend_create_gl_renderer(struct drm_backend *b)
 	if (format[1])
 		options.formats_count = 2;
 
-	return weston_compositor_init_renderer(b->compositor,
-					       WESTON_RENDERER_GL,
-					       &options.base);
+	if (!b->gl_recovering)
+		return weston_compositor_init_renderer(b->compositor,
+						       WESTON_RENDERER_GL,
+						       &options.base);
+	else
+		return b->compositor->renderer->gl->display_create(b->compositor,
+								   &options);
 }
 
 static int
@@ -523,11 +527,16 @@ drm_output_init_egl(struct drm_output *output, struct drm_backend *b)
 	options.fb_size.width = mode->width;
 	options.fb_size.height = mode->height;
 
-	assert(output->gbm_surface == NULL);
-	create_gbm_surface(b->gbm, output);
-	if (!output->gbm_surface) {
-		weston_log("failed to create gbm surface\n");
-		return -1;
+	/* GBM surface and cursor do not need to be recreated when recovering */
+	if (!b->gl_recovering) {
+		assert(output->gbm_surface == NULL);
+		create_gbm_surface(b->gbm, output);
+		if (!output->gbm_surface) {
+			weston_log("failed to create gbm surface\n");
+			return -1;
+		}
+
+		drm_output_init_cursor_egl(output, b);
 	}
 
 	options.window_for_legacy = (EGLNativeWindowType) output->gbm_surface;
@@ -538,8 +547,6 @@ drm_output_init_egl(struct drm_output *output, struct drm_backend *b)
 		output->gbm_surface = NULL;
 		return -1;
 	}
-
-	drm_output_init_cursor_egl(output, b);
 
 	return 0;
 }
@@ -786,6 +793,85 @@ drm_output_fini_vulkan(struct drm_output *output)
 	drm_output_fini_cursor_vulkan(output);
 }
 
+static int
+drm_handle_gl_renderer_error(struct weston_compositor *compositor, int err)
+{
+        const struct weston_renderer *renderer = compositor->renderer;
+        struct drm_backend *b = to_drm_backend(compositor);
+        int ret;
+
+        switch (err) {
+        case WESTON_RENDERER_ERROR_LOST: {
+                struct weston_output *output;
+
+                weston_log("Initiating GL renderer recovery...\n");
+                b->gl_recovering = true;
+                renderer->gl->set_recovering(compositor, true);
+
+                /* 1, Destroy the renderer outputs */
+                wl_list_for_each(output, &compositor->output_list, link) {
+                        struct drm_output *drm = to_drm_output(output);
+                        struct drm_plane *scanout = drm->scanout_plane;
+
+                        /*
+                         * When the output is destroyed, its associated
+                         * EGLSurface will also be destroyed. Consequently, the
+                         * GBM (Graphics Buffer Manager) BOs (Buffer Objects)
+                         * backing this surface will be freed. As a result, the
+                         * user_data associated with the BO will be destroyed by
+                         * drm_fb_destroy_gbm(), since drm_fb_get_from_bo()
+                         * installs this free callback for the user_data (fb)
+                         * related to the GBM BO. See the implementation  of
+                         * eglDestroySurface() in Mesa, the dri2_drm_destroy_surface()
+                         * will call gbm_bo_destroy() to destroy the GBM BO.
+                         * The Mesa GMB implementation of gbm_bo_destroy() then
+                         * will finally call drm_fb_destroy_gbm() to destroy the
+                         * user_data(fb) regardless of refcount, so ensure we
+                         * destroy them here before invoking output_destroy.
+                         */
+                        if (scanout && scanout->state_cur &&
+                            scanout->state_cur->fb &&
+                            scanout->state_cur->fb->type == BUFFER_GBM_SURFACE)
+                                drm_plane_reset_state(scanout);
+
+                        renderer->gl->output_destroy(output);
+                }
+
+                /* 2, Destroy the renderer */
+                renderer->destroy(compositor);
+
+                /* 3, Create the renderer again */
+                ret = drm_backend_create_gl_renderer(b);
+                if (ret < 0) {
+                        weston_log("Failed to recreate gl renderer!\n");
+                        return -EIO;
+                }
+
+                /* 4, Create the renderer outputs again */
+                wl_list_for_each(output, &compositor->output_list, link) {
+                        ret = drm_output_init_egl(to_drm_output(output), b);
+                        if (ret < 0) {
+                                weston_log("Failed to recreate gl output!\n");
+                                return -EIO;
+                        }
+                }
+
+                b->drm->state_invalid = true;
+                b->gl_recovering = false;
+                renderer->gl->set_recovering(compositor, false);
+                ret = -EAGAIN;
+
+                weston_log("GL renderer recovery completed successfully\n");
+                break;
+        }
+        default:
+                weston_log("Unsupported gl renderer err: %d\n", err);
+                ret = -EINVAL;
+        }
+
+        return ret;
+}
+
 struct drm_fb *
 drm_output_render_gl(struct drm_output_state *state, pixman_region32_t *damage)
 {
@@ -793,9 +879,17 @@ drm_output_render_gl(struct drm_output_state *state, pixman_region32_t *damage)
 	struct drm_device *device = output->device;
 	struct gbm_bo *bo;
 	struct drm_fb *ret;
+	int err;
 
-	output->base.compositor->renderer->repaint_output(&output->base,
-							  damage, NULL);
+repaint:
+	err = output->base.compositor->renderer->repaint_output(&output->base,
+							        damage, NULL);
+
+        if (err != WESTON_RENDERER_ERROR_NONE) {
+                err = drm_handle_gl_renderer_error(output->base.compositor, err);
+                if (err == -EAGAIN)
+                        goto repaint;
+        }
 
 	bo = gbm_surface_lock_front_buffer(output->gbm_surface);
 	if (!bo) {

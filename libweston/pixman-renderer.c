@@ -634,7 +634,7 @@ static void
 pixman_renderer_output_set_buffer(struct weston_output *output,
 				  pixman_image_t *buffer);
 
-static void
+static enum weston_renderer_error
 pixman_renderer_repaint_output(struct weston_output *output,
 			       pixman_region32_t *output_damage,
 			       weston_renderbuffer_t renderbuffer)
@@ -658,7 +658,7 @@ pixman_renderer_repaint_output(struct weston_output *output,
 	       output->color_outcome->from_blend_to_output == NULL);
 
 	if (!po->hw_buffer)
- 		return;
+		goto out;
 
 	if (po->shadow_image) {
 		repaint_surfaces(output, output_damage);
@@ -677,6 +677,9 @@ pixman_renderer_repaint_output(struct weston_output *output,
 	wl_signal_emit(&output->frame_signal, output_damage);
 
 	/* Actual flip should be done by caller */
+
+out:
+	return WESTON_RENDERER_ERROR_NONE;
 }
 
 static void

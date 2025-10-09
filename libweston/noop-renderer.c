@@ -45,11 +45,12 @@ noop_renderer_read_pixels(struct weston_output *output,
 	return 0;
 }
 
-static void
+static enum weston_renderer_error
 noop_renderer_repaint_output(struct weston_output *output,
 			     pixman_region32_t *output_damage,
 			     weston_renderbuffer_t renderbuffer)
 {
+	return WESTON_RENDERER_ERROR_NONE;
 }
 
 static bool

@@ -106,21 +106,22 @@ enum egl_device_extension_flag {
 enum egl_display_extension_flag {
 	EXTENSION_ANDROID_NATIVE_FENCE_SYNC          = 1ull << 0,
 	EXTENSION_EXT_BUFFER_AGE                     = 1ull << 1,
-	EXTENSION_EXT_IMAGE_DMA_BUF_IMPORT           = 1ull << 2,
-	EXTENSION_EXT_IMAGE_DMA_BUF_IMPORT_MODIFIERS = 1ull << 3,
-	EXTENSION_EXT_PIXEL_FORMAT_FLOAT             = 1ull << 4,
-	EXTENSION_EXT_SWAP_BUFFERS_WITH_DAMAGE       = 1ull << 5,
-	EXTENSION_IMG_CONTEXT_PRIORITY               = 1ull << 6,
-	EXTENSION_KHR_FENCE_SYNC                     = 1ull << 7,
-	EXTENSION_KHR_GET_ALL_PROC_ADDRESSES         = 1ull << 8,
-	EXTENSION_KHR_IMAGE_BASE                     = 1ull << 9,
-	EXTENSION_KHR_NO_CONFIG_CONTEXT              = 1ull << 10,
-	EXTENSION_KHR_PARTIAL_UPDATE                 = 1ull << 11,
-	EXTENSION_KHR_SURFACELESS_CONTEXT            = 1ull << 12,
-	EXTENSION_KHR_SWAP_BUFFERS_WITH_DAMAGE       = 1ull << 13,
-	EXTENSION_KHR_WAIT_SYNC                      = 1ull << 14,
-	EXTENSION_MESA_CONFIGLESS_CONTEXT            = 1ull << 15,
-	EXTENSION_WL_BIND_WAYLAND_DISPLAY            = 1ull << 16,
+	EXTENSION_EXT_CREATE_CONTEXT_ROBUSTNESS      = 1ull << 2,
+	EXTENSION_EXT_IMAGE_DMA_BUF_IMPORT           = 1ull << 3,
+	EXTENSION_EXT_IMAGE_DMA_BUF_IMPORT_MODIFIERS = 1ull << 4,
+	EXTENSION_EXT_PIXEL_FORMAT_FLOAT             = 1ull << 5,
+	EXTENSION_EXT_SWAP_BUFFERS_WITH_DAMAGE       = 1ull << 6,
+	EXTENSION_IMG_CONTEXT_PRIORITY               = 1ull << 7,
+	EXTENSION_KHR_FENCE_SYNC                     = 1ull << 8,
+	EXTENSION_KHR_GET_ALL_PROC_ADDRESSES         = 1ull << 9,
+	EXTENSION_KHR_IMAGE_BASE                     = 1ull << 10,
+	EXTENSION_KHR_NO_CONFIG_CONTEXT              = 1ull << 11,
+	EXTENSION_KHR_PARTIAL_UPDATE                 = 1ull << 12,
+	EXTENSION_KHR_SURFACELESS_CONTEXT            = 1ull << 13,
+	EXTENSION_KHR_SWAP_BUFFERS_WITH_DAMAGE       = 1ull << 14,
+	EXTENSION_KHR_WAIT_SYNC                      = 1ull << 15,
+	EXTENSION_MESA_CONFIGLESS_CONTEXT            = 1ull << 16,
+	EXTENSION_WL_BIND_WAYLAND_DISPLAY            = 1ull << 17,
 };
 
 /* Keep in sync with gl-renderer.c. */
@@ -134,14 +135,15 @@ enum gl_extension_flag {
 	EXTENSION_EXT_EGL_IMAGE_STORAGE           = 1ull << 8,
 	EXTENSION_EXT_MAP_BUFFER_RANGE            = 1ull << 9,
 	EXTENSION_EXT_READ_FORMAT_BGRA            = 1ull << 10,
-	EXTENSION_EXT_TEXTURE_FORMAT_BGRA8888     = 1ull << 11,
-	EXTENSION_EXT_TEXTURE_NORM16              = 1ull << 12,
-	EXTENSION_EXT_TEXTURE_RG                  = 1ull << 13,
-	EXTENSION_EXT_TEXTURE_SRGB_R8             = 1ull << 14,
-	EXTENSION_EXT_TEXTURE_SRGB_RG8            = 1ull << 15,
-	EXTENSION_EXT_TEXTURE_STORAGE             = 1ull << 16,
-	EXTENSION_EXT_TEXTURE_TYPE_2_10_10_10_REV = 1ull << 17,
-	EXTENSION_EXT_UNPACK_SUBIMAGE             = 1ull << 18,
+	EXTENSION_EXT_ROBUSTNESS                  = 1ull << 11,
+	EXTENSION_EXT_TEXTURE_FORMAT_BGRA8888     = 1ull << 12,
+	EXTENSION_EXT_TEXTURE_NORM16              = 1ull << 13,
+	EXTENSION_EXT_TEXTURE_RG                  = 1ull << 14,
+	EXTENSION_EXT_TEXTURE_SRGB_R8             = 1ull << 15,
+	EXTENSION_EXT_TEXTURE_SRGB_RG8            = 1ull << 16,
+	EXTENSION_EXT_TEXTURE_STORAGE             = 1ull << 17,
+	EXTENSION_EXT_TEXTURE_TYPE_2_10_10_10_REV = 1ull << 18,
+	EXTENSION_EXT_UNPACK_SUBIMAGE             = 1ull << 19,
 	EXTENSION_NV_PACKED_FLOAT                 = 1ull << 20,
 	EXTENSION_NV_PIXEL_BUFFER_OBJECT          = 1ull << 21,
 	EXTENSION_OES_EGL_IMAGE                   = 1ull << 22,
@@ -203,6 +205,9 @@ enum gl_feature_flag {
 
 	/* GL renderer can create 3D textures. */
 	FEATURE_TEXTURE_3D = 1ull << 9,
+
+	/* The GL renderer can recover from a GPU reset. */
+	FEATURE_GRAPHICS_RESET_RECOVERY = 1ull << 10,
 };
 
 /* Keep the following in sync with vertex.glsl. */
@@ -502,6 +507,11 @@ struct gl_renderer {
 	PFNGLTEXSTORAGE2DEXTPROC tex_storage_2d;
 	PFNGLTEXSTORAGE3DEXTPROC tex_storage_3d;
 
+	/* GL_EXT_robustness */
+	PFNGLGETGRAPHICSRESETSTATUSEXTPROC get_graphics_reset_status;
+
+	bool recovering;
+
 	uint64_t features;
 
 	GLenum pbo_usage;
@@ -509,6 +519,8 @@ struct gl_renderer {
 
 	bool blend_state;
 
+	struct wl_list dma_bufs;
+	struct wl_list shm_bufs;
 	struct wl_list dmabuf_images;
 	struct wl_list dmabuf_formats;
 	struct wl_list pending_capture_list;
