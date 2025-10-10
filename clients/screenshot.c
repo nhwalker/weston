@@ -71,6 +71,7 @@ struct screenshooter_app {
 
 struct screenshooter_buffer {
 	struct client_buffer *buf;
+	struct wl_buffer *wl_buffer;
 	pixman_image_t *image;
 	enum weston_capture_v1_source src_type;
 };
@@ -113,10 +114,13 @@ screenshot_create_shm_buffer(struct screenshooter_app *app,
 
 	buffer = xzalloc(sizeof *buffer);
 
-	buffer->buf = client_buffer_util_create_shm_buffer(app->shm,
-							   fmt,
-							   width,
-							   height);
+	buffer->buf = client_buffer_util_allocate_shm_buffer(fmt,
+							    width,
+							    height);
+	abort_oom_if_null(buffer->buf);
+	buffer->wl_buffer = client_buffer_util_get_proxy_shm(buffer->buf,
+							     app->shm);
+	abort_oom_if_null(buffer->wl_buffer);
 
 	buffer->image = pixman_image_create_bits(fmt->pixman_format,
 						 width, height,
@@ -140,11 +144,14 @@ screenshot_create_udmabuf(struct screenshooter_app *app,
 
 	buffer = xzalloc(sizeof *buffer);
 
-	buffer->buf = client_buffer_util_create_dmabuf_buffer(app->display,
-							      app->dmabuf,
-							      fmt,
-							      width,
-							      height);
+	buffer->buf = client_buffer_util_allocate_dmabuf_buffer(fmt,
+							        width,
+							        height);
+	abort_oom_if_null(buffer->buf);
+	buffer->wl_buffer = client_buffer_util_get_proxy_dmabuf(buffer->buf,
+								app->display,
+								app->dmabuf);
+	abort_oom_if_null(buffer->wl_buffer);
 
 	if (fmt->pixman_format) {
 		buffer->image = pixman_image_create_bits(fmt->pixman_format,
@@ -166,6 +173,7 @@ screenshooter_buffer_destroy(struct screenshooter_buffer *buffer)
 	if (buffer->image)
 		pixman_image_unref(buffer->image);
 
+	wl_buffer_destroy(buffer->wl_buffer);
 	client_buffer_util_destroy_buffer(buffer->buf);
 	free(buffer);
 }
@@ -392,7 +400,7 @@ screenshooter_output_capture(struct screenshooter_output *output)
 	abort_oom_if_null(output->buffer);
 
 	weston_capture_source_v1_capture(output->source,
-					 output->buffer->buf->wl_buffer);
+					 output->buffer->wl_buffer);
 	output->app->waitcount++;
 }
 
