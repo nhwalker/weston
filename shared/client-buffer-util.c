@@ -211,8 +211,6 @@ client_buffer_util_is_dmabuf_supported(void)
 void
 client_buffer_util_destroy_buffer(struct client_buffer *buf)
 {
-	if (buf->wl_buffer)
-		wl_buffer_destroy(buf->wl_buffer);
 	if (buf->data_donotuse)
 		munmap(buf->data_donotuse, buf->bytes);
 	if (buf->fd > -1)
@@ -271,27 +269,6 @@ client_buffer_util_get_proxy_shm(struct client_buffer *buf, struct wl_shm *shm)
 	wl_shm_pool_destroy(pool);
 
 	return ret;
-}
-
-struct client_buffer *
-client_buffer_util_create_shm_buffer(struct wl_shm *shm,
-				     const struct pixel_format_info *fmt,
-				     int width,
-				     int height)
-{
-	struct client_buffer *buf;
-
-	buf = client_buffer_util_allocate_shm_buffer(fmt, width, height);
-	if (!buf)
-		return NULL;
-
-	buf->wl_buffer = client_buffer_util_get_proxy_shm(buf, shm);
-	if (!buf->wl_buffer) {
-		client_buffer_util_destroy_buffer(buf);
-		return NULL;
-	}
-
-	return buf;
 }
 
 struct buffer_create_data {
@@ -451,29 +428,6 @@ client_buffer_util_get_proxy_dmabuf(struct client_buffer *buf,
 		fprintf(stderr, "zwp_linux_buffer_params_v1_create() failed\n");
 
 	return ret;
-}
-
-struct client_buffer *
-client_buffer_util_create_dmabuf_buffer(struct wl_display *display,
-					struct zwp_linux_dmabuf_v1 *dmabuf,
-					const struct pixel_format_info *fmt,
-					int width,
-					int height)
-{
-	struct client_buffer *buf;
-
-	buf = client_buffer_util_allocate_dmabuf_buffer(fmt, width, height);
-	if (!buf)
-		return NULL;
-
-	buf->wl_buffer =
-		client_buffer_util_get_proxy_dmabuf(buf, display, dmabuf);
-	if (!buf->wl_buffer) {
-		client_buffer_util_destroy_buffer(buf);
-		return NULL;
-	}
-
-	return buf;
 }
 
 static void

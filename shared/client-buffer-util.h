@@ -46,7 +46,6 @@ enum client_buffer_type {
 struct client_buffer {
 	const struct pixel_format_info *fmt;
 	enum client_buffer_type type;
-	struct wl_buffer *wl_buffer;
 	void *data_donotuse;
 	size_t bytes;
 	int fd;
@@ -79,12 +78,6 @@ client_buffer_util_get_proxy_shm(struct client_buffer *buf,
 				 struct wl_shm *shm);
 
 struct client_buffer *
-client_buffer_util_create_shm_buffer(struct wl_shm *shm,
-				     const struct pixel_format_info *fmt,
-				     int width,
-				     int height);
-
-struct client_buffer *
 client_buffer_util_allocate_dmabuf_buffer(const struct pixel_format_info *fmt,
 					  int width,
 					  int height);
@@ -93,13 +86,6 @@ struct wl_buffer *
 client_buffer_util_get_proxy_dmabuf(struct client_buffer *buf,
 				    struct wl_display *display,
 				    struct zwp_linux_dmabuf_v1 *dmabuf);
-
-struct client_buffer *
-client_buffer_util_create_dmabuf_buffer(struct wl_display *display,
-					struct zwp_linux_dmabuf_v1 *dmabuf,
-					const struct pixel_format_info *fmt,
-					int width,
-					int height);
 
 struct client_buffer_cpu_access *
 client_buffer_util_begin_cpu_access(struct client_buffer *buf);
