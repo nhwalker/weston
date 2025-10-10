@@ -248,10 +248,9 @@ client_buffer_create(struct client *client,
 				return NULL;
 			}
 
-			buf = client_buffer_util_create_shm_buffer(client->wl_shm,
-								   create_data->fmt,
-								   create_data->width,
-								   create_data->height);
+			buf = client_buffer_util_allocate_shm_buffer(create_data->fmt,
+								     create_data->width,
+								     create_data->height);
 			break;
 		}
 		case BUFFER_TYPE_DMABUF: {
@@ -262,11 +261,9 @@ client_buffer_create(struct client *client,
 				return NULL;
 			}
 
-			buf = client_buffer_util_create_dmabuf_buffer(client->wl_display,
-								      client->dmabuf,
-								      create_data->fmt,
-								      create_data->width,
-								      create_data->height);
+			buf = client_buffer_util_allocate_dmabuf_buffer(create_data->fmt,
+								        create_data->width,
+								        create_data->height);
 			break;
 		}
 	}
@@ -1546,16 +1543,28 @@ static void
 show_window_with_client_buffer(struct client *client, struct client_buffer *buf)
 {
 	struct surface *surface = client->surface;
+	struct wl_buffer *wl_buffer;
 	int done;
+
+	if (buf->type == CLIENT_BUFFER_TYPE_SHM) {
+		wl_buffer = client_buffer_util_get_proxy_shm(buf,
+							     client->wl_shm);
+	} else {
+		wl_buffer = client_buffer_util_get_proxy_dmabuf(buf,
+								client->wl_display,
+								client->dmabuf);
+	}
+	test_assert_ptr_not_null(wl_buffer);
 
 	weston_test_move_surface(client->test->weston_test, surface->wl_surface,
 				 4, 4);
-	wl_surface_attach(surface->wl_surface, buf->wl_buffer, 0, 0);
+	wl_surface_attach(surface->wl_surface, wl_buffer, 0, 0);
 	wl_surface_damage(surface->wl_surface, 0, 0, buf->width,
 			  buf->height);
 	frame_callback_set(surface->wl_surface, &done);
 	wl_surface_commit(surface->wl_surface);
 	frame_callback_wait(client, &done);
+	wl_buffer_destroy(wl_buffer);
 }
 
 static const struct client_buffer_case client_buffer_cases[] = {
