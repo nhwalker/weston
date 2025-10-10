@@ -32,6 +32,11 @@ require one as a way to generate data. Creating a log scope is done using
 :func:`weston_compositor_add_log_scope()`. You can customize the scope
 behaviour and you'll require at least a name and a description for the scope.
 
+A default log scope is always created with the :type:`weston_log_context`. This
+one can be retrieved with :func:`weston_log_ctx_get_default_log_scope`, and it
+doesn't need to be destroyed. Its name is 'log', and it is used by
+:func:`weston_log` to re-route its data.
+
 .. note::
 
    A scope **name** identifies that scope. Scope retrieval from the
@@ -39,15 +44,16 @@ behaviour and you'll require at least a name and a description for the scope.
    important for the subscription part, detailed bit later.
 
 Log scopes are managed **explicitly**, and destroying the scope is done using
-:func:`weston_log_scope_destroy`.
+:func:`weston_log_scope_destroy`. The exception is the default log scope, whose
+lifetime matches the :type:`weston_log_context` that owns it.
 
 Available scopes in weston
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Weston has a few scopes worth mentioning:
 
-- **log** - a debug scope for generic logging, upon which :func:`weston_log`
-  re-routes its data.
+- **log** - the default debug scope for generic logging, upon which
+  :func:`weston_log` re-routes its data.
 - **proto** - debug scope that displays the protocol communication. It is
   similar to WAYLAND_DEBUG=server environmental variable but has the ability to
   distinguish multiple clients.
@@ -69,10 +75,10 @@ Weston has a few scopes worth mentioning:
 
 .. note::
 
-   Besides 'log' scope, which is a generic scope, intended for usage through
-   :func:`weston_log`, all the others scopes listed above could suffer various
-   modifications and might not represent a current list on which one should
-   rely upon.
+   Besides 'log' scope, which is the default generic scope, intended for usage
+   through :func:`weston_log`, all the others scopes listed above could suffer
+   various modifications and might not represent a current list on which one
+   should rely upon.
 
 
 Subscribers

@@ -63,6 +63,9 @@ typedef void (*weston_log_scope_cb)(struct weston_log_subscription *sub,
 				    void *user_data);
 
 struct weston_log_scope *
+weston_log_ctx_get_default_log_scope(struct weston_log_context *log_ctx);
+
+struct weston_log_scope *
 weston_log_ctx_add_log_scope(struct weston_log_context *log_ctx,
 			     const char *name,
 			     const char *description,

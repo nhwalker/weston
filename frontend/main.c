@@ -5377,8 +5377,7 @@ wet_main(int argc, char *argv[], const struct weston_testsuite_data *test_data)
 		return EXIT_FAILURE;
 	}
 
-	log_scope = weston_log_ctx_add_log_scope(log_ctx, "log",
-			"Weston and Wayland log\n", NULL, NULL, NULL);
+	log_scope = weston_log_ctx_get_default_log_scope(log_ctx);
 
 	if (!weston_log_file_open(log))
 		return EXIT_FAILURE;
@@ -5701,8 +5700,6 @@ out_signals:
 	wl_display_destroy(display);
 
 out_display:
-	weston_log_scope_destroy(log_scope);
-	log_scope = NULL;
 	weston_log_subscriber_destroy(logger);
 	if (flight_rec)
 		weston_log_subscriber_destroy(flight_rec);
