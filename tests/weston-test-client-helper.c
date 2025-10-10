@@ -513,24 +513,26 @@ create_buffer(struct client *client, int width, int height, uint32_t drm_format,
 		if (!support_shm_format(client, shm_format))
 		    return NULL;
 
-		buf->buf = client_buffer_util_create_shm_buffer(client->wl_shm,
-								pfmt,
-								width,
-								height);
+		buf->buf = client_buffer_util_allocate_shm_buffer(pfmt,
+								  width,
+								  height);
+		test_assert_ptr_not_null(buf->buf);
+		buf->proxy = client_buffer_util_get_proxy_shm(buf->buf,
+							      client->wl_shm);
 	} else {
 		test_assert_true(buffer_type == CLIENT_BUFFER_TYPE_DMABUF);
 
 		if (!support_drm_format(client, drm_format, DRM_FORMAT_MOD_LINEAR))
 		    return NULL;
 
-		buf->buf = client_buffer_util_create_dmabuf_buffer(client->wl_display,
-								   client->dmabuf,
-								   pfmt,
-								   width,
-								   height);
+		buf->buf = client_buffer_util_allocate_dmabuf_buffer(pfmt,
+								     width,
+								     height);
+		test_assert_ptr_not_null(buf->buf);
+		buf->proxy = client_buffer_util_get_proxy_dmabuf(buf->buf,
+								 client->wl_display,
+								 client->dmabuf);
 	}
-	test_assert_ptr_not_null(buf->buf);
-	buf->proxy = buf->buf->wl_buffer;
 
 	buf->image = pixman_image_create_bits(pfmt->pixman_format,
 					      width, height,
@@ -578,6 +580,8 @@ buffer_destroy(struct buffer *buf)
 {
 	test_assert_true(pixman_image_unref(buf->image));
 
+	if (buf->proxy)
+		wl_buffer_destroy(buf->proxy);
 	if (buf->buf)
 		client_buffer_util_destroy_buffer(buf->buf);
 	free(buf);
