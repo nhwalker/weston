@@ -28,6 +28,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <pixman-1/pixman.h>
 
 struct pixel_format_info;
 struct wl_buffer;
@@ -54,6 +55,12 @@ struct client_buffer {
 	size_t bytes_per_line[MAX_DMABUF_PLANES];
 	size_t strides[MAX_DMABUF_PLANES];
 	size_t offsets[MAX_DMABUF_PLANES];
+};
+
+struct client_buffer_cpu_access {
+	struct client_buffer *buf;
+	void *data;
+	pixman_image_t *image;
 };
 
 bool
@@ -99,3 +106,9 @@ client_buffer_util_maybe_sync_dmabuf_start(struct client_buffer *buf);
 
 void
 client_buffer_util_maybe_sync_dmabuf_end(struct client_buffer *buf);
+
+struct client_buffer_cpu_access *
+client_buffer_util_begin_cpu_access(struct client_buffer *buf);
+
+void
+client_buffer_util_end_cpu_access(struct client_buffer_cpu_access *cpu);

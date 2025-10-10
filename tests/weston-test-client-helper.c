@@ -2366,12 +2366,17 @@ struct buffer *
 create_shm_buffer_solid(struct client *client, int width, int height,
 			const pixman_color_t *color)
 {
+	struct client_buffer_cpu_access *cpu;
 	struct buffer *buffer;
 
 	buffer = create_shm_buffer_a8r8g8b8(client, width, height);
 	if (!buffer)
 		return NULL;
-	fill_image_with_color(buffer->image, color);
+
+	cpu = client_buffer_util_begin_cpu_access(buffer->buf);
+	test_assert_ptr_not_null(cpu);
+	fill_image_with_color(cpu->image, color);
+	client_buffer_util_end_cpu_access(cpu);
 
 	return buffer;
 }

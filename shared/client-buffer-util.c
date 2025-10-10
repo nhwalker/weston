@@ -503,3 +503,35 @@ client_buffer_util_maybe_sync_dmabuf_end(struct client_buffer *buf)
 		ret = ioctl(buf->fd, DMA_BUF_IOCTL_SYNC, &sync);
 	} while (ret && (errno == EINTR || errno == EAGAIN));
 }
+
+struct client_buffer_cpu_access *
+client_buffer_util_begin_cpu_access(struct client_buffer *buf)
+{
+	struct client_buffer_cpu_access *cpu = xzalloc(sizeof(*cpu));
+
+	cpu->buf = buf;
+	client_buffer_util_maybe_sync_dmabuf_start(buf);
+	cpu->data = buf->data;
+	cpu->image = pixman_image_create_bits_no_clear(buf->fmt->pixman_format,
+						       buf->width,
+						       buf->height,
+						       buf->data,
+						       buf->strides[0]);
+	if (!cpu->image) {
+		free(cpu);
+		return NULL;
+	}
+
+	return cpu;
+}
+
+void
+client_buffer_util_end_cpu_access(struct client_buffer_cpu_access *cpu)
+{
+	bool unref;
+
+	unref = pixman_image_unref(cpu->image);
+	assert(unref); /* ensure no more CPU access */
+	client_buffer_util_maybe_sync_dmabuf_end(cpu->buf);
+	free(cpu);
+}
