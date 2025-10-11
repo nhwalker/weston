@@ -562,14 +562,22 @@ create_shm_buffer_a8r8g8b8(struct client *client, int width, int height)
 static struct buffer *
 create_pixman_buffer(int width, int height, pixman_format_code_t pixman_format)
 {
+	const struct pixel_format_info *fmt =
+		pixel_format_get_info_by_pixman(pixman_format);
 	struct buffer *buf;
 
 	test_assert_int_gt(width, 0);
 	test_assert_int_gt(height, 0);
 
 	buf = xzalloc(sizeof *buf);
-	buf->image = pixman_image_create_bits(pixman_format,
-					      width, height, NULL, 0);
+	buf->buf = client_buffer_util_allocate_shm_buffer(fmt,
+							  width,
+							  height);
+	test_assert_ptr_not_null(buf->buf);
+	buf->image = pixman_image_create_bits(fmt->pixman_format,
+					      width, height,
+					      buf->buf->data,
+					      buf->buf->strides[0]);
 	test_assert_ptr_not_null(buf->image);
 
 	return buf;
