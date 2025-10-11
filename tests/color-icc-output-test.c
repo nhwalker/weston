@@ -505,7 +505,7 @@ TEST(opaque_pixel_conversion)
 	shot = capture_screenshot_of_output(client, NULL, NO_DECORATIONS);
 	test_assert_ptr_not_null(shot);
 
-	match = verify_image(shot->image, "shaper_matrix", arg->ref_image_index,
+	match = verify_image(shot->buf, "shaper_matrix", arg->ref_image_index,
 			     NULL, seq_no);
 	test_assert_true(process_pipeline_comparison(buf, shot, arg));
 	test_assert_true(match);
@@ -726,7 +726,7 @@ TEST(output_icc_alpha_blend)
 
 	shot = capture_screenshot_of_output(client, NULL, NO_DECORATIONS);
 	test_assert_ptr_not_null(shot);
-	match = verify_image(shot->image, "output_icc_alpha_blend", arg->ref_image_index,
+	match = verify_image(shot->buf, "output_icc_alpha_blend", arg->ref_image_index,
 			     NULL, seq_no);
 	test_assert_true(check_blend_pattern(bg, fg, shot, arg));
 	test_assert_true(match);

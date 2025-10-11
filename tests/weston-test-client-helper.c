@@ -2148,7 +2148,7 @@ write_visual_diff(pixman_image_t *ref_image,
  * \sa verify_screen_content
  */
 bool
-verify_image(pixman_image_t *shot,
+verify_image(struct client_buffer *shot,
 	     const char *ref_image,
 	     int ref_seq_no,
 	     const struct rectangle *clip,
@@ -2159,18 +2159,22 @@ verify_image(pixman_image_t *shot,
 	char *ref_fname = NULL;
 	char *shot_fname;
 	bool match = false;
+	struct client_buffer_cpu_access *shot_cpu =
+		client_buffer_util_begin_cpu_access(shot);
 
 	shot_fname = output_filename_for_test_case("shot", seq_no, "png");
 	ref_fname = screenshot_reference_filename(ref_image, ref_seq_no);
 	ref = load_image_from_png(ref_fname);
 
 	if (ref) {
-		match = check_images_match(ref, shot, clip, &gl_fuzz);
+		match = check_images_match(ref, shot_cpu->image, clip,
+					   &gl_fuzz);
 		testlog("Verify reference image %s vs. shot %s: %s\n",
 			ref_fname, shot_fname, match ? "PASS" : "FAIL");
 
 		if (!match) {
-			write_visual_diff(ref, shot, clip, seq_no, &gl_fuzz);
+			write_visual_diff(ref, shot_cpu->image, clip, seq_no,
+					  &gl_fuzz);
 		}
 
 		pixman_image_unref(ref);
@@ -2179,10 +2183,11 @@ verify_image(pixman_image_t *shot,
 	}
 
 	if (!match)
-		write_image_as_png(shot, shot_fname);
+		write_image_as_png(shot_cpu->image, shot_fname);
 
 	free(ref_fname);
 	free(shot_fname);
+	client_buffer_util_end_cpu_access(shot_cpu);
 
 	return match;
 }
@@ -2218,7 +2223,7 @@ verify_screen_content(struct client *client,
 	shot = capture_screenshot_of_output(client, output_name,
 					    include_decorations);
 	test_assert_ptr_not_null(shot);
-	match = verify_image(shot->image, ref_image, ref_seq_no, clip, seq_no);
+	match = verify_image(shot->buf, ref_image, ref_seq_no, clip, seq_no);
 	buffer_destroy(shot);
 
 	return match;
