@@ -29,6 +29,7 @@
 #include "weston-test-fixture-compositor.h"
 #include "weston-output-capture-client-protocol.h"
 #include "weston-test-assert.h"
+#include "pixel-formats.h"
 
 struct setup_args {
 	struct fixture_metadata meta;
@@ -74,32 +75,31 @@ fixture_setup(struct weston_test_harness *harness, const struct setup_args *arg)
 DECLARE_FIXTURE_SETUP_WITH_ARG(fixture_setup, my_setup_args, meta);
 
 static void
-draw_stuff(pixman_image_t *image)
+draw_stuff(struct client_buffer *buf)
 {
-	int w, h;
 	int stride; /* bytes */
 	int x, y;
-	uint32_t r, g, b;
 	uint32_t *pixels;
-	uint32_t *pixel;
-	pixman_format_code_t fmt;
+	struct client_buffer_cpu_access *cpu;
 
-	fmt = pixman_image_get_format(image);
-	w = pixman_image_get_width(image);
-	h = pixman_image_get_height(image);
-	stride = pixman_image_get_stride(image);
-	pixels = pixman_image_get_data(image);
+	cpu = client_buffer_util_begin_cpu_access(buf);
 
-	test_assert_int_eq(PIXMAN_FORMAT_BPP(fmt), 32);
+	stride = pixman_image_get_stride(cpu->image);
+	pixels = pixman_image_get_data(cpu->image);
 
-	for (x = 0; x < w; x++)
-		for (y = 0; y < h; y++) {
-			b = x;
-			g = x + y;
-			r = y;
-			pixel = pixels + (y * stride / 4) + x;
+	test_assert_int_eq(PIXMAN_FORMAT_BPP(buf->fmt->pixman_format), 32);
+
+	for (x = 0; x < buf->width; x++) {
+		for (y = 0; y < buf->height; y++) {
+			uint32_t r = y;
+			uint32_t b = x;
+			uint32_t g = x + y;
+			uint32_t *pixel = pixels + (y * stride / 4) + x;
 			*pixel = (255U << 24) | (r << 16) | (g << 8) | b;
 		}
+	}
+
+	client_buffer_util_end_cpu_access(cpu);
 }
 
 TEST(drm_writeback_screenshot) {
@@ -128,7 +128,7 @@ TEST(drm_writeback_screenshot) {
 	weston_test_move_pointer(client->test->weston_test, 0, 1, 0, 0, 0);
 
 	buffer = create_shm_buffer_a8r8g8b8(client, 100, 100);
-	draw_stuff(buffer->image);
+	draw_stuff(buffer->buf);
 
 	wl_surface_attach(surface, buffer->proxy, 0, 0);
 	wl_surface_damage(surface, 0, 0, 100, 100);
@@ -146,7 +146,7 @@ TEST(drm_writeback_screenshot) {
 
 	/* Use new buffer to avoid deadlock between first and second screenshot. */
 	buffer_for_second_screenshot = create_shm_buffer_a8r8g8b8(client, 100, 100);
-	draw_stuff(buffer_for_second_screenshot->image);
+	draw_stuff(buffer_for_second_screenshot->buf);
 
 	wl_surface_attach(surface, buffer_for_second_screenshot->proxy, 0, 0);
 	wl_surface_damage(surface, 0, 0, 100, 100);

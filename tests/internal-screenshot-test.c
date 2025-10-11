@@ -56,11 +56,16 @@ fixture_setup(struct weston_test_harness *harness)
 DECLARE_FIXTURE_SETUP(fixture_setup);
 
 static void
-draw_stuff(pixman_image_t *image)
+draw_stuff(struct client_buffer *buf)
 {
-	struct image_header ih = image_header_from(image);
+	struct client_buffer_cpu_access *cpu =
+		client_buffer_util_begin_cpu_access(buf);
+	struct image_header ih;
 	int x, y;
 	uint32_t r, g, b;
+
+	test_assert_ptr_not_null(cpu);
+	ih = image_header_from(cpu->image);
 
 	for (y = 0; y < ih.height; y++) {
 		uint32_t *pixel = image_header_get_row_u32(&ih, y);
@@ -72,6 +77,8 @@ draw_stuff(pixman_image_t *image)
 			*pixel = (255U << 24) | (r << 16) | (g << 8) | b;
 		}
 	}
+
+	client_buffer_util_end_cpu_access(cpu);
 }
 
 TEST(internal_screenshot)
@@ -113,7 +120,7 @@ TEST(internal_screenshot)
 	weston_test_move_pointer(client->test->weston_test, 0, 1, 0, 0, 0);
 
 	buf = create_shm_buffer_a8r8g8b8(client, 100, 100);
-	draw_stuff(buf->image);
+	draw_stuff(buf->buf);
 	wl_surface_attach(surface, buf->proxy, 0, 0);
 	wl_surface_damage(surface, 0, 0, 100, 100);
 	wl_surface_commit(surface);
