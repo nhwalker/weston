@@ -559,30 +559,6 @@ create_shm_buffer_a8r8g8b8(struct client *client, int width, int height)
 	return create_shm_buffer(client, width, height, DRM_FORMAT_ARGB8888);
 }
 
-static struct buffer *
-create_pixman_buffer(int width, int height, pixman_format_code_t pixman_format)
-{
-	const struct pixel_format_info *fmt =
-		pixel_format_get_info_by_pixman(pixman_format);
-	struct buffer *buf;
-
-	test_assert_int_gt(width, 0);
-	test_assert_int_gt(height, 0);
-
-	buf = xzalloc(sizeof *buf);
-	buf->buf = client_buffer_util_allocate_shm_buffer(fmt,
-							  width,
-							  height);
-	test_assert_ptr_not_null(buf->buf);
-	buf->image = pixman_image_create_bits(fmt->pixman_format,
-					      width, height,
-					      buf->buf->data,
-					      buf->buf->strides[0]);
-	test_assert_ptr_not_null(buf->image);
-
-	return buf;
-}
-
 void
 buffer_destroy(struct buffer *buf)
 {
@@ -2058,9 +2034,9 @@ struct buffer *
 capture_screenshot_of_output(struct client *client, const char *output_name,
 			     enum screenshot_decoration_mode include_decorations)
 {
-	struct image_header ih;
 	struct buffer *shm;
 	struct buffer *buf;
+	struct client_buffer_cpu_access *cpu_src, *cpu_dst;
 	struct output *output = NULL;
 	enum weston_capture_v1_source source;
 
@@ -2086,15 +2062,20 @@ capture_screenshot_of_output(struct client *client, const char *output_name,
 
 	shm = client_capture_output(client, output, source,
 				    CLIENT_BUFFER_TYPE_SHM);
-	ih = image_header_from(shm->image);
 
-	if (ih.pixman_format == PIXMAN_a8r8g8b8)
+	if (shm->buf->fmt->pixman_format == PIXMAN_a8r8g8b8)
 		return shm;
 
-	buf = create_pixman_buffer(ih.width, ih.height, PIXMAN_a8r8g8b8);
-	pixman_image_composite32(PIXMAN_OP_SRC, shm->image, NULL, buf->image,
-				 0, 0, 0, 0, 0, 0, ih.width, ih.height);
-
+	buf = create_shm_buffer_a8r8g8b8(client, shm->buf->width, shm->buf->height);
+	test_assert_ptr_not_null(buf);
+	cpu_src = client_buffer_util_begin_cpu_access(shm->buf);
+	test_assert_ptr_not_null(cpu_src);
+	cpu_dst = client_buffer_util_begin_cpu_access(buf->buf);
+	test_assert_ptr_not_null(cpu_dst);
+	pixman_image_composite32(PIXMAN_OP_SRC, cpu_src->image, NULL, cpu_dst->image,
+				 0, 0, 0, 0, 0, 0, shm->buf->width, shm->buf->height);
+	client_buffer_util_end_cpu_access(cpu_src);
+	client_buffer_util_end_cpu_access(cpu_dst);
 	buffer_destroy(shm);
 	return buf;
 }
