@@ -109,6 +109,7 @@ TEST(drm_writeback_screenshot) {
 	struct buffer *buffer_for_second_screenshot;
 	struct buffer *screenshot = NULL;
 	struct buffer *second_screenshot = NULL;
+	struct client_buffer_cpu_access *cpu;
 	pixman_image_t *reference = NULL;
 	pixman_image_t *diffimg = NULL;
 	struct wl_surface *surface;
@@ -175,17 +176,17 @@ TEST(drm_writeback_screenshot) {
 	clip.y = 100;
 	clip.width = 100;
 	clip.height = 100;
-	client_buffer_util_maybe_sync_dmabuf_start(second_screenshot->buf);
-	match = check_images_match(second_screenshot->image, reference, &clip, NULL);
+	cpu = client_buffer_util_begin_cpu_access(second_screenshot->buf);
+	match = check_images_match(cpu->image, reference, &clip, NULL);
 	testlog("Screenshot %s reference image\n", match? "equal to" : "different from");
 	if (!match) {
-		diffimg = visualize_image_difference(second_screenshot->image, reference, &clip, NULL);
+		diffimg = visualize_image_difference(cpu->image, reference, &clip, NULL);
 		fname = output_filename_for_test_case("error", 0, "png");
 		write_image_as_png(diffimg, fname);
 		pixman_image_unref(diffimg);
 		free(fname);
 	}
-	client_buffer_util_maybe_sync_dmabuf_end(second_screenshot->buf);
+	client_buffer_util_end_cpu_access(cpu);
 
 	pixman_image_unref(reference);
 	buffer_destroy(second_screenshot);
