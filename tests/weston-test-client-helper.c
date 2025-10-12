@@ -2250,6 +2250,7 @@ client_buffer_from_image_file(struct client *client,
 	pixman_image_t *img;
 	int buf_w, buf_h;
 	pixman_transform_t scaling;
+	struct client_buffer_cpu_access *cpu;
 
 	test_assert_int_ge(scale, 1);
 
@@ -2261,6 +2262,9 @@ client_buffer_from_image_file(struct client *client,
 	buf_w = scale * pixman_image_get_width(img);
 	buf_h = scale * pixman_image_get_height(img);
 	buf = create_shm_buffer_a8r8g8b8(client, buf_w, buf_h);
+	test_assert_ptr_not_null(buf);
+	cpu = client_buffer_util_begin_cpu_access(buf->buf);
+	test_assert_ptr_not_null(cpu);
 
 	pixman_transform_init_scale(&scaling,
 				    pixman_fixed_1 / scale,
@@ -2271,12 +2275,14 @@ client_buffer_from_image_file(struct client *client,
 	pixman_image_composite32(PIXMAN_OP_SRC,
 				 img, /* src */
 				 NULL, /* mask */
-				 buf->image, /* dst */
+				 cpu->image, /* dst */
 				 0, 0, /* src x,y */
 				 0, 0, /* mask x,y */
 				 0, 0, /* dst x,y */
 				 buf_w, buf_h);
 	pixman_image_unref(img);
+
+	client_buffer_util_end_cpu_access(cpu);
 
 	return buf;
 }
