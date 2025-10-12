@@ -122,12 +122,6 @@ screenshot_create_shm_buffer(struct screenshooter_app *app,
 							     app->shm);
 	abort_oom_if_null(buffer->wl_buffer);
 
-	buffer->image = pixman_image_create_bits(fmt->pixman_format,
-						 width, height,
-						 buffer->buf->data,
-						 buffer->buf->strides[0]);
-	abort_oom_if_null(buffer->image);
-
 	return buffer;
 }
 
@@ -153,14 +147,6 @@ screenshot_create_udmabuf(struct screenshooter_app *app,
 								app->dmabuf);
 	abort_oom_if_null(buffer->wl_buffer);
 
-	if (fmt->pixman_format) {
-		buffer->image = pixman_image_create_bits(fmt->pixman_format,
-							 width, height,
-							 buffer->buf->data,
-							 buffer->buf->strides[0]);
-		abort_oom_if_null(buffer->image);
-	}
-
 	return buffer;
 }
 
@@ -169,9 +155,6 @@ screenshooter_buffer_destroy(struct screenshooter_buffer *buffer)
 {
 	if (!buffer)
 		return;
-
-	if (buffer->image)
-		pixman_image_unref(buffer->image);
 
 	wl_buffer_destroy(buffer->wl_buffer);
 	client_buffer_util_destroy_buffer(buffer->buf);
@@ -420,10 +403,13 @@ screenshot_write_png(const struct buffer_size *buff_size,
 	abort_oom_if_null(shot);
 
 	wl_list_for_each(output, output_list, link) {
-		client_buffer_util_maybe_sync_dmabuf_start(output->buffer->buf);
+		struct client_buffer_cpu_access *cpu =
+			client_buffer_util_begin_cpu_access(output->buffer->buf);
+
+		assert(cpu);
 
 		pixman_image_composite32(PIXMAN_OP_SRC,
-					 output->buffer->image, /* src */
+					 cpu->image, /* src */
 					 NULL, /* mask */
 					 shot, /* dest */
 					 0, 0, /* src x,y */
@@ -431,7 +417,7 @@ screenshot_write_png(const struct buffer_size *buff_size,
 					 output->offset_x, output->offset_y, /* dst x,y */
 					 output->buffer_width, output->buffer_height);
 
-		client_buffer_util_maybe_sync_dmabuf_end(output->buffer->buf);
+		client_buffer_util_end_cpu_access(cpu);
 	}
 
 	surface = cairo_image_surface_create_for_data((void *)pixman_image_get_data(shot),
@@ -458,6 +444,7 @@ screenshot_write_yuv(const struct buffer_size *buff_size,
 	int i = 0;
 
 	wl_list_for_each(output, output_list, link) {
+		struct client_buffer_cpu_access *cpu;
 		struct screenshooter_buffer *buffer = output->buffer;
 		char filepath[PATH_MAX];
 		char filepath_prefix[100];
@@ -473,7 +460,8 @@ screenshot_write_yuv(const struct buffer_size *buff_size,
 			return;
 		}
 
-		client_buffer_util_maybe_sync_dmabuf_start(buffer->buf);
+		cpu = client_buffer_util_begin_cpu_access(buffer->buf);
+		assert(cpu);
 
 		for (unsigned int j = 0; j < pixel_format_get_plane_count(buffer->buf->fmt); j++) {
 			int plane_height =
@@ -482,7 +470,7 @@ screenshot_write_yuv(const struct buffer_size *buff_size,
 			for (int k = 0; k < plane_height; k++) {
 				size_t lines_written;
 
-				lines_written = fwrite(buffer->buf->data + write_offset,
+				lines_written = fwrite(cpu->data + write_offset,
 						       buffer->buf->bytes_per_line[j],
 						       1, fp);
 				if (lines_written != 1) {
@@ -499,7 +487,7 @@ screenshot_write_yuv(const struct buffer_size *buff_size,
 		}
 		fclose (fp);
 
-		client_buffer_util_maybe_sync_dmabuf_end(buffer->buf);
+		client_buffer_util_end_cpu_access(cpu);
 	}
 }
 
