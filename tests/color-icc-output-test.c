@@ -738,7 +738,7 @@ TEST(output_icc_alpha_blend)
 	bg = create_shm_buffer_solid(client, width, height, &background_color);
 
 	/* background window, main surface */
-	client->surface = create_test_surface(client);
+	client->surface = create_test_surface_with_buffer(client, bg->buf);
 	test_surface_attach_buffer(client->surface, bg->buf);
 	surface_set_opaque_rect(client->surface,
 				&(struct rectangle){ 0, 0, width, height });

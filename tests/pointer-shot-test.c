@@ -110,6 +110,7 @@ TEST(pointer_cursor_retains_committed_buffer_after_reenter)
 	pixman_color_t green;
 	pixman_color_t gray;
 	pixman_color_t magenta;
+	struct buffer *red_buf;
 	bool match;
 	struct surface *main_surface;
 	struct surface *back_surface;
@@ -123,11 +124,13 @@ TEST(pointer_cursor_retains_committed_buffer_after_reenter)
 
 	client = create_client();
 
+	red_buf = create_shm_buffer_solid(client, 100, 100, &red);
+
 	/* Move the cursor out of the way of the main surface */
 	send_motion(client, &t0, 0, 0);
 
 	/* Create all surfaces. */
-	main_surface = create_test_surface(client);
+	main_surface = create_test_surface_with_buffer(client, red_buf->buf);
 	back_surface = create_test_surface(client);
 	main_cursor_surface = create_test_surface(client);
 	back_cursor_surface = create_test_surface(client);
@@ -144,7 +147,6 @@ TEST(pointer_cursor_retains_committed_buffer_after_reenter)
 
 	/* Set up the main surface. */
 	client->surface = main_surface;
-	client->surface->buffer = create_shm_buffer_solid(client, 100, 100, &red);
 	move_client_frame_sync(client, 50, 50);
 
 	/* Move the pointer into the main surface. */
@@ -177,6 +179,7 @@ TEST(pointer_cursor_retains_committed_buffer_after_reenter)
 	surface_destroy(back_cursor_surface);
 	surface_destroy(main_cursor_surface);
 	surface_destroy(back_surface);
+	buffer_destroy(red_buf);
 	/* main_surface is destroyed when destroying the client. */
 	client_destroy(client);
 

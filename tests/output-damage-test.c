@@ -206,14 +206,11 @@ TEST(output_damage)
 	testlog("%s: %s\n", get_test_name(), refname);
 
 	client = create_client();
-	client->surface = create_test_surface(client);
-	client->surface->width = width;
-	client->surface->height = height;
 
 	for (i = 0; i < COUNT_BUFS; i++)
 		buf[i] = create_shm_buffer_solid(client, width, height, &colors[i]);
 
-	client->surface->buffer = buf[0];
+	client->surface = create_test_surface_with_buffer(client, buf[0]->buf);
 	move_client_frame_sync(client, 19, 19);
 
 	/*
@@ -233,7 +230,6 @@ TEST(output_damage)
 	for (i = 0; i < COUNT_BUFS; i++)
 		buffer_destroy(buf[i]);
 
-	client->surface->buffer = NULL;
 	client_destroy(client);
 	free(refname);
 

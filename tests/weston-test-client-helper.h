@@ -220,6 +220,10 @@ client_destroy(struct client *client);
 struct surface *
 create_test_surface(struct client *client);
 
+struct surface *
+create_test_surface_with_buffer(struct client *client,
+				struct client_buffer *buffer);
+
 void
 test_surface_attach_buffer(struct surface *surface,
 			   struct client_buffer *buffer);

@@ -1162,6 +1162,20 @@ create_test_surface(struct client *client)
 	return surface;
 }
 
+struct surface *
+create_test_surface_with_buffer(struct client *client,
+				struct client_buffer *buffer)
+{
+	struct surface *surface = create_test_surface(client);
+
+	if (!surface)
+		return NULL;
+
+	test_surface_attach_buffer(surface, buffer);
+
+	return surface;
+}
+
 void
 surface_destroy(struct surface *surface)
 {
