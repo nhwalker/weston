@@ -2005,13 +2005,14 @@ static const struct weston_capture_source_v1_listener output_capturer_source_han
 	.failed = output_capturer_handle_failed,
 };
 
-struct buffer *
+struct client_buffer *
 client_capture_output(struct client *client,
 		      struct output *output,
 		      enum weston_capture_v1_source src,
 		      enum client_buffer_type buffer_type)
 {
 	struct output_capturer capt = {};
+	struct client_buffer *ret;
 	struct buffer *buf;
 
 	capt.factory = bind_to_singleton_global(client,
@@ -2041,8 +2042,12 @@ client_capture_output(struct client *client,
 
 	weston_capture_source_v1_destroy(capt.source);
 	weston_capture_v1_destroy(capt.factory);
+	wl_buffer_destroy(buf->proxy);
 
-	return buf;
+	ret = buf->buf;
+	free(buf);
+
+	return ret;
 }
 
 /**
@@ -2066,15 +2071,17 @@ client_capture_output(struct client *client,
  * decorations, or false if it should include just the client content
  * @returns A new buffer object, that should be freed with buffer_destroy().
  */
-struct buffer *
+struct client_buffer *
 capture_screenshot_of_output(struct client *client, const char *output_name,
 			     enum screenshot_decoration_mode include_decorations)
 {
-	struct buffer *shm;
-	struct buffer *buf;
+	struct client_buffer *shm;
+	struct client_buffer *buf;
 	struct client_buffer_cpu_access *cpu_src, *cpu_dst;
 	struct output *output = NULL;
 	enum weston_capture_v1_source source;
+	const struct pixel_format_info *fmt =
+		pixel_format_get_info_by_pixman(PIXMAN_a8r8g8b8);
 
 	if (output_name) {
 		struct output *output_iter;
@@ -2099,20 +2106,20 @@ capture_screenshot_of_output(struct client *client, const char *output_name,
 	shm = client_capture_output(client, output, source,
 				    CLIENT_BUFFER_TYPE_SHM);
 
-	if (shm->buf->fmt->pixman_format == PIXMAN_a8r8g8b8)
+	if (shm->fmt == fmt)
 		return shm;
 
-	buf = create_shm_buffer_a8r8g8b8(client, shm->buf->width, shm->buf->height);
+	buf = client_buffer_util_allocate_shm_buffer(fmt, shm->width, shm->height);
 	test_assert_ptr_not_null(buf);
-	cpu_src = client_buffer_util_begin_cpu_access(shm->buf);
+	cpu_src = client_buffer_util_begin_cpu_access(shm);
 	test_assert_ptr_not_null(cpu_src);
-	cpu_dst = client_buffer_util_begin_cpu_access(buf->buf);
+	cpu_dst = client_buffer_util_begin_cpu_access(buf);
 	test_assert_ptr_not_null(cpu_dst);
 	pixman_image_composite32(PIXMAN_OP_SRC, cpu_src->image, NULL, cpu_dst->image,
-				 0, 0, 0, 0, 0, 0, shm->buf->width, shm->buf->height);
+				 0, 0, 0, 0, 0, 0, shm->width, shm->height);
 	client_buffer_util_end_cpu_access(cpu_src);
 	client_buffer_util_end_cpu_access(cpu_dst);
-	buffer_destroy(shm);
+	client_buffer_util_destroy_buffer(shm);
 	return buf;
 }
 
@@ -2234,14 +2241,14 @@ verify_screen_content(struct client *client,
 		      int seq_no, const char *output_name,
 		      enum screenshot_decoration_mode include_decorations)
 {
-	struct buffer *shot;
+	struct client_buffer *shot;
 	bool match;
 
 	shot = capture_screenshot_of_output(client, output_name,
 					    include_decorations);
 	test_assert_ptr_not_null(shot);
-	match = verify_image(shot->buf, ref_image, ref_seq_no, clip, seq_no);
-	buffer_destroy(shot);
+	match = verify_image(shot, ref_image, ref_seq_no, clip, seq_no);
+	client_buffer_util_destroy_buffer(shot);
 
 	return match;
 }

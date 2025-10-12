@@ -107,8 +107,8 @@ TEST(drm_writeback_screenshot) {
 	struct client *client;
 	struct buffer *buffer;
 	struct buffer *buffer_for_second_screenshot;
-	struct buffer *screenshot = NULL;
-	struct buffer *second_screenshot = NULL;
+	struct client_buffer *screenshot = NULL;
+	struct client_buffer *second_screenshot = NULL;
 	struct client_buffer_cpu_access *cpu;
 	pixman_image_t *reference = NULL;
 	pixman_image_t *diffimg = NULL;
@@ -143,7 +143,7 @@ TEST(drm_writeback_screenshot) {
 					   WESTON_CAPTURE_V1_SOURCE_WRITEBACK,
 					   args->buffer_type);
 	test_assert_ptr_not_null(screenshot);
-	buffer_destroy(screenshot);
+	client_buffer_util_destroy_buffer(screenshot);
 
 	/* Use new buffer to avoid deadlock between first and second screenshot. */
 	buffer_for_second_screenshot = create_shm_buffer_a8r8g8b8(client, 100, 100);
@@ -176,7 +176,7 @@ TEST(drm_writeback_screenshot) {
 	clip.y = 100;
 	clip.width = 100;
 	clip.height = 100;
-	cpu = client_buffer_util_begin_cpu_access(second_screenshot->buf);
+	cpu = client_buffer_util_begin_cpu_access(second_screenshot);
 	match = check_images_match(cpu->image, reference, &clip, NULL);
 	testlog("Screenshot %s reference image\n", match? "equal to" : "different from");
 	if (!match) {
@@ -189,7 +189,7 @@ TEST(drm_writeback_screenshot) {
 	client_buffer_util_end_cpu_access(cpu);
 
 	pixman_image_unref(reference);
-	buffer_destroy(second_screenshot);
+	client_buffer_util_destroy_buffer(second_screenshot);
 	buffer_destroy(buffer);
 	buffer_destroy(buffer_for_second_screenshot);
 	client_destroy(client);

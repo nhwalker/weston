@@ -502,7 +502,7 @@ TEST(opaque_pixel_conversion)
 
 	struct client *client;
 	struct buffer *buf;
-	struct buffer *shot;
+	struct client_buffer *shot;
 	struct wl_surface *surface;
 	bool match;
 
@@ -520,11 +520,11 @@ TEST(opaque_pixel_conversion)
 	shot = capture_screenshot_of_output(client, NULL, NO_DECORATIONS);
 	test_assert_ptr_not_null(shot);
 
-	match = verify_image(shot->buf, "shaper_matrix", arg->ref_image_index,
-			     NULL, seq_no);
-	test_assert_true(process_pipeline_comparison(buf->buf, shot->buf, arg));
+	match = verify_image(shot, "shaper_matrix", arg->ref_image_index, NULL,
+			     seq_no);
+	test_assert_true(process_pipeline_comparison(buf->buf, shot, arg));
 	test_assert_true(match);
-	buffer_destroy(shot);
+	client_buffer_util_destroy_buffer(shot);
 	buffer_destroy(buf);
 	client_destroy(client);
 
@@ -728,7 +728,7 @@ TEST(output_icc_alpha_blend)
 	struct wl_subcompositor *subco;
 	struct wl_surface *surf;
 	struct wl_subsurface *sub;
-	struct buffer *shot;
+	struct client_buffer *shot;
 	bool match;
 
 	client = create_client();
@@ -760,12 +760,12 @@ TEST(output_icc_alpha_blend)
 
 	shot = capture_screenshot_of_output(client, NULL, NO_DECORATIONS);
 	test_assert_ptr_not_null(shot);
-	match = verify_image(shot->buf, "output_icc_alpha_blend", arg->ref_image_index,
+	match = verify_image(shot, "output_icc_alpha_blend", arg->ref_image_index,
 			     NULL, seq_no);
-	test_assert_true(check_blend_pattern(bg->buf, fg->buf, shot->buf, arg));
+	test_assert_true(check_blend_pattern(bg->buf, fg->buf, shot, arg));
 	test_assert_true(match);
 
-	buffer_destroy(shot);
+	client_buffer_util_destroy_buffer(shot);
 
 	wl_subsurface_destroy(sub);
 	wl_surface_destroy(surf);

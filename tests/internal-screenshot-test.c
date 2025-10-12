@@ -86,7 +86,7 @@ TEST(internal_screenshot)
 	struct buffer *buf;
 	struct client *client;
 	struct wl_surface *surface;
-	struct buffer *screenshot = NULL;
+	struct client_buffer *screenshot = NULL;
 	struct client_buffer_cpu_access *cpu;
 	pixman_image_t *reference_good = NULL;
 	pixman_image_t *reference_bad = NULL;
@@ -130,7 +130,7 @@ TEST(internal_screenshot)
 	testlog("Taking a screenshot\n");
 	screenshot = capture_screenshot_of_output(client, NULL, NO_DECORATIONS);
 	test_assert_ptr_not_null(screenshot);
-	cpu = client_buffer_util_begin_cpu_access(screenshot->buf);
+	cpu = client_buffer_util_begin_cpu_access(screenshot);
 	test_assert_ptr_not_null(cpu);
 
 	/* Load good reference image */
@@ -183,7 +183,7 @@ TEST(internal_screenshot)
 	}
 
 	client_buffer_util_end_cpu_access(cpu);
-	buffer_destroy(screenshot);
+	client_buffer_util_destroy_buffer(screenshot);
 
 	testlog("Test complete\n");
 	test_assert_true(match);

@@ -333,11 +333,11 @@ write_image_as_png(pixman_image_t *image, const char *fname);
 pixman_image_t *
 load_image_from_png(const char *fname);
 
-struct buffer *
+struct client_buffer *
 capture_screenshot_of_output(struct client *client, const char *output_name,
 			     enum screenshot_decoration_mode include_decorations);
 
-struct buffer *
+struct client_buffer *
 client_capture_output(struct client *client,
 		      struct output *output,
 		      enum weston_capture_v1_source src,

@@ -335,7 +335,7 @@ TEST(alpha_blend)
 	struct wl_subcompositor *subco;
 	struct wl_surface *surf;
 	struct wl_subsurface *sub;
-	struct buffer *shot;
+	struct client_buffer *shot;
 	bool match;
 	int seq_no;
 	enum blend_space space;
@@ -377,11 +377,11 @@ TEST(alpha_blend)
 
 	shot = capture_screenshot_of_output(client, NULL, NO_DECORATIONS);
 	test_assert_ptr_not_null(shot);
-	match = verify_image(shot->buf, "alpha_blend", seq_no, NULL, seq_no);
-	test_assert_true(check_blend_pattern(bg->buf, fg->buf, shot->buf, space));
+	match = verify_image(shot, "alpha_blend", seq_no, NULL, seq_no);
+	test_assert_true(check_blend_pattern(bg->buf, fg->buf, shot, space));
 	test_assert_true(match);
 
-	buffer_destroy(shot);
+	client_buffer_util_destroy_buffer(shot);
 
 	wl_subsurface_destroy(sub);
 	wl_surface_destroy(surf);
