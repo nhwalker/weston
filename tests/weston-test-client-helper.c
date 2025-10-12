@@ -534,13 +534,7 @@ create_buffer(struct client *client, int width, int height, uint32_t drm_format,
 								 client->dmabuf);
 	}
 
-	buf->image = pixman_image_create_bits(pfmt->pixman_format,
-					      width, height,
-					      buf->buf->data,
-					      buf->buf->strides[0]);
-
 	test_assert_ptr_not_null(buf->proxy);
-	test_assert_ptr_not_null(buf->image);
 
 	return buf;
 }
@@ -562,8 +556,6 @@ create_shm_buffer_a8r8g8b8(struct client *client, int width, int height)
 void
 buffer_destroy(struct buffer *buf)
 {
-	test_assert_true(pixman_image_unref(buf->image));
-
 	if (buf->proxy)
 		wl_buffer_destroy(buf->proxy);
 	if (buf->buf)
