@@ -221,6 +221,10 @@ struct surface *
 create_test_surface(struct client *client);
 
 void
+test_surface_attach_buffer(struct surface *surface,
+			   struct client_buffer *buffer);
+
+void
 surface_destroy(struct surface *surface);
 
 void

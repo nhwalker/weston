@@ -357,9 +357,7 @@ TEST(alpha_blend)
 
 	/* background window, main surface */
 	client->surface = create_test_surface(client);
-	client->surface->width = width;
-	client->surface->height = height;
-	client->surface->buffer = bg; /* pass ownership */
+	test_surface_attach_buffer(client->surface, bg->buf);
 	surface_set_opaque_rect(client->surface,
 				&(struct rectangle){ 0, 0, width, height });
 
@@ -389,8 +387,9 @@ TEST(alpha_blend)
 	wl_subsurface_destroy(sub);
 	wl_surface_destroy(surf);
 	buffer_destroy(fg);
+	buffer_destroy(bg);
 	wl_subcompositor_destroy(subco);
-	client_destroy(client); /* destroys bg */
+	client_destroy(client);
 
 	return RESULT_OK;
 }

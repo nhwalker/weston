@@ -563,6 +563,36 @@ buffer_destroy(struct buffer *buf)
 	free(buf);
 }
 
+void
+test_surface_attach_buffer(struct surface *surface, struct client_buffer *buf)
+{
+	if (surface->buffer) {
+		buffer_destroy(surface->buffer);
+		surface->buffer = NULL;
+	}
+
+	if (!buf)
+		return;
+
+	surface->buffer = xzalloc(sizeof(*surface->buffer));
+	surface->width = buf->width;
+	surface->height = buf->height;
+
+	if (buf->type == CLIENT_BUFFER_TYPE_SHM) {
+		surface->buffer->proxy =
+			client_buffer_util_get_proxy_shm(buf,
+							 surface->client->wl_shm);
+	} else if (buf->type == CLIENT_BUFFER_TYPE_DMABUF) {
+		surface->buffer->proxy =
+			client_buffer_util_get_proxy_dmabuf(buf,
+							    surface->client->wl_display,
+							    surface->client->dmabuf);
+	}
+	test_assert_ptr_not_null(surface->buffer->proxy);
+
+	wl_surface_attach(surface->wl_surface, surface->buffer->proxy, 0, 0);
+}
+
 static void
 shm_format(void *data, struct wl_shm *wl_shm, uint32_t format)
 {
