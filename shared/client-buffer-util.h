@@ -47,7 +47,7 @@ struct client_buffer {
 	const struct pixel_format_info *fmt;
 	enum client_buffer_type type;
 	struct wl_buffer *wl_buffer;
-	void *data;
+	void *data_donotuse;
 	size_t bytes;
 	int fd;
 	int width;
@@ -100,12 +100,6 @@ client_buffer_util_create_dmabuf_buffer(struct wl_display *display,
 					const struct pixel_format_info *fmt,
 					int width,
 					int height);
-
-void
-client_buffer_util_maybe_sync_dmabuf_start(struct client_buffer *buf);
-
-void
-client_buffer_util_maybe_sync_dmabuf_end(struct client_buffer *buf);
 
 struct client_buffer_cpu_access *
 client_buffer_util_begin_cpu_access(struct client_buffer *buf);

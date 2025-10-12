@@ -213,8 +213,8 @@ client_buffer_util_destroy_buffer(struct client_buffer *buf)
 {
 	if (buf->wl_buffer)
 		wl_buffer_destroy(buf->wl_buffer);
-	if (buf->data)
-		munmap(buf->data, buf->bytes);
+	if (buf->data_donotuse)
+		munmap(buf->data_donotuse, buf->bytes);
 	if (buf->fd > -1)
 		close(buf->fd);
 	free(buf);
@@ -244,9 +244,9 @@ client_buffer_util_allocate_shm_buffer(const struct pixel_format_info *fmt,
 		goto error;
 	}
 
-	buf->data = mmap(NULL, buf->bytes,
-			 PROT_READ | PROT_WRITE, MAP_SHARED, buf->fd, 0);
-	if (buf->data == MAP_FAILED) {
+	buf->data_donotuse = mmap(NULL, buf->bytes, PROT_READ | PROT_WRITE,
+				  MAP_SHARED, buf->fd, 0);
+	if (buf->data_donotuse == MAP_FAILED) {
 		fprintf(stderr, "mmap() failed: %s\n", strerror (errno));
 		goto error;
 	}
@@ -388,9 +388,9 @@ client_buffer_util_allocate_dmabuf_buffer(const struct pixel_format_info *fmt,
 	close (udmabuf_fd);
 	udmabuf_fd = -1;
 
-	buf->data = mmap(NULL, buf->bytes, PROT_READ | PROT_WRITE, MAP_SHARED,
-			 buf->fd, 0);
-	if (buf->data == MAP_FAILED) {
+	buf->data_donotuse = mmap(NULL, buf->bytes, PROT_READ | PROT_WRITE,
+				  MAP_SHARED, buf->fd, 0);
+	if (buf->data_donotuse == MAP_FAILED) {
 		fprintf(stderr, "mmap() failed: %s\n", strerror (errno));
 		goto error;
 	}
@@ -476,7 +476,7 @@ client_buffer_util_create_dmabuf_buffer(struct wl_display *display,
 	return buf;
 }
 
-void
+static void
 client_buffer_util_maybe_sync_dmabuf_start(struct client_buffer *buf)
 {
 	struct dma_buf_sync sync = { DMA_BUF_SYNC_START | DMA_BUF_SYNC_READ | DMA_BUF_SYNC_WRITE };
@@ -490,7 +490,7 @@ client_buffer_util_maybe_sync_dmabuf_start(struct client_buffer *buf)
 	} while (ret && (errno == EINTR || errno == EAGAIN));
 }
 
-void
+static void
 client_buffer_util_maybe_sync_dmabuf_end(struct client_buffer *buf)
 {
 	struct dma_buf_sync sync = { DMA_BUF_SYNC_END | DMA_BUF_SYNC_READ | DMA_BUF_SYNC_WRITE };
@@ -511,11 +511,11 @@ client_buffer_util_begin_cpu_access(struct client_buffer *buf)
 
 	cpu->buf = buf;
 	client_buffer_util_maybe_sync_dmabuf_start(buf);
-	cpu->data = buf->data;
+	cpu->data = buf->data_donotuse;
 	cpu->image = pixman_image_create_bits_no_clear(buf->fmt->pixman_format,
 						       buf->width,
 						       buf->height,
-						       buf->data,
+						       cpu->data,
 						       buf->strides[0]);
 	if (!cpu->image) {
 		free(cpu);
