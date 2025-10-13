@@ -156,6 +156,46 @@ fixture_setup(struct weston_test_harness *harness, const struct setup_args *arg)
 }
 DECLARE_FIXTURE_SETUP_WITH_ARG(fixture_setup, my_setup_args, meta);
 
+#define COUNT_BUFS 3
+struct global_data {
+	int width;
+	int height;
+	struct client_buffer *buf[COUNT_BUFS];
+};
+
+static void *
+fixture_init(struct weston_test_harness *harness)
+{
+	struct global_data *data = zalloc(sizeof(*data));
+	pixman_color_t colors[COUNT_BUFS];
+	int i;
+
+	data->width = 140;
+	data->height = 110;
+
+	color_rgb888(&colors[0], 100, 100, 100); /* grey */
+	color_rgb888(&colors[1],   0, 255, 255); /* cyan */
+	color_rgb888(&colors[2],   0, 255,   0); /* green */
+	for (i = 0; i < COUNT_BUFS; i++) {
+		data->buf[i] = create_shm_buffer_solid(data->width, data->height,
+						       &colors[i]);
+	}
+
+	return data;
+}
+
+static void
+fixture_teardown(struct weston_test_harness *harness, void *data_)
+{
+	struct global_data *data = data_;
+	int i;
+
+	for (i = 0; i < COUNT_BUFS; i++)
+		client_buffer_util_destroy_buffer(data->buf[i]);
+	free(data);
+}
+DECLARE_FIXTURE_INIT(fixture_init, fixture_teardown);
+
 static void
 commit_buffer_with_damage(struct surface *surface,
 			  struct client_buffer *buffer,
@@ -176,26 +216,18 @@ commit_buffer_with_damage(struct surface *surface,
  */
 TEST(output_damage)
 {
-#define COUNT_BUFS 3
 	const struct setup_args *oargs;
+	const struct global_data *global = _wet_suite_data->user_data;
 	struct client *client;
 	bool match = true;
 	char *refname;
 	int ret;
-	struct client_buffer *buf[COUNT_BUFS];
-	pixman_color_t colors[COUNT_BUFS];
 	static const struct rectangle damages[COUNT_BUFS] = {
 		{ 0 /* full damage */ },
 		{ .x = 10, .y = 10, .width = 20, .height = 10 },
 		{ .x = 43, .y = 47, .width = 5, .height = 50 },
 	};
 	int i;
-	const int width = 140;
-	const int height = 110;
-
-	color_rgb888(&colors[0], 100, 100, 100); /* grey */
-	color_rgb888(&colors[1],   0, 255, 255); /* cyan */
-	color_rgb888(&colors[2],   0, 255,   0); /* green */
 
 	oargs = &my_setup_args[get_test_fixture_index()];
 
@@ -207,10 +239,7 @@ TEST(output_damage)
 
 	client = create_client();
 
-	for (i = 0; i < COUNT_BUFS; i++)
-		buf[i] = create_shm_buffer_solid( width, height, &colors[i]);
-
-	client->surface = create_test_surface_with_buffer(client, buf[0]);
+	client->surface = create_test_surface_with_buffer(client, global->buf[0]);
 	move_client_frame_sync(client, 19, 19);
 
 	/*
@@ -218,7 +247,7 @@ TEST(output_damage)
 	 * should color just the box on the output.
 	 */
 	for (i = 1; i < COUNT_BUFS; i++) {
-		commit_buffer_with_damage(client->surface, buf[i], damages[i]);
+		commit_buffer_with_damage(client->surface, global->buf[i], damages[i]);
 		if (!verify_screen_content(client, refname, i, NULL, i, NULL,
 					   NO_DECORATIONS)) {
 			match = false;
@@ -226,9 +255,6 @@ TEST(output_damage)
 	}
 
 	test_assert_true(match);
-
-	for (i = 0; i < COUNT_BUFS; i++)
-		client_buffer_util_destroy_buffer(buf[i]);
 
 	client_destroy(client);
 	free(refname);
