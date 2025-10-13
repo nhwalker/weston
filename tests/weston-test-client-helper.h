@@ -236,19 +236,17 @@ bool
 support_shm_format(struct client *client, uint32_t shm_format);
 
 struct client_buffer *
-create_buffer(struct client *client, int width, int height, uint32_t drm_format,
+create_buffer(int width, int height, uint32_t drm_format,
 	      enum client_buffer_type buffer_type);
 
 struct client_buffer *
-create_shm_buffer(struct client *client, int width, int height,
-		  uint32_t drm_format);
+create_shm_buffer(int width, int height, uint32_t drm_format);
 
 struct client_buffer *
 create_shm_buffer_a8r8g8b8(int width, int height);
 
 struct client_buffer *
-create_shm_buffer_solid(struct client *client, int width, int height,
-			const pixman_color_t *solid);
+create_shm_buffer_solid(int width, int height, const pixman_color_t *solid);
 
 bool
 support_drm_format(struct client *client, uint32_t format, uint64_t modifier);

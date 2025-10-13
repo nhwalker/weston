@@ -491,7 +491,7 @@ support_shm_format(struct client *client, uint32_t shm_format)
 }
 
 struct client_buffer *
-create_buffer(struct client *client, int width, int height, uint32_t drm_format,
+create_buffer(int width, int height, uint32_t drm_format,
 	      enum client_buffer_type buffer_type)
 {
 	const struct pixel_format_info *pfmt;
@@ -504,19 +504,9 @@ create_buffer(struct client *client, int width, int height, uint32_t drm_format,
 	test_assert_ptr_not_null(pfmt);
 
 	if (buffer_type == CLIENT_BUFFER_TYPE_SHM) {
-		uint32_t shm_format;
-
-		shm_format = pixel_format_get_shm_format(pfmt);
-
-		if (!support_shm_format(client, shm_format))
-		    return NULL;
-
 		buf= client_buffer_util_allocate_shm_buffer(pfmt, width, height);
 	} else {
 		test_assert_true(buffer_type == CLIENT_BUFFER_TYPE_DMABUF);
-
-		if (!support_drm_format(client, drm_format, DRM_FORMAT_MOD_LINEAR))
-		    return NULL;
 
 		buf= client_buffer_util_allocate_dmabuf_buffer(pfmt, width,
 							       height);
@@ -527,10 +517,9 @@ create_buffer(struct client *client, int width, int height, uint32_t drm_format,
 }
 
 struct client_buffer *
-create_shm_buffer(struct client *client, int width, int height,
-		  uint32_t drm_format)
+create_shm_buffer(int width, int height, uint32_t drm_format)
 {
-	return create_buffer(client, width, height, drm_format,
+	return create_buffer(width, height, drm_format,
 			     CLIENT_BUFFER_TYPE_SHM);
 }
 
@@ -1192,7 +1181,7 @@ create_client_and_test_surface(int x, int y, int width, int height)
 
 	surface->width = width;
 	surface->height = height;
-	buffer = create_shm_buffer_solid(client, width, height, &color);
+	buffer = create_shm_buffer_solid(width, height, &color);
 	test_surface_attach_buffer(surface, buffer);
 	client_buffer_util_destroy_buffer(buffer);
 
@@ -2015,7 +2004,7 @@ client_capture_output(struct client *client,
 			 capt.formats_done &&
 			 "capture source not available");
 
-	buf = create_buffer(client, capt.width, capt.height, capt.drm_format,
+	buf = create_buffer(capt.width, capt.height, capt.drm_format,
 			    buffer_type);
 
 	if (buffer_type == CLIENT_BUFFER_TYPE_SHM) {
@@ -2389,8 +2378,7 @@ fill_image_with_color(pixman_image_t *image, const pixman_color_t *color)
 }
 
 struct client_buffer *
-create_shm_buffer_solid(struct client *client, int width, int height,
-			const pixman_color_t *color)
+create_shm_buffer_solid(int width, int height, const pixman_color_t *color)
 {
 	struct client_buffer *buffer;
 	struct client_buffer_cpu_access *cpu;

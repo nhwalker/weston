@@ -82,7 +82,7 @@ TEST(viewport_upscale_solid)
 	color_rgb888(&color, 255, 128, 0);
 
 	client = create_client();
-	buffer = create_shm_buffer_solid(client, 2, 2, &color);
+	buffer = create_shm_buffer_solid(2, 2, &color);
 	client->surface = create_test_surface_with_buffer(client, buffer);
 	viewport = client_create_viewport(client);
 

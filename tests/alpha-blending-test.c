@@ -354,7 +354,7 @@ TEST(alpha_blend)
 	subco = bind_to_singleton_global(client, &wl_subcompositor_interface, 1);
 
 	/* background window content */
-	bg = create_shm_buffer_solid(client, width, height, &background_color);
+	bg = create_shm_buffer_solid(width, height, &background_color);
 
 	/* background window, main surface */
 	client->surface = create_test_surface_with_buffer(client, bg);

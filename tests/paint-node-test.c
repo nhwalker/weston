@@ -77,7 +77,7 @@ TEST(top_surface_present_in_output_repaint)
 
 	client = create_client();
 	test_assert_ptr_not_null(client);
-	buf = create_shm_buffer_solid(client, 100, 100, &red);
+	buf = create_shm_buffer_solid(100, 100, &red);
 	test_assert_ptr_not_null(buf);
 	client->surface = create_test_surface_with_buffer(client, buf);
 	test_assert_ptr_not_null(client->surface);
@@ -144,7 +144,7 @@ TEST(test_surface_unmaps_on_null)
 
 	client = create_client();
 	test_assert_ptr_not_null(client);
-	buf = create_shm_buffer_solid(client, 100, 100, &red);
+	buf = create_shm_buffer_solid(100, 100, &red);
 	test_assert_ptr_not_null(buf);
 	client->surface = create_test_surface_with_buffer(client, buf);
 	test_assert_ptr_not_null(client->surface);

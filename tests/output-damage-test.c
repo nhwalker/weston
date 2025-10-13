@@ -208,7 +208,7 @@ TEST(output_damage)
 	client = create_client();
 
 	for (i = 0; i < COUNT_BUFS; i++)
-		buf[i] = create_shm_buffer_solid(client, width, height, &colors[i]);
+		buf[i] = create_shm_buffer_solid(width, height, &colors[i]);
 
 	client->surface = create_test_surface_with_buffer(client, buf[0]);
 	move_client_frame_sync(client, 19, 19);
