@@ -114,43 +114,51 @@ check_screen(struct client *client,
 	return match ? 0 : -1;
 }
 
-static struct buffer *
+static struct wl_buffer *
 surface_commit_color(struct client *client, struct wl_surface *surface,
-		     pixman_color_t *color, int width, int height)
+		     struct buffer *buf)
 {
-	struct buffer *buf;
+	struct wl_buffer *wl_buffer =
+		client_buffer_util_get_proxy_shm(buf->buf, client->wl_shm);
 
-	buf = create_shm_buffer_solid(client, width, height, color);
-	wl_surface_attach(surface, buf->proxy, 0, 0);
-	wl_surface_damage_buffer(surface, 0, 0, width, height);
+	wl_surface_attach(surface, wl_buffer, 0, 0);
+	wl_surface_damage_buffer(surface, 0, 0, buf->buf->width, buf->buf->height);
 	wl_surface_commit(surface);
 
-	return buf;
+	return wl_buffer;
 }
 
 TEST(subsurface_recursive_unmap)
 {
 	struct client *client;
 	struct wl_subcompositor *subco;
-	struct buffer *bufs[5] = { 0 };
+	struct wl_buffer *bufs[5] = { 0 };
 	struct wl_surface *surf[5] = { 0 };
 	struct wl_subsurface *sub[5] = { 0 };
 	struct rectangle clip = { 40, 40, 280, 200 };
 	int fail = 0;
 	unsigned i;
 	pixman_color_t red;
+	struct buffer *red_buf;
 	pixman_color_t blue;
+	struct buffer *blue_buf;
 	pixman_color_t cyan;
+	struct buffer *cyan_buf;
 	pixman_color_t green;
-
-	color_rgb888(&red, 255, 0, 0);
-	color_rgb888(&blue, 0, 0, 255);
-	color_rgb888(&cyan, 0, 255, 255);
-	color_rgb888(&green, 0, 255, 0);
+	struct buffer *green_buf;
 
 	client = create_client_and_test_surface(100, 50, 100, 100);
 	test_assert_ptr_not_null(client);
 	subco = get_subcompositor(client);
+
+	color_rgb888(&red, 255, 0, 0);
+	red_buf = create_shm_buffer_solid(client, 100, 100, &red);
+	color_rgb888(&blue, 0, 0, 255);
+	blue_buf = create_shm_buffer_solid(client, 100, 100, &blue);
+	color_rgb888(&cyan, 0, 255, 255);
+	cyan_buf = create_shm_buffer_solid(client, 100, 100, &cyan);
+	color_rgb888(&green, 0, 255, 0);
+	green_buf = create_shm_buffer_solid(client, 100, 100, &green);
 
 	/* move the pointer clearly away from our screenshooting area */
 	weston_test_move_pointer(client->test->weston_test, 0, 1, 0, 2, 30);
@@ -158,7 +166,7 @@ TEST(subsurface_recursive_unmap)
 	/* make the parent surface red */
 	surf[0] = client->surface->wl_surface;
 	client->surface->wl_surface = NULL; /* we stole it and destroy it */
-	bufs[0] = surface_commit_color(client, surf[0], &red, 100, 100);
+	bufs[0] = surface_commit_color(client, surf[0], red_buf);
 	/* sub[0] is not used */
 
 	fail += check_screen(client, "subsurface_z_order", 0, &clip, 0);
@@ -166,7 +174,7 @@ TEST(subsurface_recursive_unmap)
 	/* create a blue sub-surface above red */
 	surf[1] = wl_compositor_create_surface(client->wl_compositor);
 	sub[1] = wl_subcompositor_get_subsurface(subco, surf[1], surf[0]);
-	bufs[1] = surface_commit_color(client, surf[1], &blue, 100, 100);
+	bufs[1] = surface_commit_color(client, surf[1], blue_buf);
 
 	wl_subsurface_set_position(sub[1], 20, 20);
 	wl_surface_commit(surf[0]);
@@ -176,7 +184,7 @@ TEST(subsurface_recursive_unmap)
 	/* create a cyan sub-surface above blue */
 	surf[2] = wl_compositor_create_surface(client->wl_compositor);
 	sub[2] = wl_subcompositor_get_subsurface(subco, surf[2], surf[1]);
-	bufs[2] = surface_commit_color(client, surf[2], &cyan, 100, 100);
+	bufs[2] = surface_commit_color(client, surf[2], cyan_buf);
 
 	wl_subsurface_set_position(sub[2], 20, 20);
 	wl_surface_commit(surf[1]);
@@ -187,7 +195,7 @@ TEST(subsurface_recursive_unmap)
 	/* create a green sub-surface above blue, sibling to cyan */
 	surf[3] = wl_compositor_create_surface(client->wl_compositor);
 	sub[3] = wl_subcompositor_get_subsurface(subco, surf[3], surf[1]);
-	bufs[3] = surface_commit_color(client, surf[3], &green, 100, 100);
+	bufs[3] = surface_commit_color(client, surf[3], green_buf);
 
 	wl_subsurface_set_position(sub[3], -40, 10);
 	wl_surface_commit(surf[1]);
@@ -212,7 +220,12 @@ TEST(subsurface_recursive_unmap)
 
 	for (i = 0; i < ARRAY_LENGTH(bufs); i++)
 		if (bufs[i])
-			buffer_destroy(bufs[i]);
+			wl_buffer_destroy(bufs[i]);
+
+	buffer_destroy(red_buf);
+	buffer_destroy(blue_buf);
+	buffer_destroy(cyan_buf);
+	buffer_destroy(green_buf);
 
 	wl_subcompositor_destroy(subco);
 	client_destroy(client);
@@ -224,25 +237,33 @@ TEST(subsurface_z_order)
 {
 	struct client *client;
 	struct wl_subcompositor *subco;
-	struct buffer *bufs[5] = { 0 };
+	struct wl_buffer *bufs[5] = { 0 };
 	struct wl_surface *surf[5] = { 0 };
 	struct wl_subsurface *sub[5] = { 0 };
 	struct rectangle clip = { 40, 40, 280, 200 };
 	int fail = 0;
 	unsigned i;
 	pixman_color_t red;
+	struct buffer *red_buf;
 	pixman_color_t blue;
+	struct buffer *blue_buf;
 	pixman_color_t cyan;
+	struct buffer *cyan_buf;
 	pixman_color_t green;
-
-	color_rgb888(&red, 255, 0, 0);
-	color_rgb888(&blue, 0, 0, 255);
-	color_rgb888(&cyan, 0, 255, 255);
-	color_rgb888(&green, 0, 255, 0);
+	struct buffer *green_buf;
 
 	client = create_client_and_test_surface(100, 50, 100, 100);
 	test_assert_ptr_not_null(client);
 	subco = get_subcompositor(client);
+
+	color_rgb888(&red, 255, 0, 0);
+	red_buf = create_shm_buffer_solid(client, 100, 100, &red);
+	color_rgb888(&blue, 0, 0, 255);
+	blue_buf = create_shm_buffer_solid(client, 100, 100, &blue);
+	color_rgb888(&cyan, 0, 255, 255);
+	cyan_buf = create_shm_buffer_solid(client, 100, 100, &cyan);
+	color_rgb888(&green, 0, 255, 0);
+	green_buf = create_shm_buffer_solid(client, 100, 100, &green);
 
 	/* move the pointer clearly away from our screenshooting area */
 	weston_test_move_pointer(client->test->weston_test, 0, 1, 0, 2, 30);
@@ -250,7 +271,7 @@ TEST(subsurface_z_order)
 	/* make the parent surface red */
 	surf[0] = client->surface->wl_surface;
 	client->surface->wl_surface = NULL; /* we stole it and destroy it */
-	bufs[0] = surface_commit_color(client, surf[0], &red, 100, 100);
+	bufs[0] = surface_commit_color(client, surf[0], red_buf);
 	/* sub[0] is not used */
 
 	fail += check_screen(client, "subsurface_z_order", 0, &clip, 0);
@@ -258,7 +279,7 @@ TEST(subsurface_z_order)
 	/* create a blue sub-surface above red */
 	surf[1] = wl_compositor_create_surface(client->wl_compositor);
 	sub[1] = wl_subcompositor_get_subsurface(subco, surf[1], surf[0]);
-	bufs[1] = surface_commit_color(client, surf[1], &blue, 100, 100);
+	bufs[1] = surface_commit_color(client, surf[1], blue_buf);
 
 	wl_subsurface_set_position(sub[1], 20, 20);
 	wl_surface_commit(surf[0]);
@@ -268,7 +289,7 @@ TEST(subsurface_z_order)
 	/* create a cyan sub-surface above blue */
 	surf[2] = wl_compositor_create_surface(client->wl_compositor);
 	sub[2] = wl_subcompositor_get_subsurface(subco, surf[2], surf[1]);
-	bufs[2] = surface_commit_color(client, surf[2], &cyan, 100, 100);
+	bufs[2] = surface_commit_color(client, surf[2], cyan_buf);
 
 	wl_subsurface_set_position(sub[2], 20, 20);
 	wl_surface_commit(surf[1]);
@@ -279,7 +300,7 @@ TEST(subsurface_z_order)
 	/* create a green sub-surface above blue, sibling to cyan */
 	surf[3] = wl_compositor_create_surface(client->wl_compositor);
 	sub[3] = wl_subcompositor_get_subsurface(subco, surf[3], surf[1]);
-	bufs[3] = surface_commit_color(client, surf[3], &green, 100, 100);
+	bufs[3] = surface_commit_color(client, surf[3], green_buf);
 
 	wl_subsurface_set_position(sub[3], -40, 10);
 	wl_surface_commit(surf[1]);
@@ -305,7 +326,12 @@ TEST(subsurface_z_order)
 
 	for (i = 0; i < ARRAY_LENGTH(bufs); i++)
 		if (bufs[i])
-			buffer_destroy(bufs[i]);
+			wl_buffer_destroy(bufs[i]);
+
+	buffer_destroy(red_buf);
+	buffer_destroy(blue_buf);
+	buffer_destroy(cyan_buf);
+	buffer_destroy(green_buf);
 
 	wl_subcompositor_destroy(subco);
 	client_destroy(client);
@@ -317,23 +343,29 @@ TEST(subsurface_sync_damage_buffer)
 {
 	struct client *client;
 	struct wl_subcompositor *subco;
-	struct buffer *bufs[2] = { 0 };
+	struct wl_buffer *bufs[2] = { 0 };
 	struct wl_surface *surf[2] = { 0 };
 	struct wl_subsurface *sub[2] = { 0 };
 	struct rectangle clip = { 40, 40, 280, 200 };
 	int fail = 0;
 	unsigned i;
 	pixman_color_t red;
+	struct buffer *red_buf;
 	pixman_color_t blue;
+	struct buffer *blue_buf;
 	pixman_color_t green;
-
-	color_rgb888(&red, 255, 0, 0);
-	color_rgb888(&blue, 0, 0, 255);
-	color_rgb888(&green, 0, 255, 0);
+	struct buffer *green_buf;
 
 	client = create_client_and_test_surface(100, 50, 100, 100);
 	test_assert_ptr_not_null(client);
 	subco = get_subcompositor(client);
+
+	color_rgb888(&red, 255, 0, 0);
+	red_buf = create_shm_buffer_solid(client, 100, 100, &red);
+	color_rgb888(&blue, 0, 0, 255);
+	blue_buf = create_shm_buffer_solid(client, 100, 100, &blue);
+	color_rgb888(&green, 0, 255, 0);
+	green_buf = create_shm_buffer_solid(client, 100, 100, &green);
 
 	/* move the pointer clearly away from our screenshooting area */
 	weston_test_move_pointer(client->test->weston_test, 0, 1, 0, 2, 30);
@@ -341,7 +373,7 @@ TEST(subsurface_sync_damage_buffer)
 	/* make the parent surface red */
 	surf[0] = client->surface->wl_surface;
 	client->surface->wl_surface = NULL; /* we stole it and destroy it */
-	bufs[0] = surface_commit_color(client, surf[0], &red, 100, 100);
+	bufs[0] = surface_commit_color(client, surf[0], red_buf);
 	/* sub[0] is not used */
 
 	fail += check_screen(client, "subsurface_sync_damage_buffer", 0, &clip, 0);
@@ -349,15 +381,15 @@ TEST(subsurface_sync_damage_buffer)
 	/* create a blue sub-surface above red */
 	surf[1] = wl_compositor_create_surface(client->wl_compositor);
 	sub[1] = wl_subcompositor_get_subsurface(subco, surf[1], surf[0]);
-	bufs[1] = surface_commit_color(client, surf[1], &blue, 100, 100);
+	bufs[1] = surface_commit_color(client, surf[1], blue_buf);
 
 	wl_subsurface_set_position(sub[1], 20, 20);
 	wl_surface_commit(surf[0]);
 
 	fail += check_screen(client, "subsurface_sync_damage_buffer", 1, &clip, 1);
 
-	buffer_destroy(bufs[1]);
-	bufs[1] = surface_commit_color(client, surf[1], &green, 100, 100);
+	wl_buffer_destroy(bufs[1]);
+	bufs[1] = surface_commit_color(client, surf[1], green_buf);
 	wl_surface_commit(surf[0]);
 
 	fail += check_screen(client, "subsurface_sync_damage_buffer", 2, &clip, 2);
@@ -374,7 +406,11 @@ TEST(subsurface_sync_damage_buffer)
 
 	for (i = 0; i < ARRAY_LENGTH(bufs); i++)
 		if (bufs[i])
-			buffer_destroy(bufs[i]);
+			wl_buffer_destroy(bufs[i]);
+
+	buffer_destroy(red_buf);
+	buffer_destroy(blue_buf);
+	buffer_destroy(green_buf);
 
 	wl_subcompositor_destroy(subco);
 	client_destroy(client);
@@ -387,8 +423,8 @@ TEST(subsurface_empty_mapping)
 	struct client *client;
 	struct wl_subcompositor *subco;
 	struct wp_viewporter *viewporter;
-	struct buffer *bufs[3] = { 0 };
-	struct buffer *buf_tmp;
+	struct wl_buffer *bufs[3] = { 0 };
+	struct wl_buffer *buf_tmp;
 	struct wl_surface *surf[3] = { 0 };
 	struct wl_subsurface *sub[3] = { 0 };
 	struct wp_viewport *viewport;
@@ -396,12 +432,11 @@ TEST(subsurface_empty_mapping)
 	int fail = 0;
 	unsigned i;
 	pixman_color_t red;
+	struct buffer *red_buf;
 	pixman_color_t blue;
+	struct buffer *blue_buf;
 	pixman_color_t green;
-
-	color_rgb888(&red, 255, 0, 0);
-	color_rgb888(&blue, 0, 0, 255);
-	color_rgb888(&green, 0, 255, 0);
+	struct buffer *green_buf;
 
 	client = create_client_and_test_surface(100, 50, 100, 100);
 	test_assert_ptr_not_null(client);
@@ -409,13 +444,20 @@ TEST(subsurface_empty_mapping)
 	viewporter = bind_to_singleton_global(client,
 					      &wp_viewporter_interface, 1);
 
+	color_rgb888(&red, 255, 0, 0);
+	red_buf = create_shm_buffer_solid(client, 100, 100, &red);
+	color_rgb888(&blue, 0, 0, 255);
+	blue_buf = create_shm_buffer_solid(client, 100, 100, &blue);
+	color_rgb888(&green, 0, 255, 0);
+	green_buf = create_shm_buffer_solid(client, 100, 100, &green);
+
 	/* move the pointer clearly away from our screenshooting area */
 	weston_test_move_pointer(client->test->weston_test, 0, 1, 0, 2, 30);
 
 	/* make the parent surface red */
 	surf[0] = client->surface->wl_surface;
 	client->surface->wl_surface = NULL; /* we stole it and destroy it */
-	bufs[0] = surface_commit_color(client, surf[0], &red, 100, 100);
+	bufs[0] = surface_commit_color(client, surf[0], red_buf);
 	/* sub[0] is not used */
 
 	fail += check_screen(client, "subsurface_empty_mapping", 0, &clip, 0);
@@ -434,7 +476,7 @@ TEST(subsurface_empty_mapping)
 	surf[2] = wl_compositor_create_surface(client->wl_compositor);
 	sub[2] = wl_subcompositor_get_subsurface(subco, surf[2], surf[1]);
 	wl_subsurface_set_desync (sub[2]);
-	bufs[2] = surface_commit_color(client, surf[2], &green, 100, 100);
+	bufs[2] = surface_commit_color(client, surf[2], green_buf);
 
 	wl_subsurface_set_position(sub[2], 20, 20);
 	wl_surface_commit(surf[1]);
@@ -463,7 +505,7 @@ TEST(subsurface_empty_mapping)
 	fail += check_screen(client, "subsurface_empty_mapping", 0, &clip, 6);
 
 	/* map the previously empty middle surface with a blue buffer */
-	bufs[1] = surface_commit_color(client, surf[1], &blue, 100, 100);
+	bufs[1] = surface_commit_color(client, surf[1], blue_buf);
 
 	fail += check_screen(client, "subsurface_empty_mapping", 1, &clip, 7);
 
@@ -488,8 +530,8 @@ TEST(subsurface_empty_mapping)
 
 	/* remap middle surface to ensure recursive mapping */
 	buf_tmp = bufs[1];
-	bufs[1] = surface_commit_color(client, surf[1], &blue, 100, 100);
-	buffer_destroy(buf_tmp);
+	bufs[1] = surface_commit_color(client, surf[1], blue_buf);
+	wl_buffer_destroy(buf_tmp);
 
 	fail += check_screen(client, "subsurface_empty_mapping", 1, &clip, 11);
 
@@ -507,7 +549,11 @@ TEST(subsurface_empty_mapping)
 
 	for (i = 0; i < ARRAY_LENGTH(bufs); i++)
 		if (bufs[i])
-			buffer_destroy(bufs[i]);
+			wl_buffer_destroy(bufs[i]);
+
+	buffer_destroy(red_buf);
+	buffer_destroy(blue_buf);
+	buffer_destroy(green_buf);
 
 	wp_viewporter_destroy(viewporter);
 	wl_subcompositor_destroy(subco);
@@ -520,27 +566,31 @@ TEST(subsurface_desync_commit)
 {
 	struct client *client;
 	struct wl_subcompositor *subco;
-	struct buffer *bufs[2] = { 0 };
+	struct wl_buffer *bufs[2] = { 0 };
 	struct wl_surface *surf[2] = { 0 };
 	struct wl_subsurface *sub = { 0 };
-	pixman_color_t red;
-	pixman_color_t green;
 	unsigned i;
 	int frame;
-
-	color_rgb888(&red, 255, 0, 0);
-	color_rgb888(&green, 0, 255, 0);
+	pixman_color_t red;
+	struct buffer *red_buf;
+	pixman_color_t green;
+	struct buffer *green_buf;
 
 	client = create_client_and_test_surface(100, 50, 100, 100);
 	test_assert_ptr_not_null(client);
 	subco = get_subcompositor(client);
+
+	color_rgb888(&red, 255, 0, 0);
+	red_buf = create_shm_buffer_solid(client, 100, 100, &red);
+	color_rgb888(&green, 0, 255, 0);
+	green_buf = create_shm_buffer_solid(client, 100, 100, &green);
 
 	/* make the parent surface red */
 	surf[0] = client->surface->wl_surface;
 	client->surface->wl_surface = NULL; /* we stole it and destroy it */
 	/* make sure the surface was rendered before the subsurface is created */
 	frame_callback_set(surf[0], &frame);
-	bufs[0] = surface_commit_color(client, surf[0], &red, 100, 100);
+	bufs[0] = surface_commit_color(client, surf[0], red_buf);
 	frame_callback_wait(client, &frame);
 
 	/* create an empty subsurface on top */
@@ -550,7 +600,7 @@ TEST(subsurface_desync_commit)
 
 	/* wait for the first buffer of the subsurface to be rendered */
 	frame_callback_set(surf[1], &frame);
-	bufs[1] = surface_commit_color(client, surf[1], &green, 100, 100);
+	bufs[1] = surface_commit_color(client, surf[1], green_buf);
 	frame_callback_wait(client, &frame);
 
 	wl_subsurface_destroy(sub);
@@ -561,7 +611,10 @@ TEST(subsurface_desync_commit)
 
 	for (i = 0; i < ARRAY_LENGTH(bufs); i++)
 		if (bufs[i])
-			buffer_destroy(bufs[i]);
+			wl_buffer_destroy(bufs[i]);
+
+	buffer_destroy(red_buf);
+	buffer_destroy(green_buf);
 
 	wl_subcompositor_destroy(subco);
 	client_destroy(client);
