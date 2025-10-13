@@ -2243,8 +2243,7 @@ verify_screen_content(struct client *client,
  * \param scale Upscaling factor >= 1.
  */
 struct client_buffer *
-client_buffer_from_image_file(struct client *client,
-			      const char *basename,
+client_buffer_from_image_file(const char *basename,
 			      int scale)
 {
 	struct client_buffer *buf;

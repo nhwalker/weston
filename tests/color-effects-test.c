@@ -134,7 +134,7 @@ TEST(color_effects)
 	weston_test_move_pointer(client->test->weston_test, 0, 1, 0, 0, 0);
 
 	/* buffer with cat image */
-	buffer = client_buffer_from_image_file(client, "colorful-cat", 1);
+	buffer = client_buffer_from_image_file("colorful-cat", 1);
 	test_assert_ptr_not_null(buffer);
 
 	/* commit buffer */
