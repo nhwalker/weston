@@ -2151,22 +2151,18 @@ write_visual_diff(pixman_image_t *ref_image,
  */
 bool
 verify_image(struct client_buffer *shot,
-	     const char *ref_image,
-	     int ref_seq_no,
+             pixman_image_t *ref,
+	     const char *ref_fname,
 	     const struct rectangle *clip,
 	     int seq_no)
 {
 	const struct range gl_fuzz = { -5, 4 };
-	pixman_image_t *ref = NULL;
-	char *ref_fname = NULL;
 	char *shot_fname;
 	bool match = false;
 	struct client_buffer_cpu_access *shot_cpu =
 		client_buffer_util_begin_cpu_access(shot);
 
 	shot_fname = output_filename_for_test_case("shot", seq_no, "png");
-	ref_fname = screenshot_reference_filename(ref_image, ref_seq_no);
-	ref = load_image_from_png(ref_fname);
 
 	if (ref) {
 		match = check_images_match(ref, shot_cpu->image, clip,
@@ -2178,8 +2174,6 @@ verify_image(struct client_buffer *shot,
 			write_visual_diff(ref, shot_cpu->image, clip, seq_no,
 					  &gl_fuzz);
 		}
-
-		pixman_image_unref(ref);
 	} else {
 		testlog("No reference image, shot %s: FAIL\n", shot_fname);
 	}
@@ -2187,7 +2181,6 @@ verify_image(struct client_buffer *shot,
 	if (!match)
 		write_image_as_png(shot_cpu->image, shot_fname);
 
-	free(ref_fname);
 	free(shot_fname);
 	client_buffer_util_end_cpu_access(shot_cpu);
 
@@ -2220,12 +2213,19 @@ verify_screen_content(struct client *client,
 		      enum screenshot_decoration_mode include_decorations)
 {
 	struct client_buffer *shot;
+	char *ref_fname;
+	pixman_image_t *ref;
 	bool match;
+
+	ref_fname = screenshot_reference_filename(ref_image, ref_seq_no);
+	ref = load_image_from_png(ref_fname);
 
 	shot = capture_screenshot_of_output(client, output_name,
 					    include_decorations);
 	test_assert_ptr_not_null(shot);
-	match = verify_image(shot, ref_image, ref_seq_no, clip, seq_no);
+	match = verify_image(shot, ref, ref_fname, clip, seq_no);
+	pixman_image_unref(ref);
+	free(ref_fname);
 	client_buffer_util_destroy_buffer(shot);
 
 	return match;

@@ -337,6 +337,8 @@ TEST(alpha_blend)
 	struct wl_surface *surf;
 	struct wl_subsurface *sub;
 	struct client_buffer *shot;
+	char *ref_fname;
+	pixman_image_t *ref;
 	bool match;
 	int seq_no;
 	enum blend_space space;
@@ -379,7 +381,11 @@ TEST(alpha_blend)
 
 	shot = capture_screenshot_of_output(client, NULL, NO_DECORATIONS);
 	test_assert_ptr_not_null(shot);
-	match = verify_image(shot, "alpha_blend", seq_no, NULL, seq_no);
+	ref_fname = screenshot_reference_filename("alpha_blend", seq_no);
+	ref = load_image_from_png(ref_fname);
+	match = verify_image(shot, ref, ref_fname, NULL, seq_no);
+	pixman_image_unref(ref);
+	free(ref_fname);
 	test_assert_true(check_blend_pattern(bg, fg, shot, space));
 	test_assert_true(match);
 

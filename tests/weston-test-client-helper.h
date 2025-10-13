@@ -338,8 +338,8 @@ image_convert_to_a8r8g8b8(pixman_image_t *image);
 
 bool
 verify_image(struct client_buffer *buf,
-	     const char *ref_image,
-	     int ref_seq_no,
+	     pixman_image_t *ref,
+	     const char *ref_fname,
 	     const struct rectangle *clip,
 	     int seq_no);
 

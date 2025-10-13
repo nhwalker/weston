@@ -505,6 +505,8 @@ TEST(opaque_pixel_conversion)
 	struct wl_buffer *wl_buffer;
 	struct client_buffer *shot;
 	struct wl_surface *surface;
+	char *ref_fname;
+	pixman_image_t *ref;
 	bool match;
 
 	client = create_client_and_test_surface(0, 0, width, height);
@@ -522,8 +524,12 @@ TEST(opaque_pixel_conversion)
 	shot = capture_screenshot_of_output(client, NULL, NO_DECORATIONS);
 	test_assert_ptr_not_null(shot);
 
-	match = verify_image(shot, "shaper_matrix", arg->ref_image_index, NULL,
-			     seq_no);
+	ref_fname = screenshot_reference_filename("shaper_matrix",
+						  arg->ref_image_index);
+	ref = load_image_from_png(ref_fname);
+	match = verify_image(shot, ref, ref_fname, NULL, seq_no);
+	pixman_image_unref(ref);
+	free(ref_fname);
 	test_assert_true(process_pipeline_comparison(buf, shot, arg));
 	test_assert_true(match);
 	client_buffer_util_destroy_buffer(shot);
@@ -733,6 +739,8 @@ TEST(output_icc_alpha_blend)
 	struct wl_surface *surf;
 	struct wl_subsurface *sub;
 	struct client_buffer *shot;
+	pixman_image_t *ref;
+	char *ref_fname;
 	bool match;
 
 	client = create_client();
@@ -764,8 +772,12 @@ TEST(output_icc_alpha_blend)
 
 	shot = capture_screenshot_of_output(client, NULL, NO_DECORATIONS);
 	test_assert_ptr_not_null(shot);
-	match = verify_image(shot, "output_icc_alpha_blend", arg->ref_image_index,
-			     NULL, seq_no);
+	ref_fname = screenshot_reference_filename("output_icc_alpha_blend",
+						  arg->ref_image_index);
+	ref = load_image_from_png(ref_fname);
+	match = verify_image(shot, ref, ref_fname, NULL, seq_no);
+	pixman_image_unref(ref);
+	free(ref_fname);
 	test_assert_true(check_blend_pattern(bg, fg, shot, arg));
 	test_assert_true(match);
 
