@@ -191,7 +191,7 @@ struct surface {
 	int y;
 	int width;
 	int height;
-	struct buffer *buffer;
+	struct wl_buffer *wl_buffer;
 };
 
 struct rectangle {

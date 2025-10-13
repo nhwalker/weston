@@ -179,7 +179,7 @@ TEST(buffer_release)
 	test_assert_int_eq(buf2_released, 1);
 	/* buf3 may or may not be released */
 
-	wl_surface_attach(surface, client->surface->buffer->proxy, 0, 0);
+	wl_surface_attach(surface, client->surface->wl_buffer, 0, 0);
 	frame_callback_set(surface, &frame);
 	wl_surface_commit(surface);
 	frame_callback_wait(client, &frame);

@@ -118,7 +118,7 @@ move_client_internal(struct client *client, int x, int y)
 	/* The attach here is necessary because commit() will call configure
 	 * only on surfaces newly attached, and the one that sets the surface
 	 * position is the configure. */
-	wl_surface_attach(surface->wl_surface, surface->buffer->proxy, 0, 0);
+	wl_surface_attach(surface->wl_surface, surface->wl_buffer, 0, 0);
 	wl_surface_damage(surface->wl_surface, 0, 0, surface->width,
 			  surface->height);
 
@@ -569,31 +569,30 @@ buffer_destroy(struct buffer *buf)
 void
 test_surface_attach_buffer(struct surface *surface, struct client_buffer *buf)
 {
-	if (surface->buffer) {
-		buffer_destroy(surface->buffer);
-		surface->buffer = NULL;
+	if (surface->wl_buffer) {
+		wl_buffer_destroy(surface->wl_buffer);
+		surface->wl_buffer = NULL;
 	}
 
 	if (!buf)
 		return;
 
-	surface->buffer = xzalloc(sizeof(*surface->buffer));
 	surface->width = buf->width;
 	surface->height = buf->height;
 
 	if (buf->type == CLIENT_BUFFER_TYPE_SHM) {
-		surface->buffer->proxy =
+		surface->wl_buffer =
 			client_buffer_util_get_proxy_shm(buf,
 							 surface->client->wl_shm);
 	} else if (buf->type == CLIENT_BUFFER_TYPE_DMABUF) {
-		surface->buffer->proxy =
+		surface->wl_buffer =
 			client_buffer_util_get_proxy_dmabuf(buf,
 							    surface->client->wl_display,
 							    surface->client->dmabuf);
 	}
-	test_assert_ptr_not_null(surface->buffer->proxy);
+	test_assert_ptr_not_null(surface->wl_buffer);
 
-	wl_surface_attach(surface->wl_surface, surface->buffer->proxy, 0, 0);
+	wl_surface_attach(surface->wl_surface, surface->wl_buffer, 0, 0);
 }
 
 static void
@@ -1184,8 +1183,8 @@ surface_destroy(struct surface *surface)
 {
 	if (surface->wl_surface)
 		wl_surface_destroy(surface->wl_surface);
-	if (surface->buffer)
-		buffer_destroy(surface->buffer);
+	if (surface->wl_buffer)
+		wl_buffer_destroy(surface->wl_buffer);
 	free(surface);
 }
 
@@ -1205,6 +1204,7 @@ create_client_and_test_surface(int x, int y, int width, int height)
 {
 	struct client *client;
 	struct surface *surface;
+	struct buffer *buffer;
 	pixman_color_t color = { 16384, 16384, 16384, 16384 }; /* uint16_t */
 
 	client = create_client();
@@ -1215,7 +1215,9 @@ create_client_and_test_surface(int x, int y, int width, int height)
 
 	surface->width = width;
 	surface->height = height;
-	surface->buffer = create_shm_buffer_solid(client, width, height, &color);
+	buffer = create_shm_buffer_solid(client, width, height, &color);
+	test_surface_attach_buffer(surface, buffer->buf);
+	buffer_destroy(buffer);
 
 	move_client_frame_sync(client, x, y);
 
@@ -2531,9 +2533,9 @@ assert_surface_matches(struct wet_testsuite_data *suite_data,
 	test_assert_s32_eq(s->height, c->height);
 
 	test_assert_ptr_not_null(s->buffer_ref.buffer);
-	test_assert_ptr_not_null(c->buffer);
+	test_assert_ptr_not_null(c->wl_buffer);
 	assert_resource_is_proxy(suite_data, s->buffer_ref.buffer->resource,
-				 c->buffer->proxy);
+				 c->wl_buffer);
 }
 
 void
