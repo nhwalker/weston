@@ -547,10 +547,13 @@ create_shm_buffer(struct client *client, int width, int height,
 			     CLIENT_BUFFER_TYPE_SHM);
 }
 
-struct buffer *
-create_shm_buffer_a8r8g8b8(struct client *client, int width, int height)
+struct client_buffer *
+create_shm_buffer_a8r8g8b8(int width, int height)
 {
-	return create_shm_buffer(client, width, height, DRM_FORMAT_ARGB8888);
+	const struct pixel_format_info *fmt =
+		pixel_format_get_info(DRM_FORMAT_ARGB8888);
+
+	return client_buffer_util_allocate_shm_buffer(fmt, width, height);
 }
 
 void
@@ -2404,16 +2407,19 @@ create_shm_buffer_solid(struct client *client, int width, int height,
 			const pixman_color_t *color)
 {
 	struct client_buffer_cpu_access *cpu;
-	struct buffer *buffer;
+	struct buffer *buffer = xzalloc(sizeof(*buffer));
 
-	buffer = create_shm_buffer_a8r8g8b8(client, width, height);
-	if (!buffer)
+	buffer->buf = create_shm_buffer_a8r8g8b8(width, height);
+	if (!buffer->buf)
 		return NULL;
 
 	cpu = client_buffer_util_begin_cpu_access(buffer->buf);
 	test_assert_ptr_not_null(cpu);
 	fill_image_with_color(cpu->image, color);
 	client_buffer_util_end_cpu_access(cpu);
+
+	buffer->proxy = client_buffer_util_get_proxy_shm(buffer->buf,
+							 client->wl_shm);
 
 	return buffer;
 }

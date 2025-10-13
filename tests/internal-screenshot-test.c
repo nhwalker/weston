@@ -83,7 +83,8 @@ draw_stuff(struct client_buffer *buf)
 
 TEST(internal_screenshot)
 {
-	struct buffer *buf;
+	struct client_buffer *buf;
+	struct wl_buffer *wl_buffer;
 	struct client *client;
 	struct wl_surface *surface;
 	struct client_buffer *screenshot = NULL;
@@ -120,9 +121,10 @@ TEST(internal_screenshot)
 	/* Move the pointer away from the screenshot area. */
 	weston_test_move_pointer(client->test->weston_test, 0, 1, 0, 0, 0);
 
-	buf = create_shm_buffer_a8r8g8b8(client, 100, 100);
-	draw_stuff(buf->buf);
-	wl_surface_attach(surface, buf->proxy, 0, 0);
+	buf = create_shm_buffer_a8r8g8b8(100, 100);
+	draw_stuff(buf);
+	wl_buffer = client_buffer_util_get_proxy_shm(buf, client->wl_shm);
+	wl_surface_attach(surface, wl_buffer, 0, 0);
 	wl_surface_damage(surface, 0, 0, 100, 100);
 	wl_surface_commit(surface);
 
@@ -188,7 +190,8 @@ TEST(internal_screenshot)
 	testlog("Test complete\n");
 	test_assert_true(match);
 
-	buffer_destroy(buf);
+	wl_buffer_destroy(wl_buffer);
+	client_buffer_util_destroy_buffer(buf);
 	client_destroy(client);
 
 	return RESULT_OK;

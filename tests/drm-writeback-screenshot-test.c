@@ -105,8 +105,10 @@ draw_stuff(struct client_buffer *buf)
 TEST(drm_writeback_screenshot) {
 	const struct setup_args *args = &my_setup_args[get_test_fixture_index()];
 	struct client *client;
-	struct buffer *buffer;
-	struct buffer *buffer_for_second_screenshot;
+	struct client_buffer *buffer;
+	struct wl_buffer *wl_buffer;
+	struct client_buffer *buffer_for_second_screenshot;
+	struct wl_buffer *second_wl_buffer;
 	struct client_buffer *screenshot = NULL;
 	struct client_buffer *second_screenshot = NULL;
 	struct client_buffer_cpu_access *cpu;
@@ -128,10 +130,11 @@ TEST(drm_writeback_screenshot) {
 	 * comparison of the writeback screenshot with the reference image */
 	weston_test_move_pointer(client->test->weston_test, 0, 1, 0, 0, 0);
 
-	buffer = create_shm_buffer_a8r8g8b8(client, 100, 100);
-	draw_stuff(buffer->buf);
+	buffer = create_shm_buffer_a8r8g8b8(100, 100);
+	wl_buffer = client_buffer_util_get_proxy_shm(buffer, client->wl_shm);
+	draw_stuff(buffer);
 
-	wl_surface_attach(surface, buffer->proxy, 0, 0);
+	wl_surface_attach(surface, wl_buffer, 0, 0);
 	wl_surface_damage(surface, 0, 0, 100, 100);
 	frame_callback_set(surface, &frame);
 	wl_surface_commit(surface);
@@ -146,10 +149,11 @@ TEST(drm_writeback_screenshot) {
 	client_buffer_util_destroy_buffer(screenshot);
 
 	/* Use new buffer to avoid deadlock between first and second screenshot. */
-	buffer_for_second_screenshot = create_shm_buffer_a8r8g8b8(client, 100, 100);
-	draw_stuff(buffer_for_second_screenshot->buf);
+	buffer_for_second_screenshot = create_shm_buffer_a8r8g8b8(100, 100);
+	second_wl_buffer = client_buffer_util_get_proxy_shm(buffer, client->wl_shm);
+	draw_stuff(buffer_for_second_screenshot);
 
-	wl_surface_attach(surface, buffer_for_second_screenshot->proxy, 0, 0);
+	wl_surface_attach(surface, second_wl_buffer, 0, 0);
 	wl_surface_damage(surface, 0, 0, 100, 100);
 	frame_callback_set(surface, &frame);
 	wl_surface_commit(surface);
@@ -190,8 +194,10 @@ TEST(drm_writeback_screenshot) {
 
 	pixman_image_unref(reference);
 	client_buffer_util_destroy_buffer(second_screenshot);
-	buffer_destroy(buffer);
-	buffer_destroy(buffer_for_second_screenshot);
+	wl_buffer_destroy(wl_buffer);
+	client_buffer_util_destroy_buffer(buffer);
+	wl_buffer_destroy(second_wl_buffer);
+	client_buffer_util_destroy_buffer(buffer_for_second_screenshot);
 	client_destroy(client);
 
 	test_assert_true(match);

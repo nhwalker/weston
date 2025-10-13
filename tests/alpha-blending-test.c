@@ -331,7 +331,8 @@ TEST(alpha_blend)
 	const struct setup_args *args;
 	struct client *client;
 	struct buffer *bg;
-	struct buffer *fg;
+	struct client_buffer *fg;
+	struct wl_buffer *fg_proxy;
 	struct wl_subcompositor *subco;
 	struct wl_surface *surf;
 	struct wl_subsurface *sub;
@@ -361,14 +362,15 @@ TEST(alpha_blend)
 				&(struct rectangle){ 0, 0, width, height });
 
 	/* foreground blended content */
-	fg = create_shm_buffer_a8r8g8b8(client, width, height);
-	fill_alpha_pattern(fg->buf);
+	fg = create_shm_buffer_a8r8g8b8(width, height);
+	fg_proxy = client_buffer_util_get_proxy_shm(fg, client->wl_shm);
+	fill_alpha_pattern(fg);
 
 	/* foreground window, sub-surface */
 	surf = wl_compositor_create_surface(client->wl_compositor);
 	sub = wl_subcompositor_get_subsurface(subco, surf, client->surface->wl_surface);
 	/* sub-surface defaults to position 0, 0, top-most, synchronized */
-	wl_surface_attach(surf, fg->proxy, 0, 0);
+	wl_surface_attach(surf, fg_proxy, 0, 0);
 	wl_surface_damage(surf, 0, 0, width, height);
 	wl_surface_commit(surf);
 
@@ -378,14 +380,15 @@ TEST(alpha_blend)
 	shot = capture_screenshot_of_output(client, NULL, NO_DECORATIONS);
 	test_assert_ptr_not_null(shot);
 	match = verify_image(shot, "alpha_blend", seq_no, NULL, seq_no);
-	test_assert_true(check_blend_pattern(bg->buf, fg->buf, shot, space));
+	test_assert_true(check_blend_pattern(bg->buf, fg, shot, space));
 	test_assert_true(match);
 
 	client_buffer_util_destroy_buffer(shot);
 
 	wl_subsurface_destroy(sub);
 	wl_surface_destroy(surf);
-	buffer_destroy(fg);
+	wl_buffer_destroy(fg_proxy);
+	client_buffer_util_destroy_buffer(fg);
 	buffer_destroy(bg);
 	wl_subcompositor_destroy(subco);
 	client_destroy(client);

@@ -501,7 +501,8 @@ TEST(opaque_pixel_conversion)
 	const int width_bar = 32;
 
 	struct client *client;
-	struct buffer *buf;
+	struct client_buffer *buf;
+	struct wl_buffer *wl_buffer;
 	struct client_buffer *shot;
 	struct wl_surface *surface;
 	bool match;
@@ -510,10 +511,11 @@ TEST(opaque_pixel_conversion)
 	test_assert_ptr_not_null(client);
 	surface = client->surface->wl_surface;
 
-	buf = create_shm_buffer_a8r8g8b8(client, width, height);
-	gen_ramp_rgb(buf->buf, bitwidth, width_bar);
+	buf = create_shm_buffer_a8r8g8b8(width, height);
+	wl_buffer = client_buffer_util_get_proxy_shm(buf, client->wl_shm);
+	gen_ramp_rgb(buf, bitwidth, width_bar);
 
-	wl_surface_attach(surface, buf->proxy, 0, 0);
+	wl_surface_attach(surface, wl_buffer, 0, 0);
 	wl_surface_damage(surface, 0, 0, width, height);
 	wl_surface_commit(surface);
 
@@ -522,10 +524,11 @@ TEST(opaque_pixel_conversion)
 
 	match = verify_image(shot, "shaper_matrix", arg->ref_image_index, NULL,
 			     seq_no);
-	test_assert_true(process_pipeline_comparison(buf->buf, shot, arg));
+	test_assert_true(process_pipeline_comparison(buf, shot, arg));
 	test_assert_true(match);
 	client_buffer_util_destroy_buffer(shot);
-	buffer_destroy(buf);
+	wl_buffer_destroy(wl_buffer);
+	client_buffer_util_destroy_buffer(buf);
 	client_destroy(client);
 
 	return RESULT_OK;
@@ -724,7 +727,8 @@ TEST(output_icc_alpha_blend)
 	const struct setup_args *arg = &my_setup_args[seq_no];
 	struct client *client;
 	struct buffer *bg;
-	struct buffer *fg;
+	struct client_buffer *fg;
+	struct wl_buffer *fg_proxy;
 	struct wl_subcompositor *subco;
 	struct wl_surface *surf;
 	struct wl_subsurface *sub;
@@ -744,14 +748,15 @@ TEST(output_icc_alpha_blend)
 				&(struct rectangle){ 0, 0, width, height });
 
 	/* foreground blended content */
-	fg = create_shm_buffer_a8r8g8b8(client, width, height);
-	fill_alpha_pattern(fg->buf);
+	fg = create_shm_buffer_a8r8g8b8(width, height);
+	fg_proxy = client_buffer_util_get_proxy_shm(fg, client->wl_shm);
+	fill_alpha_pattern(fg);
 
 	/* foreground window, sub-surface */
 	surf = wl_compositor_create_surface(client->wl_compositor);
 	sub = wl_subcompositor_get_subsurface(subco, surf, client->surface->wl_surface);
 	/* sub-surface defaults to position 0, 0, top-most, synchronized */
-	wl_surface_attach(surf, fg->proxy, 0, 0);
+	wl_surface_attach(surf, fg_proxy, 0, 0);
 	wl_surface_damage(surf, 0, 0, width, height);
 	wl_surface_commit(surf);
 
@@ -762,14 +767,15 @@ TEST(output_icc_alpha_blend)
 	test_assert_ptr_not_null(shot);
 	match = verify_image(shot, "output_icc_alpha_blend", arg->ref_image_index,
 			     NULL, seq_no);
-	test_assert_true(check_blend_pattern(bg->buf, fg->buf, shot, arg));
+	test_assert_true(check_blend_pattern(bg->buf, fg, shot, arg));
 	test_assert_true(match);
 
 	client_buffer_util_destroy_buffer(shot);
 
 	wl_subsurface_destroy(sub);
 	wl_surface_destroy(surf);
-	buffer_destroy(fg);
+	wl_buffer_destroy(fg_proxy);
+	client_buffer_util_destroy_buffer(fg);
 	buffer_destroy(bg);
 	wl_subcompositor_destroy(subco);
 	client_destroy(client);
