@@ -51,20 +51,6 @@ fixture_setup(struct weston_test_harness *harness)
 }
 DECLARE_FIXTURE_SETUP(fixture_setup);
 
-static struct buffer *
-surface_commit_color(struct client *client, struct wl_surface *surface,
-		     pixman_color_t *color, int width, int height)
-{
-	struct buffer *buf;
-
-	buf = create_shm_buffer_solid(client, width, height, color);
-	wl_surface_attach(surface, buf->proxy, 0, 0);
-	wl_surface_damage_buffer(surface, 0, 0, width, height);
-	wl_surface_commit(surface);
-
-	return buf;
-}
-
 #define DECLARE_LIST_ITERATOR(name, parent, list, child, link)			\
 static child *									\
 next_##name(parent *from, child *pos)						\
@@ -89,8 +75,12 @@ TEST(top_surface_present_in_output_repaint)
 
 	color_rgb888(&red, 255, 0, 0);
 
-	client = create_client_and_test_surface(100, 50, 100, 100);
+	client = create_client();
 	test_assert_ptr_not_null(client);
+	buf = create_shm_buffer_solid(client, 100, 100, &red);
+	test_assert_ptr_not_null(buf);
+	client->surface = create_test_surface_with_buffer(client, buf->buf);
+	test_assert_ptr_not_null(client->surface);
 
 	/* move the pointer clearly away from our screenshooting area */
 	weston_test_move_pointer(client->test->weston_test, 0, 1, 0, 2, 30);
@@ -99,7 +89,7 @@ TEST(top_surface_present_in_output_repaint)
 			       WESTON_TEST_BREAKPOINT_POST_REPAINT,
 			       (struct wl_proxy *) client->output->wl_output);
 
-	buf = surface_commit_color(client, client->surface->wl_surface, &red, 100, 100);
+	move_client(client, 100, 50);
 
 	RUN_INSIDE_BREAKPOINT(client, suite_data) {
 		struct weston_compositor *compositor;
@@ -152,8 +142,12 @@ TEST(test_surface_unmaps_on_null)
 
 	color_rgb888(&red, 255, 0, 0);
 
-	client = create_client_and_test_surface(100, 50, 100, 100);
+	client = create_client();
 	test_assert_ptr_not_null(client);
+	buf = create_shm_buffer_solid(client, 100, 100, &red);
+	test_assert_ptr_not_null(buf);
+	client->surface = create_test_surface_with_buffer(client, buf->buf);
+	test_assert_ptr_not_null(client->surface);
 
 	/* move the pointer clearly away from our screenshooting area */
 	weston_test_move_pointer(client->test->weston_test, 0, 1, 0, 2, 30);
@@ -162,7 +156,7 @@ TEST(test_surface_unmaps_on_null)
 			       WESTON_TEST_BREAKPOINT_POST_REPAINT,
 			       (struct wl_proxy *) client->output->wl_output);
 
-	buf = surface_commit_color(client, client->surface->wl_surface, &red, 100, 100);
+	move_client(client, 100, 50);
 
 	RUN_INSIDE_BREAKPOINT(client, suite_data) {
 		struct weston_compositor *compositor;
