@@ -116,13 +116,13 @@ check_screen(struct client *client,
 
 static struct wl_buffer *
 surface_commit_color(struct client *client, struct wl_surface *surface,
-		     struct buffer *buf)
+		     struct client_buffer *buf)
 {
 	struct wl_buffer *wl_buffer =
-		client_buffer_util_get_proxy_shm(buf->buf, client->wl_shm);
+		client_buffer_util_get_proxy_shm(buf, client->wl_shm);
 
 	wl_surface_attach(surface, wl_buffer, 0, 0);
-	wl_surface_damage_buffer(surface, 0, 0, buf->buf->width, buf->buf->height);
+	wl_surface_damage_buffer(surface, 0, 0, buf->width, buf->height);
 	wl_surface_commit(surface);
 
 	return wl_buffer;
@@ -139,13 +139,13 @@ TEST(subsurface_recursive_unmap)
 	int fail = 0;
 	unsigned i;
 	pixman_color_t red;
-	struct buffer *red_buf;
+	struct client_buffer *red_buf;
 	pixman_color_t blue;
-	struct buffer *blue_buf;
+	struct client_buffer *blue_buf;
 	pixman_color_t cyan;
-	struct buffer *cyan_buf;
+	struct client_buffer *cyan_buf;
 	pixman_color_t green;
-	struct buffer *green_buf;
+	struct client_buffer *green_buf;
 
 	client = create_client_and_test_surface(100, 50, 100, 100);
 	test_assert_ptr_not_null(client);
@@ -222,10 +222,10 @@ TEST(subsurface_recursive_unmap)
 		if (bufs[i])
 			wl_buffer_destroy(bufs[i]);
 
-	buffer_destroy(red_buf);
-	buffer_destroy(blue_buf);
-	buffer_destroy(cyan_buf);
-	buffer_destroy(green_buf);
+	client_buffer_util_destroy_buffer(red_buf);
+	client_buffer_util_destroy_buffer(blue_buf);
+	client_buffer_util_destroy_buffer(cyan_buf);
+	client_buffer_util_destroy_buffer(green_buf);
 
 	wl_subcompositor_destroy(subco);
 	client_destroy(client);
@@ -244,13 +244,13 @@ TEST(subsurface_z_order)
 	int fail = 0;
 	unsigned i;
 	pixman_color_t red;
-	struct buffer *red_buf;
+	struct client_buffer *red_buf;
 	pixman_color_t blue;
-	struct buffer *blue_buf;
+	struct client_buffer *blue_buf;
 	pixman_color_t cyan;
-	struct buffer *cyan_buf;
+	struct client_buffer *cyan_buf;
 	pixman_color_t green;
-	struct buffer *green_buf;
+	struct client_buffer *green_buf;
 
 	client = create_client_and_test_surface(100, 50, 100, 100);
 	test_assert_ptr_not_null(client);
@@ -328,10 +328,10 @@ TEST(subsurface_z_order)
 		if (bufs[i])
 			wl_buffer_destroy(bufs[i]);
 
-	buffer_destroy(red_buf);
-	buffer_destroy(blue_buf);
-	buffer_destroy(cyan_buf);
-	buffer_destroy(green_buf);
+	client_buffer_util_destroy_buffer(red_buf);
+	client_buffer_util_destroy_buffer(blue_buf);
+	client_buffer_util_destroy_buffer(cyan_buf);
+	client_buffer_util_destroy_buffer(green_buf);
 
 	wl_subcompositor_destroy(subco);
 	client_destroy(client);
@@ -350,11 +350,11 @@ TEST(subsurface_sync_damage_buffer)
 	int fail = 0;
 	unsigned i;
 	pixman_color_t red;
-	struct buffer *red_buf;
+	struct client_buffer *red_buf;
 	pixman_color_t blue;
-	struct buffer *blue_buf;
+	struct client_buffer *blue_buf;
 	pixman_color_t green;
-	struct buffer *green_buf;
+	struct client_buffer *green_buf;
 
 	client = create_client_and_test_surface(100, 50, 100, 100);
 	test_assert_ptr_not_null(client);
@@ -408,9 +408,9 @@ TEST(subsurface_sync_damage_buffer)
 		if (bufs[i])
 			wl_buffer_destroy(bufs[i]);
 
-	buffer_destroy(red_buf);
-	buffer_destroy(blue_buf);
-	buffer_destroy(green_buf);
+	client_buffer_util_destroy_buffer(red_buf);
+	client_buffer_util_destroy_buffer(blue_buf);
+	client_buffer_util_destroy_buffer(green_buf);
 
 	wl_subcompositor_destroy(subco);
 	client_destroy(client);
@@ -432,11 +432,11 @@ TEST(subsurface_empty_mapping)
 	int fail = 0;
 	unsigned i;
 	pixman_color_t red;
-	struct buffer *red_buf;
+	struct client_buffer *red_buf;
 	pixman_color_t blue;
-	struct buffer *blue_buf;
+	struct client_buffer *blue_buf;
 	pixman_color_t green;
-	struct buffer *green_buf;
+	struct client_buffer *green_buf;
 
 	client = create_client_and_test_surface(100, 50, 100, 100);
 	test_assert_ptr_not_null(client);
@@ -551,9 +551,9 @@ TEST(subsurface_empty_mapping)
 		if (bufs[i])
 			wl_buffer_destroy(bufs[i]);
 
-	buffer_destroy(red_buf);
-	buffer_destroy(blue_buf);
-	buffer_destroy(green_buf);
+	client_buffer_util_destroy_buffer(red_buf);
+	client_buffer_util_destroy_buffer(blue_buf);
+	client_buffer_util_destroy_buffer(green_buf);
 
 	wp_viewporter_destroy(viewporter);
 	wl_subcompositor_destroy(subco);
@@ -572,9 +572,9 @@ TEST(subsurface_desync_commit)
 	unsigned i;
 	int frame;
 	pixman_color_t red;
-	struct buffer *red_buf;
+	struct client_buffer *red_buf;
 	pixman_color_t green;
-	struct buffer *green_buf;
+	struct client_buffer *green_buf;
 
 	client = create_client_and_test_surface(100, 50, 100, 100);
 	test_assert_ptr_not_null(client);
@@ -613,8 +613,8 @@ TEST(subsurface_desync_commit)
 		if (bufs[i])
 			wl_buffer_destroy(bufs[i]);
 
-	buffer_destroy(red_buf);
-	buffer_destroy(green_buf);
+	client_buffer_util_destroy_buffer(red_buf);
+	client_buffer_util_destroy_buffer(green_buf);
 
 	wl_subcompositor_destroy(subco);
 	client_destroy(client);

@@ -133,11 +133,11 @@ TEST(buffer_release)
 {
 	struct client *client;
 	struct wl_surface *surface;
-	struct buffer *buf1;
+	struct client_buffer *buf1;
 	struct wl_buffer *wl_buf1;
-	struct buffer *buf2;
+	struct client_buffer *buf2;
 	struct wl_buffer *wl_buf2;
-	struct buffer *buf3;
+	struct client_buffer *buf3;
 	struct wl_buffer *wl_buf3;
 	pixman_color_t black;
 	int buf1_released = 0;
@@ -152,15 +152,15 @@ TEST(buffer_release)
 	surface = client->surface->wl_surface;
 
 	buf1 = create_shm_buffer_solid(client, 100, 100, &black);
-	wl_buf1 = client_buffer_util_get_proxy_shm(buf1->buf, client->wl_shm);
+	wl_buf1 = client_buffer_util_get_proxy_shm(buf1, client->wl_shm);
 	wl_buffer_add_listener(wl_buf1, &buffer_listener, &buf1_released);
 
 	buf2 = create_shm_buffer_solid(client, 100, 100, &black);
-	wl_buf2 = client_buffer_util_get_proxy_shm(buf2->buf, client->wl_shm);
+	wl_buf2 = client_buffer_util_get_proxy_shm(buf2, client->wl_shm);
 	wl_buffer_add_listener(wl_buf2, &buffer_listener, &buf2_released);
 
 	buf3 = create_shm_buffer_solid(client, 100, 100, &black);
-	wl_buf3 = client_buffer_util_get_proxy_shm(buf3->buf, client->wl_shm);
+	wl_buf3 = client_buffer_util_get_proxy_shm(buf3, client->wl_shm);
 	wl_buffer_add_listener(wl_buf3, &buffer_listener, &buf3_released);
 
 	/*
@@ -194,11 +194,11 @@ TEST(buffer_release)
 	test_assert_int_eq(buf3_released, 1);
 
 	wl_buffer_destroy(wl_buf1);
-	buffer_destroy(buf1);
+	client_buffer_util_destroy_buffer(buf1);
 	wl_buffer_destroy(wl_buf2);
-	buffer_destroy(buf2);
+	client_buffer_util_destroy_buffer(buf2);
 	wl_buffer_destroy(wl_buf3);
-	buffer_destroy(buf3);
+	client_buffer_util_destroy_buffer(buf3);
 	client_destroy(client);
 
 	return RESULT_OK;

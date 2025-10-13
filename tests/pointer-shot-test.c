@@ -88,14 +88,14 @@ send_motion(struct client *client, const struct timespec *time, int x, int y)
 
 static struct wl_buffer *
 surface_commit_color(struct client *client, struct surface *surface,
-		     struct buffer *buf)
+		     struct client_buffer *buf)
 {
 	struct wl_buffer *wl_buffer =
-		client_buffer_util_get_proxy_shm(buf->buf, client->wl_shm);
+		client_buffer_util_get_proxy_shm(buf, client->wl_shm);
 
 	wl_surface_attach(surface->wl_surface, wl_buffer, 0, 0);
 	wl_surface_damage(surface->wl_surface, 0, 0,
-			  buf->buf->width, buf->buf->height);
+			  buf->width, buf->height);
 	wl_surface_commit(surface->wl_surface);
 
 	return wl_buffer;
@@ -105,15 +105,15 @@ TEST(pointer_cursor_retains_committed_buffer_after_reenter)
 {
 	struct client *client;
 	pixman_color_t red;
-	struct buffer *red_buf;
+	struct client_buffer *red_buf;
 	pixman_color_t green;
-	struct buffer *green_buf;
+	struct client_buffer *green_buf;
 	struct wl_buffer *green_wl_buf;
 	pixman_color_t gray;
-	struct buffer *gray_buf;
+	struct client_buffer *gray_buf;
 	struct wl_buffer *gray_wl_buf;
 	pixman_color_t magenta;
-	struct buffer *magenta_buf;
+	struct client_buffer *magenta_buf;
 	struct wl_buffer *magenta_wl_buf;
 	bool match;
 	struct surface *main_surface;
@@ -136,7 +136,7 @@ TEST(pointer_cursor_retains_committed_buffer_after_reenter)
 	send_motion(client, &t0, 0, 0);
 
 	/* Create all surfaces. */
-	main_surface = create_test_surface_with_buffer(client, red_buf->buf);
+	main_surface = create_test_surface_with_buffer(client, red_buf);
 	back_surface = create_test_surface(client);
 	main_cursor_surface = create_test_surface(client);
 	back_cursor_surface = create_test_surface(client);
@@ -185,13 +185,13 @@ TEST(pointer_cursor_retains_committed_buffer_after_reenter)
 	surface_destroy(back_cursor_surface);
 	surface_destroy(main_cursor_surface);
 	surface_destroy(back_surface);
-	buffer_destroy(red_buf);
+	client_buffer_util_destroy_buffer(red_buf);
 	wl_buffer_destroy(green_wl_buf);
-	buffer_destroy(green_buf);
+	client_buffer_util_destroy_buffer(green_buf);
 	wl_buffer_destroy(gray_wl_buf);
-	buffer_destroy(gray_buf);
+	client_buffer_util_destroy_buffer(gray_buf);
 	wl_buffer_destroy(magenta_wl_buf);
-	buffer_destroy(magenta_buf);
+	client_buffer_util_destroy_buffer(magenta_buf);
 	/* main_surface is destroyed when destroying the client. */
 	client_destroy(client);
 

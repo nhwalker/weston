@@ -726,7 +726,7 @@ TEST(output_icc_alpha_blend)
 	int seq_no = get_test_fixture_index();
 	const struct setup_args *arg = &my_setup_args[seq_no];
 	struct client *client;
-	struct buffer *bg;
+	struct client_buffer *bg;
 	struct client_buffer *fg;
 	struct wl_buffer *fg_proxy;
 	struct wl_subcompositor *subco;
@@ -742,8 +742,7 @@ TEST(output_icc_alpha_blend)
 	bg = create_shm_buffer_solid(client, width, height, &background_color);
 
 	/* background window, main surface */
-	client->surface = create_test_surface_with_buffer(client, bg->buf);
-	test_surface_attach_buffer(client->surface, bg->buf);
+	client->surface = create_test_surface_with_buffer(client, bg);
 	surface_set_opaque_rect(client->surface,
 				&(struct rectangle){ 0, 0, width, height });
 
@@ -767,7 +766,7 @@ TEST(output_icc_alpha_blend)
 	test_assert_ptr_not_null(shot);
 	match = verify_image(shot, "output_icc_alpha_blend", arg->ref_image_index,
 			     NULL, seq_no);
-	test_assert_true(check_blend_pattern(bg->buf, fg, shot, arg));
+	test_assert_true(check_blend_pattern(bg, fg, shot, arg));
 	test_assert_true(match);
 
 	client_buffer_util_destroy_buffer(shot);
@@ -776,7 +775,7 @@ TEST(output_icc_alpha_blend)
 	wl_surface_destroy(surf);
 	wl_buffer_destroy(fg_proxy);
 	client_buffer_util_destroy_buffer(fg);
-	buffer_destroy(bg);
+	client_buffer_util_destroy_buffer(bg);
 	wl_subcompositor_destroy(subco);
 	client_destroy(client);
 

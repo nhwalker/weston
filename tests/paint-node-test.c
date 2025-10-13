@@ -70,7 +70,7 @@ TEST(top_surface_present_in_output_repaint)
 {
 	struct wet_testsuite_data *suite_data = TEST_GET_SUITE_DATA();
 	struct client *client;
-	struct buffer *buf;
+	struct client_buffer *buf;
 	pixman_color_t red;
 
 	color_rgb888(&red, 255, 0, 0);
@@ -79,7 +79,7 @@ TEST(top_surface_present_in_output_repaint)
 	test_assert_ptr_not_null(client);
 	buf = create_shm_buffer_solid(client, 100, 100, &red);
 	test_assert_ptr_not_null(buf);
-	client->surface = create_test_surface_with_buffer(client, buf->buf);
+	client->surface = create_test_surface_with_buffer(client, buf);
 	test_assert_ptr_not_null(client->surface);
 
 	/* move the pointer clearly away from our screenshooting area */
@@ -127,7 +127,7 @@ TEST(top_surface_present_in_output_repaint)
 		test_assert_enum(buffer->type, WESTON_BUFFER_SHM);
 	}
 
-	buffer_destroy(buf);
+	client_buffer_util_destroy_buffer(buf);
 	client_destroy(client);
 
 	return RESULT_OK;
@@ -137,7 +137,7 @@ TEST(test_surface_unmaps_on_null)
 {
 	struct wet_testsuite_data *suite_data = TEST_GET_SUITE_DATA();
 	struct client *client;
-	struct buffer *buf;
+	struct client_buffer *buf;
 	pixman_color_t red;
 
 	color_rgb888(&red, 255, 0, 0);
@@ -146,7 +146,7 @@ TEST(test_surface_unmaps_on_null)
 	test_assert_ptr_not_null(client);
 	buf = create_shm_buffer_solid(client, 100, 100, &red);
 	test_assert_ptr_not_null(buf);
-	client->surface = create_test_surface_with_buffer(client, buf->buf);
+	client->surface = create_test_surface_with_buffer(client, buf);
 	test_assert_ptr_not_null(client->surface);
 
 	/* move the pointer clearly away from our screenshooting area */
@@ -227,7 +227,7 @@ TEST(test_surface_unmaps_on_null)
 		test_assert_enum(buffer->type, WESTON_BUFFER_SOLID);
 	}
 
-	buffer_destroy(buf);
+	client_buffer_util_destroy_buffer(buf);
 	client_destroy(client);
 
 	return RESULT_OK;

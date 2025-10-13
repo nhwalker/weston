@@ -93,13 +93,13 @@ fixture_setup(struct weston_test_harness *harness, const struct setup_args *arg)
 }
 DECLARE_FIXTURE_SETUP_WITH_ARG(fixture_setup, my_setup_args, meta);
 
-struct buffer_args {
+struct client_buffer_args {
 	int scale;
 	enum wl_output_transform transform;
 	const char *transform_name;
 };
 
-static const struct buffer_args my_buffer_args[] = {
+static const struct client_buffer_args my_buffer_args[] = {
 	/* { 1, TRANSFORM(NORMAL) }, done in output-transforms-test.c */
 	{ 1, TRANSFORM(90) },
 	{ 1, TRANSFORM(180) },
@@ -118,7 +118,7 @@ static const struct buffer_args my_buffer_args[] = {
 
 TEST_P(buffer_transform, my_buffer_args)
 {
-	const struct buffer_args *bargs = data;
+	const struct client_buffer_args *bargs = data;
 	const struct setup_args *oargs;
 	struct client_buffer *buffer;
 	struct client *client;

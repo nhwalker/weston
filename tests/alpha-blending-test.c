@@ -330,7 +330,7 @@ TEST(alpha_blend)
 	};
 	const struct setup_args *args;
 	struct client *client;
-	struct buffer *bg;
+	struct client_buffer *bg;
 	struct client_buffer *fg;
 	struct wl_buffer *fg_proxy;
 	struct wl_subcompositor *subco;
@@ -357,7 +357,7 @@ TEST(alpha_blend)
 	bg = create_shm_buffer_solid(client, width, height, &background_color);
 
 	/* background window, main surface */
-	client->surface = create_test_surface_with_buffer(client, bg->buf);
+	client->surface = create_test_surface_with_buffer(client, bg);
 	surface_set_opaque_rect(client->surface,
 				&(struct rectangle){ 0, 0, width, height });
 
@@ -380,7 +380,7 @@ TEST(alpha_blend)
 	shot = capture_screenshot_of_output(client, NULL, NO_DECORATIONS);
 	test_assert_ptr_not_null(shot);
 	match = verify_image(shot, "alpha_blend", seq_no, NULL, seq_no);
-	test_assert_true(check_blend_pattern(bg->buf, fg, shot, space));
+	test_assert_true(check_blend_pattern(bg, fg, shot, space));
 	test_assert_true(match);
 
 	client_buffer_util_destroy_buffer(shot);
@@ -389,7 +389,7 @@ TEST(alpha_blend)
 	wl_surface_destroy(surf);
 	wl_buffer_destroy(fg_proxy);
 	client_buffer_util_destroy_buffer(fg);
-	buffer_destroy(bg);
+	client_buffer_util_destroy_buffer(bg);
 	wl_subcompositor_destroy(subco);
 	client_destroy(client);
 

@@ -490,20 +490,18 @@ support_shm_format(struct client *client, uint32_t shm_format)
 	return false;
 }
 
-struct buffer *
+struct client_buffer *
 create_buffer(struct client *client, int width, int height, uint32_t drm_format,
 	      enum client_buffer_type buffer_type)
 {
 	const struct pixel_format_info *pfmt;
-	struct buffer *buf;
+	struct client_buffer *buf;
 
 	test_assert_int_gt(width, 0);
 	test_assert_int_gt(height, 0);
 
 	pfmt = pixel_format_get_info(drm_format);
 	test_assert_ptr_not_null(pfmt);
-
-	buf = xzalloc(sizeof *buf);
 
 	if (buffer_type == CLIENT_BUFFER_TYPE_SHM) {
 		uint32_t shm_format;
@@ -513,25 +511,22 @@ create_buffer(struct client *client, int width, int height, uint32_t drm_format,
 		if (!support_shm_format(client, shm_format))
 		    return NULL;
 
-		buf->buf = client_buffer_util_allocate_shm_buffer(pfmt,
-								  width,
-								  height);
+		buf= client_buffer_util_allocate_shm_buffer(pfmt, width, height);
 	} else {
 		test_assert_true(buffer_type == CLIENT_BUFFER_TYPE_DMABUF);
 
 		if (!support_drm_format(client, drm_format, DRM_FORMAT_MOD_LINEAR))
 		    return NULL;
 
-		buf->buf = client_buffer_util_allocate_dmabuf_buffer(pfmt,
-								     width,
-								     height);
+		buf= client_buffer_util_allocate_dmabuf_buffer(pfmt, width,
+							       height);
 	}
 
-	test_assert_ptr_not_null(buf->buf);
+	test_assert_ptr_not_null(buf);
 	return buf;
 }
 
-struct buffer *
+struct client_buffer *
 create_shm_buffer(struct client *client, int width, int height,
 		  uint32_t drm_format)
 {
@@ -546,14 +541,6 @@ create_shm_buffer_a8r8g8b8(int width, int height)
 		pixel_format_get_info(DRM_FORMAT_ARGB8888);
 
 	return client_buffer_util_allocate_shm_buffer(fmt, width, height);
-}
-
-void
-buffer_destroy(struct buffer *buf)
-{
-	if (buf->buf)
-		client_buffer_util_destroy_buffer(buf->buf);
-	free(buf);
 }
 
 void
@@ -1194,7 +1181,7 @@ create_client_and_test_surface(int x, int y, int width, int height)
 {
 	struct client *client;
 	struct surface *surface;
-	struct buffer *buffer;
+	struct client_buffer *buffer;
 	pixman_color_t color = { 16384, 16384, 16384, 16384 }; /* uint16_t */
 
 	client = create_client();
@@ -1206,8 +1193,8 @@ create_client_and_test_surface(int x, int y, int width, int height)
 	surface->width = width;
 	surface->height = height;
 	buffer = create_shm_buffer_solid(client, width, height, &color);
-	test_surface_attach_buffer(surface, buffer->buf);
-	buffer_destroy(buffer);
+	test_surface_attach_buffer(surface, buffer);
+	client_buffer_util_destroy_buffer(buffer);
 
 	move_client_frame_sync(client, x, y);
 
@@ -2007,8 +1994,7 @@ client_capture_output(struct client *client,
 		      enum client_buffer_type buffer_type)
 {
 	struct output_capturer capt = {};
-	struct client_buffer *ret;
-	struct buffer *buf;
+	struct client_buffer *buf;
 	struct wl_buffer *wl_buffer;
 
 	capt.factory = bind_to_singleton_global(client,
@@ -2033,10 +2019,10 @@ client_capture_output(struct client *client,
 			    buffer_type);
 
 	if (buffer_type == CLIENT_BUFFER_TYPE_SHM) {
-		wl_buffer = client_buffer_util_get_proxy_shm(buf->buf,
+		wl_buffer = client_buffer_util_get_proxy_shm(buf,
 							     client->wl_shm);
 	} else {
-		wl_buffer = client_buffer_util_get_proxy_dmabuf(buf->buf,
+		wl_buffer = client_buffer_util_get_proxy_dmabuf(buf,
 								client->wl_display,
 								client->dmabuf);
 	}
@@ -2050,10 +2036,7 @@ client_capture_output(struct client *client,
 	weston_capture_source_v1_destroy(capt.source);
 	weston_capture_v1_destroy(capt.factory);
 
-	ret = buf->buf;
-	free(buf);
-
-	return ret;
+	return buf;
 }
 
 /**
@@ -2075,7 +2058,7 @@ client_capture_output(struct client *client,
  * or NULL to use the client-defined output
  * @param include_decorations true if the screenshot should include output
  * decorations, or false if it should include just the client content
- * @returns A new buffer object, that should be freed with buffer_destroy().
+ * @returns A new buffer object, that should be freed with client_buffer_util_destroy_buffer().
  */
 struct client_buffer *
 capture_screenshot_of_output(struct client *client, const char *output_name,
@@ -2405,18 +2388,15 @@ fill_image_with_color(pixman_image_t *image, const pixman_color_t *color)
 	pixman_image_unref(solid);
 }
 
-struct buffer *
+struct client_buffer *
 create_shm_buffer_solid(struct client *client, int width, int height,
 			const pixman_color_t *color)
 {
+	struct client_buffer *buffer;
 	struct client_buffer_cpu_access *cpu;
-	struct buffer *buffer = xzalloc(sizeof(*buffer));
 
-	buffer->buf = create_shm_buffer_a8r8g8b8(width, height);
-	if (!buffer->buf)
-		return NULL;
-
-	cpu = client_buffer_util_begin_cpu_access(buffer->buf);
+	buffer = create_shm_buffer_a8r8g8b8(width, height);
+	cpu = client_buffer_util_begin_cpu_access(buffer);
 	test_assert_ptr_not_null(cpu);
 	fill_image_with_color(cpu->image, color);
 	client_buffer_util_end_cpu_access(cpu);

@@ -177,10 +177,6 @@ struct output {
 	char *desc;
 };
 
-struct buffer {
-	struct client_buffer *buf;
-};
-
 struct surface {
 	struct client *client; /* not owned */
 
@@ -239,26 +235,23 @@ create_client_and_test_surface(int x, int y, int width, int height);
 bool
 support_shm_format(struct client *client, uint32_t shm_format);
 
-struct buffer *
+struct client_buffer *
 create_buffer(struct client *client, int width, int height, uint32_t drm_format,
 	      enum client_buffer_type buffer_type);
 
-struct buffer *
+struct client_buffer *
 create_shm_buffer(struct client *client, int width, int height,
 		  uint32_t drm_format);
 
 struct client_buffer *
 create_shm_buffer_a8r8g8b8(int width, int height);
 
-struct buffer *
+struct client_buffer *
 create_shm_buffer_solid(struct client *client, int width, int height,
 			const pixman_color_t *solid);
 
 bool
 support_drm_format(struct client *client, uint32_t format, uint64_t modifier);
-
-void
-buffer_destroy(struct buffer *buf);
 
 int
 surface_contains(struct surface *surface, int x, int y);
