@@ -151,15 +151,15 @@ TEST(buffer_release)
 	test_assert_ptr_not_null(client);
 	surface = client->surface->wl_surface;
 
-	buf1 = create_shm_buffer_solid(client, 100, 100, &black);
+	buf1 = create_shm_buffer_solid( 100, 100, &black);
 	wl_buf1 = client_buffer_util_get_proxy_shm(buf1, client->wl_shm);
 	wl_buffer_add_listener(wl_buf1, &buffer_listener, &buf1_released);
 
-	buf2 = create_shm_buffer_solid(client, 100, 100, &black);
+	buf2 = create_shm_buffer_solid( 100, 100, &black);
 	wl_buf2 = client_buffer_util_get_proxy_shm(buf2, client->wl_shm);
 	wl_buffer_add_listener(wl_buf2, &buffer_listener, &buf2_released);
 
-	buf3 = create_shm_buffer_solid(client, 100, 100, &black);
+	buf3 = create_shm_buffer_solid( 100, 100, &black);
 	wl_buf3 = client_buffer_util_get_proxy_shm(buf3, client->wl_shm);
 	wl_buffer_add_listener(wl_buf3, &buffer_listener, &buf3_released);
 

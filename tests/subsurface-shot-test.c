@@ -152,13 +152,13 @@ TEST(subsurface_recursive_unmap)
 	subco = get_subcompositor(client);
 
 	color_rgb888(&red, 255, 0, 0);
-	red_buf = create_shm_buffer_solid(client, 100, 100, &red);
+	red_buf = create_shm_buffer_solid( 100, 100, &red);
 	color_rgb888(&blue, 0, 0, 255);
-	blue_buf = create_shm_buffer_solid(client, 100, 100, &blue);
+	blue_buf = create_shm_buffer_solid( 100, 100, &blue);
 	color_rgb888(&cyan, 0, 255, 255);
-	cyan_buf = create_shm_buffer_solid(client, 100, 100, &cyan);
+	cyan_buf = create_shm_buffer_solid( 100, 100, &cyan);
 	color_rgb888(&green, 0, 255, 0);
-	green_buf = create_shm_buffer_solid(client, 100, 100, &green);
+	green_buf = create_shm_buffer_solid( 100, 100, &green);
 
 	/* move the pointer clearly away from our screenshooting area */
 	weston_test_move_pointer(client->test->weston_test, 0, 1, 0, 2, 30);
@@ -257,13 +257,13 @@ TEST(subsurface_z_order)
 	subco = get_subcompositor(client);
 
 	color_rgb888(&red, 255, 0, 0);
-	red_buf = create_shm_buffer_solid(client, 100, 100, &red);
+	red_buf = create_shm_buffer_solid( 100, 100, &red);
 	color_rgb888(&blue, 0, 0, 255);
-	blue_buf = create_shm_buffer_solid(client, 100, 100, &blue);
+	blue_buf = create_shm_buffer_solid( 100, 100, &blue);
 	color_rgb888(&cyan, 0, 255, 255);
-	cyan_buf = create_shm_buffer_solid(client, 100, 100, &cyan);
+	cyan_buf = create_shm_buffer_solid( 100, 100, &cyan);
 	color_rgb888(&green, 0, 255, 0);
-	green_buf = create_shm_buffer_solid(client, 100, 100, &green);
+	green_buf = create_shm_buffer_solid( 100, 100, &green);
 
 	/* move the pointer clearly away from our screenshooting area */
 	weston_test_move_pointer(client->test->weston_test, 0, 1, 0, 2, 30);
@@ -361,11 +361,11 @@ TEST(subsurface_sync_damage_buffer)
 	subco = get_subcompositor(client);
 
 	color_rgb888(&red, 255, 0, 0);
-	red_buf = create_shm_buffer_solid(client, 100, 100, &red);
+	red_buf = create_shm_buffer_solid( 100, 100, &red);
 	color_rgb888(&blue, 0, 0, 255);
-	blue_buf = create_shm_buffer_solid(client, 100, 100, &blue);
+	blue_buf = create_shm_buffer_solid( 100, 100, &blue);
 	color_rgb888(&green, 0, 255, 0);
-	green_buf = create_shm_buffer_solid(client, 100, 100, &green);
+	green_buf = create_shm_buffer_solid( 100, 100, &green);
 
 	/* move the pointer clearly away from our screenshooting area */
 	weston_test_move_pointer(client->test->weston_test, 0, 1, 0, 2, 30);
@@ -445,11 +445,11 @@ TEST(subsurface_empty_mapping)
 					      &wp_viewporter_interface, 1);
 
 	color_rgb888(&red, 255, 0, 0);
-	red_buf = create_shm_buffer_solid(client, 100, 100, &red);
+	red_buf = create_shm_buffer_solid( 100, 100, &red);
 	color_rgb888(&blue, 0, 0, 255);
-	blue_buf = create_shm_buffer_solid(client, 100, 100, &blue);
+	blue_buf = create_shm_buffer_solid( 100, 100, &blue);
 	color_rgb888(&green, 0, 255, 0);
-	green_buf = create_shm_buffer_solid(client, 100, 100, &green);
+	green_buf = create_shm_buffer_solid( 100, 100, &green);
 
 	/* move the pointer clearly away from our screenshooting area */
 	weston_test_move_pointer(client->test->weston_test, 0, 1, 0, 2, 30);
@@ -581,9 +581,9 @@ TEST(subsurface_desync_commit)
 	subco = get_subcompositor(client);
 
 	color_rgb888(&red, 255, 0, 0);
-	red_buf = create_shm_buffer_solid(client, 100, 100, &red);
+	red_buf = create_shm_buffer_solid( 100, 100, &red);
 	color_rgb888(&green, 0, 255, 0);
-	green_buf = create_shm_buffer_solid(client, 100, 100, &green);
+	green_buf = create_shm_buffer_solid( 100, 100, &green);
 
 	/* make the parent surface red */
 	surf[0] = client->surface->wl_surface;

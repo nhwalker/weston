@@ -124,13 +124,13 @@ TEST(pointer_cursor_retains_committed_buffer_after_reenter)
 	client = create_client();
 
 	color_rgb888(&red, 255, 0, 0);
-	red_buf = create_shm_buffer_solid(client, 100, 100, &red);
+	red_buf = create_shm_buffer_solid( 100, 100, &red);
 	color_rgb888(&green, 0, 255, 0);
-	green_buf = create_shm_buffer_solid(client, 25, 25, &green);
+	green_buf = create_shm_buffer_solid( 25, 25, &green);
 	color_rgb888(&gray, 127, 127, 127);
-	gray_buf = create_shm_buffer_solid(client, 320, 240, &gray);
+	gray_buf = create_shm_buffer_solid( 320, 240, &gray);
 	color_rgb888(&magenta, 255, 0, 255);
-	magenta_buf = create_shm_buffer_solid(client, 25, 25, &magenta);
+	magenta_buf = create_shm_buffer_solid( 25, 25, &magenta);
 
 	/* Move the cursor out of the way of the main surface */
 	send_motion(client, &t0, 0, 0);

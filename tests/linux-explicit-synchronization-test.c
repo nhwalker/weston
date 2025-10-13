@@ -280,7 +280,7 @@ TEST(get_release_after_commit_succeeds)
 	struct zwp_linux_buffer_release_v1 *buffer_release2;
 
 	color_rgb888(&black, 0, 0, 0);
-	buf1 = create_shm_buffer_solid(client, 100, 100, &black);
+	buf1 = create_shm_buffer_solid( 100, 100, &black);
 	wl_buffer = client_buffer_util_get_proxy_shm(buf1, client->wl_shm);
 	buffer_release1 =
 		zwp_linux_surface_synchronization_v1_get_release(surface_sync);
@@ -354,9 +354,9 @@ TEST(get_release_events_are_emitted_for_different_buffers)
 	int frame;
 
 	color_rgb888(&black, 0, 0, 0);
-	buf1 = create_shm_buffer_solid(client, 100, 100, &black);
+	buf1 = create_shm_buffer_solid( 100, 100, &black);
 	wl_buf1 = client_buffer_util_get_proxy_shm(buf1, client->wl_shm);
-	buf2 = create_shm_buffer_solid(client, 100, 100, &black);
+	buf2 = create_shm_buffer_solid( 100, 100, &black);
 	wl_buf2 = client_buffer_util_get_proxy_shm(buf2, client->wl_shm);
 
 	buffer_release1 =
@@ -427,7 +427,7 @@ TEST(get_release_events_are_emitted_for_same_buffer_on_surface)
 	int frame;
 
 	color_rgb888(&black, 0, 0, 0);
-	buf = create_shm_buffer_solid(client, 100, 100, &black);
+	buf = create_shm_buffer_solid( 100, 100, &black);
 	wl_buffer = client_buffer_util_get_proxy_shm(buf, client->wl_shm);
 	buffer_release1 =
 		zwp_linux_surface_synchronization_v1_get_release(surface_sync);
@@ -502,9 +502,9 @@ TEST(get_release_events_are_emitted_for_same_buffer_on_different_surfaces)
 	int frame;
 
 	color_rgb888(&black, 0, 0, 0);
-	buf1 = create_shm_buffer_solid(client, 100, 100, &black);
+	buf1 = create_shm_buffer_solid( 100, 100, &black);
 	wl_buf1 = client_buffer_util_get_proxy_shm(buf1, client->wl_shm);
-	buf2 = create_shm_buffer_solid(client, 100, 100, &black);
+	buf2 = create_shm_buffer_solid( 100, 100, &black);
 	wl_buf2 = client_buffer_util_get_proxy_shm(buf2, client->wl_shm);
 
 	weston_test_move_surface(client->test->weston_test, surface2, 0, 0);
