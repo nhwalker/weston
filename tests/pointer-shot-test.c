@@ -86,45 +86,51 @@ send_motion(struct client *client, const struct timespec *time, int x, int y)
 	client_roundtrip(client);
 }
 
-static struct buffer *
+static struct wl_buffer *
 surface_commit_color(struct client *client, struct surface *surface,
-		     pixman_color_t *color, int width, int height)
+		     struct buffer *buf)
 {
-	struct buffer *buf;
+	struct wl_buffer *wl_buffer =
+		client_buffer_util_get_proxy_shm(buf->buf, client->wl_shm);
 
-	buf = create_shm_buffer_solid(client, width, height, color);
-	wl_surface_attach(surface->wl_surface, buf->proxy, 0, 0);
-	wl_surface_damage(surface->wl_surface, 0, 0, width, height);
+	wl_surface_attach(surface->wl_surface, wl_buffer, 0, 0);
+	wl_surface_damage(surface->wl_surface, 0, 0,
+			  buf->buf->width, buf->buf->height);
 	wl_surface_commit(surface->wl_surface);
 
-	test_assert_ptr_null(surface->buffer);
-	surface->buffer = buf;
-
-	return buf;
+	return wl_buffer;
 }
 
 TEST(pointer_cursor_retains_committed_buffer_after_reenter)
 {
 	struct client *client;
 	pixman_color_t red;
-	pixman_color_t green;
-	pixman_color_t gray;
-	pixman_color_t magenta;
 	struct buffer *red_buf;
+	pixman_color_t green;
+	struct buffer *green_buf;
+	struct wl_buffer *green_wl_buf;
+	pixman_color_t gray;
+	struct buffer *gray_buf;
+	struct wl_buffer *gray_wl_buf;
+	pixman_color_t magenta;
+	struct buffer *magenta_buf;
+	struct wl_buffer *magenta_wl_buf;
 	bool match;
 	struct surface *main_surface;
 	struct surface *back_surface;
 	struct surface *main_cursor_surface;
 	struct surface *back_cursor_surface;
 
-	color_rgb888(&red, 255, 0, 0);
-	color_rgb888(&green, 0, 255, 0);
-	color_rgb888(&gray, 127, 127, 127);
-	color_rgb888(&magenta, 255, 0, 255);
-
 	client = create_client();
 
+	color_rgb888(&red, 255, 0, 0);
 	red_buf = create_shm_buffer_solid(client, 100, 100, &red);
+	color_rgb888(&green, 0, 255, 0);
+	green_buf = create_shm_buffer_solid(client, 25, 25, &green);
+	color_rgb888(&gray, 127, 127, 127);
+	gray_buf = create_shm_buffer_solid(client, 320, 240, &gray);
+	color_rgb888(&magenta, 255, 0, 255);
+	magenta_buf = create_shm_buffer_solid(client, 25, 25, &magenta);
 
 	/* Move the cursor out of the way of the main surface */
 	send_motion(client, &t0, 0, 0);
@@ -136,14 +142,14 @@ TEST(pointer_cursor_retains_committed_buffer_after_reenter)
 	back_cursor_surface = create_test_surface(client);
 
 	/* Commit buffers for cursors. */
-	surface_commit_color(client, main_cursor_surface, &green, 25, 25);
-	surface_commit_color(client, back_cursor_surface, &magenta, 25, 25);
+	green_wl_buf = surface_commit_color(client, main_cursor_surface, green_buf);
+	magenta_wl_buf = surface_commit_color(client, back_cursor_surface, magenta_buf);
 
 	/* We need our own background surface so that we are able to change the cursor
 	 * when the pointer leaves the main surface.
 	 */
 	weston_test_move_surface(client->test->weston_test, back_surface->wl_surface, 0, 0);
-	surface_commit_color(client, back_surface, &gray, 320, 240);
+	gray_wl_buf = surface_commit_color(client, back_surface, gray_buf);
 
 	/* Set up the main surface. */
 	client->surface = main_surface;
@@ -180,6 +186,12 @@ TEST(pointer_cursor_retains_committed_buffer_after_reenter)
 	surface_destroy(main_cursor_surface);
 	surface_destroy(back_surface);
 	buffer_destroy(red_buf);
+	wl_buffer_destroy(green_wl_buf);
+	buffer_destroy(green_buf);
+	wl_buffer_destroy(gray_wl_buf);
+	buffer_destroy(gray_buf);
+	wl_buffer_destroy(magenta_wl_buf);
+	buffer_destroy(magenta_buf);
 	/* main_surface is destroyed when destroying the client. */
 	client_destroy(client);
 
