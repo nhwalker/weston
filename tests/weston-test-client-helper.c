@@ -2238,14 +2238,11 @@ verify_screen_content(struct client *client,
  * creates a wl_buffer with scale times the image dimensions in pixels,
  * and copies the image content into the buffer using nearest-neighbor filter.
  *
- * \param client The client, for the Wayland connection.
  * \param basename The PNG file name without .png suffix.
  * \param scale Upscaling factor >= 1.
  */
 struct client_buffer *
-client_buffer_from_image_file(struct client *client,
-			      const char *basename,
-			      int scale)
+client_buffer_from_image_file(const char *basename, int scale)
 {
 	struct client_buffer *buf;
 	char *fname;

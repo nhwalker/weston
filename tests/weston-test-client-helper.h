@@ -352,8 +352,7 @@ verify_screen_content(struct client *client,
 		      enum screenshot_decoration_mode include_decorations);
 
 struct client_buffer *
-client_buffer_from_image_file(struct client *client,
-			      const char *basename,
+client_buffer_from_image_file(const char *basename,
 			      int scale);
 
 void *
