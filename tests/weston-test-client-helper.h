@@ -178,7 +178,6 @@ struct output {
 };
 
 struct buffer {
-	struct wl_buffer *proxy;
 	struct client_buffer *buf;
 };
 

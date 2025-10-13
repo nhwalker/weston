@@ -516,9 +516,6 @@ create_buffer(struct client *client, int width, int height, uint32_t drm_format,
 		buf->buf = client_buffer_util_allocate_shm_buffer(pfmt,
 								  width,
 								  height);
-		test_assert_ptr_not_null(buf->buf);
-		buf->proxy = client_buffer_util_get_proxy_shm(buf->buf,
-							      client->wl_shm);
 	} else {
 		test_assert_true(buffer_type == CLIENT_BUFFER_TYPE_DMABUF);
 
@@ -528,14 +525,9 @@ create_buffer(struct client *client, int width, int height, uint32_t drm_format,
 		buf->buf = client_buffer_util_allocate_dmabuf_buffer(pfmt,
 								     width,
 								     height);
-		test_assert_ptr_not_null(buf->buf);
-		buf->proxy = client_buffer_util_get_proxy_dmabuf(buf->buf,
-								 client->wl_display,
-								 client->dmabuf);
 	}
 
-	test_assert_ptr_not_null(buf->proxy);
-
+	test_assert_ptr_not_null(buf->buf);
 	return buf;
 }
 
@@ -559,8 +551,6 @@ create_shm_buffer_a8r8g8b8(int width, int height)
 void
 buffer_destroy(struct buffer *buf)
 {
-	if (buf->proxy)
-		wl_buffer_destroy(buf->proxy);
 	if (buf->buf)
 		client_buffer_util_destroy_buffer(buf->buf);
 	free(buf);
@@ -2019,6 +2009,7 @@ client_capture_output(struct client *client,
 	struct output_capturer capt = {};
 	struct client_buffer *ret;
 	struct buffer *buf;
+	struct wl_buffer *wl_buffer;
 
 	capt.factory = bind_to_singleton_global(client,
 						&weston_capture_v1_interface,
@@ -2041,13 +2032,23 @@ client_capture_output(struct client *client,
 	buf = create_buffer(client, capt.width, capt.height, capt.drm_format,
 			    buffer_type);
 
-	weston_capture_source_v1_capture(capt.source, buf->proxy);
+	if (buffer_type == CLIENT_BUFFER_TYPE_SHM) {
+		wl_buffer = client_buffer_util_get_proxy_shm(buf->buf,
+							     client->wl_shm);
+	} else {
+		wl_buffer = client_buffer_util_get_proxy_dmabuf(buf->buf,
+								client->wl_display,
+								client->dmabuf);
+	}
+	test_assert_ptr_not_null(wl_buffer);
+
+	weston_capture_source_v1_capture(capt.source, wl_buffer);
 	while (!capt.complete)
 		test_assert_int_ge(wl_display_dispatch(client->wl_display), 0);
 
+	wl_buffer_destroy(wl_buffer);
 	weston_capture_source_v1_destroy(capt.source);
 	weston_capture_v1_destroy(capt.factory);
-	wl_buffer_destroy(buf->proxy);
 
 	ret = buf->buf;
 	free(buf);
@@ -2419,9 +2420,6 @@ create_shm_buffer_solid(struct client *client, int width, int height,
 	test_assert_ptr_not_null(cpu);
 	fill_image_with_color(cpu->image, color);
 	client_buffer_util_end_cpu_access(cpu);
-
-	buffer->proxy = client_buffer_util_get_proxy_shm(buffer->buf,
-							 client->wl_shm);
 
 	return buffer;
 }
