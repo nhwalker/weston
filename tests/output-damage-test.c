@@ -161,7 +161,7 @@ commit_buffer_with_damage(struct surface *surface,
 			  struct buffer *buffer,
 			  struct rectangle damage)
 {
-	wl_surface_attach(surface->wl_surface, buffer->proxy, 0, 0);
+	test_surface_attach_buffer(surface, buffer->buf);
 	wl_surface_damage(surface->wl_surface, damage.x, damage.y,
 			  damage.width, damage.height);
 	wl_surface_commit(surface->wl_surface);
