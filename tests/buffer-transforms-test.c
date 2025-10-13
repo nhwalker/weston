@@ -120,7 +120,7 @@ TEST_P(buffer_transform, my_buffer_args)
 {
 	const struct buffer_args *bargs = data;
 	const struct setup_args *oargs;
-	struct buffer *buffer;
+	struct client_buffer *buffer;
 	struct client *client;
 	bool match;
 	char *refname;
@@ -143,7 +143,7 @@ TEST_P(buffer_transform, my_buffer_args)
 	client = create_client();
 	buffer = client_buffer_from_image_file(client, "basic-test-card",
 					       bargs->scale);
-	client->surface = create_test_surface_with_buffer(client, buffer->buf);
+	client->surface = create_test_surface_with_buffer(client, buffer);
 	wl_surface_set_buffer_scale(client->surface->wl_surface, bargs->scale);
 	wl_surface_set_buffer_transform(client->surface->wl_surface,
 					bargs->transform);
@@ -153,7 +153,7 @@ TEST_P(buffer_transform, my_buffer_args)
 				      NO_DECORATIONS);
 	test_assert_true(match);
 
-	buffer_destroy(buffer);
+	client_buffer_util_destroy_buffer(buffer);
 	client_destroy(client);
 	free(refname);
 

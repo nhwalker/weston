@@ -361,7 +361,7 @@ verify_screen_content(struct client *client,
 		      int seq_no, const char *output_name,
 		      enum screenshot_decoration_mode include_decorations);
 
-struct buffer *
+struct client_buffer *
 client_buffer_from_image_file(struct client *client,
 			      const char *basename,
 			      int scale);

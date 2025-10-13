@@ -118,7 +118,8 @@ TEST(color_effects)
 	int seq_no = get_test_fixture_index();
 	const struct setup_args *arg = &my_setup_args[seq_no];
 	struct client *client;
-	struct buffer *buffer;
+	struct client_buffer *buffer;
+	struct wl_buffer *wl_buffer;
 	struct wl_surface *surface;
 	const uint32_t width = WINDOW_WIDTH;
 	const uint32_t height = WINDOW_HEIGHT;
@@ -137,7 +138,8 @@ TEST(color_effects)
 	test_assert_ptr_not_null(buffer);
 
 	/* commit buffer */
-	wl_surface_attach(surface, buffer->proxy, 0, 0);
+	wl_buffer = client_buffer_util_get_proxy_shm(buffer, client->wl_shm);
+	wl_surface_attach(surface, wl_buffer, 0, 0);
 	wl_surface_damage_buffer(surface, 0, 0, INT32_MAX, INT32_MAX);
 	frame_callback_set(surface, &frame);
 	wl_surface_commit(surface);
@@ -147,12 +149,13 @@ TEST(color_effects)
 	 * changes with color effects, but let's make the test run faster) */
 	clip.x = 0;
 	clip.y = 0;
-	clip.width = buffer->buf->width;
-	clip.height = buffer->buf->height;
+	clip.width = buffer->width;
+	clip.height = buffer->height;
 	verify_screen_content(client, arg->ref_image_prefix, seq_no, &clip,
 			      seq_no, NULL, NO_DECORATIONS);
 
-	buffer_destroy(buffer);
+	client_buffer_util_destroy_buffer(buffer);
+	wl_buffer_destroy(wl_buffer);
 	client_destroy(client);
 
 	return RESULT_OK;

@@ -2264,16 +2264,17 @@ verify_screen_content(struct client *client,
  * \param basename The PNG file name without .png suffix.
  * \param scale Upscaling factor >= 1.
  */
-struct buffer *
+struct client_buffer *
 client_buffer_from_image_file(struct client *client,
 			      const char *basename,
 			      int scale)
 {
-	struct buffer *buf;
+	struct client_buffer *buf;
 	char *fname;
 	pixman_image_t *img;
 	int buf_w, buf_h;
 	pixman_transform_t scaling;
+	const struct pixel_format_info *fmt;
 	struct client_buffer_cpu_access *cpu;
 
 	test_assert_int_ge(scale, 1);
@@ -2285,9 +2286,10 @@ client_buffer_from_image_file(struct client *client,
 
 	buf_w = scale * pixman_image_get_width(img);
 	buf_h = scale * pixman_image_get_height(img);
-	buf = create_shm_buffer_a8r8g8b8(client, buf_w, buf_h);
+	fmt = pixel_format_get_info_by_pixman(PIXMAN_a8r8g8b8);
+	buf = client_buffer_util_allocate_shm_buffer(fmt, buf_w, buf_h);
 	test_assert_ptr_not_null(buf);
-	cpu = client_buffer_util_begin_cpu_access(buf->buf);
+	cpu = client_buffer_util_begin_cpu_access(buf);
 	test_assert_ptr_not_null(cpu);
 
 	pixman_transform_init_scale(&scaling,
