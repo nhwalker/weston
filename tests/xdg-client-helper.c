@@ -194,9 +194,7 @@ xdg_surface_commit_solid(struct xdg_surface_data *xdg_surface,
 	buf = create_shm_buffer_solid(xdg_surface->surface->client,
 				      width, height, &color);
 	test_assert_ptr_not_null(buf);
-	xdg_surface->surface->buffer = buf;
-
-	wl_surface_attach(xdg_surface->surface->wl_surface, buf->proxy, 0, 0);
+	test_surface_attach_buffer(xdg_surface->surface, buf->buf);
 	wl_surface_damage_buffer(xdg_surface->surface->wl_surface,
 				 0, 0, width, height);
 
@@ -206,6 +204,8 @@ xdg_surface_commit_solid(struct xdg_surface_data *xdg_surface,
 	xdg_surface->surface->height = height;
 
 	wl_surface_commit(xdg_surface->surface->wl_surface);
+
+	buffer_destroy(buf);
 }
 
 struct xdg_client *
