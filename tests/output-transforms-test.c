@@ -121,7 +121,8 @@ struct global_data {
 	/* indexed by scale */
 	struct client_buffer *test_card[MAX_SCALE + 1];
 	/* indexed by buffer scale, buffer transform, output scale, output transform */
-	struct client_buffer *ref_image[MAX_SCALE + 1][WL_OUTPUT_TRANSFORM_FLIPPED_270][MAX_SCALE + 1][WL_OUTPUT_TRANSFORM_FLIPPED_270];
+	pixman_image_t *ref_image[MAX_SCALE + 1][WL_OUTPUT_TRANSFORM_FLIPPED_270 + 1][MAX_SCALE + 1][WL_OUTPUT_TRANSFORM_FLIPPED_270 + 1];
+	char *ref_fname[MAX_SCALE + 1][WL_OUTPUT_TRANSFORM_FLIPPED_270 + 1][MAX_SCALE + 1][WL_OUTPUT_TRANSFORM_FLIPPED_270 + 1];
 };
 
 static void *
@@ -134,11 +135,37 @@ fixture_init(struct weston_test_harness *harness)
 
 	for (b = 0; b < ARRAY_LENGTH(my_buffer_args); b++) {
 		int bscale = my_buffer_args[b].scale;
+		enum wl_output_transform bxform = my_buffer_args[b].transform;
+		size_t r;
 
 		if (!global->test_card[bscale]) {
 			global->test_card[bscale] =
 				client_buffer_from_image_file("basic-test-card", bscale);
 			test_assert_ptr_not_null(global->test_card[bscale]);
+		}
+
+		testlog("buffer scale: %d, xform %d\n", bscale, bxform);
+
+		for (r = 0; r < ARRAY_LENGTH(my_setup_args); r++) {
+			int oscale = my_setup_args[r].scale;
+			enum wl_output_transform oxform = my_setup_args[r].transform;
+			char *ref_fname;
+			pixman_image_t *ref;
+			int ret;
+
+			if (global->ref_image[bscale][bxform][oscale][oxform])
+				continue;
+
+			ret = asprintf(&ref_fname, "%s/output_%d-%s_buffer_%d-%s-00.png",
+				       reference_path(),
+				       oscale, my_setup_args[r].transform_name,
+				       bscale, my_buffer_args[b].transform_name);
+			testlog("\toscale: %d, xform: %d; filename %s\n", oscale, oxform, ref_fname);
+			test_assert_int_ne(ret, 0);
+			ref = load_image_from_png(ref_fname);
+			test_assert_ptr_not_null(ref);
+			global->ref_image[bscale][bxform][oscale][oxform] = ref;
+			global->ref_fname[bscale][bxform][oscale][oxform] = ref_fname;
 		}
 	}
 
@@ -151,9 +178,26 @@ fixture_teardown(struct weston_test_harness *harness, void *data_)
 	struct global_data *global = data_;
 	size_t b;
 
-	for (b = 0; b < ARRAY_LENGTH(global->test_card); b++) {
-		if (global->test_card[b])
-			client_buffer_util_destroy_buffer(global->test_card[b]);
+	for (b = 0; b < ARRAY_LENGTH(my_buffer_args); b++) {
+		int bscale = my_buffer_args[b].scale;
+		enum wl_output_transform bxform = my_buffer_args[b].transform;
+		size_t r;
+
+		if (global->test_card[bscale]) {
+			client_buffer_util_destroy_buffer(global->test_card[bscale]);
+			global->test_card[bscale] = NULL;
+		}
+
+		for (r = 0; r < ARRAY_LENGTH(my_setup_args); r++) {
+			int oscale = my_setup_args[r].scale;
+			enum wl_output_transform oxform = my_setup_args[r].transform;
+
+			if (!global->ref_image[bscale][bxform][oscale][oxform])
+				continue;
+			pixman_image_unref(global->ref_image[bscale][bxform][oscale][oxform]);
+			global->ref_image[bscale][bxform][oscale][oxform] = NULL;
+			free(global->ref_fname[bscale][bxform][oscale][oxform]);
+		}
 	}
 
 	free(global);
@@ -166,18 +210,12 @@ TEST_P(output_transform, my_buffer_args)
 	const struct client_buffer_args *bargs = data;
 	const struct setup_args *oargs;
 	struct client *client;
+	struct client_buffer *shot;
 	bool match;
-	char *refname;
-	int ret;
 
 	oargs = &my_setup_args[get_test_fixture_index()];
 
-	ret = asprintf(&refname, "output_%d-%s_buffer_%d-%s",
-		       oargs->scale, oargs->transform_name,
-		       bargs->scale, bargs->transform_name);
-	test_assert_int_ne(ret, 0);
-
-	testlog("%s: %s\n", get_test_name(), refname);
+	testlog("%s: %s\n", get_test_name(), global->ref_fname[bargs->scale][bargs->transform][oargs->scale][oargs->transform]);
 
 	/*
 	 * NOTE! The transform set below is a lie.
@@ -192,12 +230,16 @@ TEST_P(output_transform, my_buffer_args)
 					bargs->transform);
 	move_client(client, 19, 19);
 
-	match = verify_screen_content(client, refname, 0, NULL, 0, NULL,
-				      NO_DECORATIONS);
+	shot = capture_screenshot_of_output(client, NULL, NO_DECORATIONS);
+	test_assert_ptr_not_null(shot);
+	match = verify_image(shot,
+			     global->ref_image[bargs->scale][bargs->transform][oargs->scale][oargs->transform],
+			     global->ref_fname[bargs->scale][bargs->transform][oargs->scale][oargs->transform],
+			     NULL, 0);
 	test_assert_true(match);
 
+	client_buffer_util_destroy_buffer(shot);
 	client_destroy(client);
-	free(refname);
 
 	return RESULT_OK;
 }
