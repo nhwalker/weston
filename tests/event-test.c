@@ -134,8 +134,11 @@ TEST(buffer_release)
 	struct client *client;
 	struct wl_surface *surface;
 	struct buffer *buf1;
+	struct wl_buffer *wl_buf1;
 	struct buffer *buf2;
+	struct wl_buffer *wl_buf2;
 	struct buffer *buf3;
+	struct wl_buffer *wl_buf3;
 	pixman_color_t black;
 	int buf1_released = 0;
 	int buf2_released = 0;
@@ -149,21 +152,24 @@ TEST(buffer_release)
 	surface = client->surface->wl_surface;
 
 	buf1 = create_shm_buffer_solid(client, 100, 100, &black);
-	wl_buffer_add_listener(buf1->proxy, &buffer_listener, &buf1_released);
+	wl_buf1 = client_buffer_util_get_proxy_shm(buf1->buf, client->wl_shm);
+	wl_buffer_add_listener(wl_buf1, &buffer_listener, &buf1_released);
 
 	buf2 = create_shm_buffer_solid(client, 100, 100, &black);
-	wl_buffer_add_listener(buf2->proxy, &buffer_listener, &buf2_released);
+	wl_buf2 = client_buffer_util_get_proxy_shm(buf2->buf, client->wl_shm);
+	wl_buffer_add_listener(wl_buf2, &buffer_listener, &buf2_released);
 
 	buf3 = create_shm_buffer_solid(client, 100, 100, &black);
-	wl_buffer_add_listener(buf3->proxy, &buffer_listener, &buf3_released);
+	wl_buf3 = client_buffer_util_get_proxy_shm(buf3->buf, client->wl_shm);
+	wl_buffer_add_listener(wl_buf3, &buffer_listener, &buf3_released);
 
 	/*
 	 * buf1 must never be released, since it is replaced before
 	 * it is committed, therefore it never becomes busy.
 	 */
 
-	wl_surface_attach(surface, buf1->proxy, 0, 0);
-	wl_surface_attach(surface, buf2->proxy, 0, 0);
+	wl_surface_attach(surface, wl_buf1, 0, 0);
+	wl_surface_attach(surface, wl_buf2, 0, 0);
 	frame_callback_set(surface, &frame);
 	wl_surface_commit(surface);
 	frame_callback_wait(client, &frame);
@@ -171,7 +177,7 @@ TEST(buffer_release)
 	/* buf2 may or may not be released */
 	test_assert_int_eq(buf3_released, 0);
 
-	wl_surface_attach(surface, buf3->proxy, 0, 0);
+	wl_surface_attach(surface, wl_buf3, 0, 0);
 	frame_callback_set(surface, &frame);
 	wl_surface_commit(surface);
 	frame_callback_wait(client, &frame);
@@ -187,8 +193,11 @@ TEST(buffer_release)
 	test_assert_int_eq(buf2_released, 1);
 	test_assert_int_eq(buf3_released, 1);
 
+	wl_buffer_destroy(wl_buf1);
 	buffer_destroy(buf1);
+	wl_buffer_destroy(wl_buf2);
 	buffer_destroy(buf2);
+	wl_buffer_destroy(wl_buf3);
 	buffer_destroy(buf3);
 	client_destroy(client);
 
