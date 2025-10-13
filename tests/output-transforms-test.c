@@ -116,12 +116,56 @@ static const struct client_buffer_args my_buffer_args[] = {
 	{ 2, TRANSFORM(90) },
 };
 
+#define MAX_SCALE 3
+struct global_data {
+	/* indexed by scale */
+	struct client_buffer *test_card[MAX_SCALE + 1];
+	/* indexed by buffer scale, buffer transform, output scale, output transform */
+	struct client_buffer *ref_image[MAX_SCALE + 1][WL_OUTPUT_TRANSFORM_FLIPPED_270][MAX_SCALE + 1][WL_OUTPUT_TRANSFORM_FLIPPED_270];
+};
+
+static void *
+fixture_init(struct weston_test_harness *harness)
+{
+	struct global_data *global = zalloc(sizeof(*global));
+	size_t b;
+
+	test_assert_ptr_not_null(global);
+
+	for (b = 0; b < ARRAY_LENGTH(my_buffer_args); b++) {
+		int bscale = my_buffer_args[b].scale;
+
+		if (!global->test_card[bscale]) {
+			global->test_card[bscale] =
+				client_buffer_from_image_file("basic-test-card", bscale);
+			test_assert_ptr_not_null(global->test_card[bscale]);
+		}
+	}
+
+	return global;
+}
+
+static void
+fixture_teardown(struct weston_test_harness *harness, void *data_)
+{
+	struct global_data *global = data_;
+	size_t b;
+
+	for (b = 0; b < ARRAY_LENGTH(global->test_card); b++) {
+		if (global->test_card[b])
+			client_buffer_util_destroy_buffer(global->test_card[b]);
+	}
+
+	free(global);
+}
+DECLARE_FIXTURE_INIT(fixture_init, fixture_teardown);
+
 TEST_P(output_transform, my_buffer_args)
 {
+	const struct global_data *global = _wet_suite_data->user_data;
 	const struct client_buffer_args *bargs = data;
 	const struct setup_args *oargs;
 	struct client *client;
-	struct client_buffer *buffer;
 	bool match;
 	char *refname;
 	int ret;
@@ -141,8 +185,8 @@ TEST_P(output_transform, my_buffer_args)
 	 */
 
 	client = create_client();
-	buffer = client_buffer_from_image_file("basic-test-card", bargs->scale);
-	client->surface = create_test_surface_with_buffer(client, buffer);
+	client->surface = create_test_surface_with_buffer(client,
+							  global->test_card[bargs->scale]);
 	wl_surface_set_buffer_scale(client->surface->wl_surface, bargs->scale);
 	wl_surface_set_buffer_transform(client->surface->wl_surface,
 					bargs->transform);
@@ -152,7 +196,6 @@ TEST_P(output_transform, my_buffer_args)
 				      NO_DECORATIONS);
 	test_assert_true(match);
 
-	client_buffer_util_destroy_buffer(buffer);
 	client_destroy(client);
 	free(refname);
 
