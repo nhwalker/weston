@@ -30,6 +30,7 @@
 #include "shared/xalloc.h"
 #include "weston-output-capture-client-protocol.h"
 #include "weston-test-assert.h"
+#include "pixel-formats.h"
 #include "shared/weston-drm-fourcc.h"
 
 struct setup_args {
@@ -228,7 +229,9 @@ TEST(simple_shot)
 	const struct setup_args *fix = &my_setup_args[get_test_fixture_index()];
 	struct client *client;
 	struct capturer *capt;
-	struct buffer *buf;
+	struct client_buffer *buf;
+	struct wl_buffer *wl_buffer;
+	const struct pixel_format_info *fmt;
 
 	client = create_client();
 	capt = capturer_create(client, client->output,
@@ -244,17 +247,20 @@ TEST(simple_shot)
 	test_assert_int_gt(capt->height, 0);
 	test_assert_false(capt->events.reply);
 
-	buf = create_shm_buffer(client, capt->width, capt->height,
-				fix->expected_drm_format);
+	fmt = pixel_format_get_info(fix->expected_drm_format);
+	buf = client_buffer_util_allocate_shm_buffer(fmt, capt->width,
+						     capt->height);
+	wl_buffer = client_buffer_util_get_proxy_shm(buf, client->wl_shm);
 
-	weston_capture_source_v1_capture(capt->source, buf->proxy);
+	weston_capture_source_v1_capture(capt->source, wl_buffer);
 	while (!capt->events.reply)
 		test_assert_int_ge(wl_display_dispatch(client->wl_display), 0);
 
 	test_assert_enum(capt->state, CAPTURE_TASK_COMPLETE);
 
 	capturer_destroy(capt);
-	buffer_destroy(buf);
+	wl_buffer_destroy(wl_buffer);
+	client_buffer_util_destroy_buffer(buf);
 	client_destroy(client);
 
 	return RESULT_OK;
@@ -269,7 +275,9 @@ TEST(retry_on_wrong_format)
 	const uint32_t drm_format = DRM_FORMAT_ABGR2101010;
 	struct client *client;
 	struct capturer *capt;
-	struct buffer *buf;
+	struct client_buffer *buf;
+	struct wl_buffer *wl_buffer;
+	const struct pixel_format_info *fmt;
 
 	client = create_client();
 	capt = capturer_create(client, client->output,
@@ -288,16 +296,20 @@ TEST(retry_on_wrong_format)
 	test_assert_int_gt(capt->height, 0);
 	test_assert_false(capt->events.reply);
 
-	buf = create_shm_buffer(client, capt->width, capt->height, drm_format);
+	fmt = pixel_format_get_info(drm_format);
+	buf = client_buffer_util_allocate_shm_buffer(fmt, capt->width,
+						     capt->height);
+	wl_buffer = client_buffer_util_get_proxy_shm(buf, client->wl_shm);
 
-	weston_capture_source_v1_capture(capt->source, buf->proxy);
+	weston_capture_source_v1_capture(capt->source, wl_buffer);
 	while (!capt->events.reply)
 		test_assert_int_ge(wl_display_dispatch(client->wl_display), 0);
 
 	test_assert_enum(capt->state, CAPTURE_TASK_RETRY);
 
 	capturer_destroy(capt);
-	buffer_destroy(buf);
+	wl_buffer_destroy(wl_buffer);
+	client_buffer_util_destroy_buffer(buf);
 	client_destroy(client);
 
 	return RESULT_OK;
@@ -311,7 +323,10 @@ TEST(retry_on_wrong_size)
 {
 	struct client *client;
 	struct capturer *capt;
-	struct buffer *buf;
+	struct client_buffer *buf;
+	struct wl_buffer *wl_buffer;
+	const struct pixel_format_info *fmt =
+		pixel_format_get_info(DRM_FORMAT_ARGB8888);
 
 	client = create_client();
 	capt = capturer_create(client, client->output,
@@ -326,17 +341,19 @@ TEST(retry_on_wrong_size)
 	test_assert_int_gt(capt->height, 5);
 	test_assert_false(capt->events.reply);
 
-	buf = create_shm_buffer(client, capt->width - 3, capt->height - 3,
-				capt->drm_format);
+	buf = client_buffer_util_allocate_shm_buffer(fmt, capt->width - 3,
+						     capt->height - 3);
+	wl_buffer = client_buffer_util_get_proxy_shm(buf, client->wl_shm);
 
-	weston_capture_source_v1_capture(capt->source, buf->proxy);
+	weston_capture_source_v1_capture(capt->source, wl_buffer);
 	while (!capt->events.reply)
 		test_assert_int_ge(wl_display_dispatch(client->wl_display), 0);
 
 	test_assert_enum(capt->state, CAPTURE_TASK_RETRY);
 
 	capturer_destroy(capt);
-	buffer_destroy(buf);
+	wl_buffer_destroy(wl_buffer);
+	client_buffer_util_destroy_buffer(buf);
 	client_destroy(client);
 
 	return RESULT_OK;
@@ -350,10 +367,14 @@ TEST(writeback_on_headless_fails)
 {
 	struct client *client;
 	struct capturer *capt;
-	struct buffer *buf;
+	struct client_buffer *buf;
+	struct wl_buffer *wl_buffer;
+	const struct pixel_format_info *fmt =
+		pixel_format_get_info(DRM_FORMAT_ARGB8888);
 
 	client = create_client();
-	buf = create_shm_buffer_a8r8g8b8(client, 5, 5);
+	buf = client_buffer_util_allocate_shm_buffer(fmt, 5, 5);
+	wl_buffer = client_buffer_util_get_proxy_shm(buf, client->wl_shm);
 	capt = capturer_create(client, client->output,
 			       WESTON_CAPTURE_V1_SOURCE_WRITEBACK);
 	client_roundtrip(client);
@@ -364,7 +385,7 @@ TEST(writeback_on_headless_fails)
 	test_assert_enum(capt->state, CAPTURE_TASK_PENDING);
 
 	/* Trying pixel source that is not available should fail immediately */
-	weston_capture_source_v1_capture(capt->source, buf->proxy);
+	weston_capture_source_v1_capture(capt->source, wl_buffer);
 	client_roundtrip(client);
 
 	test_assert_false(capt->events.format);
@@ -374,7 +395,8 @@ TEST(writeback_on_headless_fails)
 	test_assert_str_eq(capt->last_failure, "source unavailable");
 
 	capturer_destroy(capt);
-	buffer_destroy(buf);
+	wl_buffer_destroy(wl_buffer);
+	client_buffer_util_destroy_buffer(buf);
 	client_destroy(client);
 
 	return RESULT_OK;
