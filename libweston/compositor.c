@@ -3597,6 +3597,8 @@ weston_output_repaint(struct weston_output *output)
 	int r;
 	uint32_t frame_time_msec;
 	enum weston_hdcp_protection highest_requested = WESTON_HDCP_DISABLE;
+	bool send_frame_cb_occluded_surface =
+		ec->send_frame_cb_occluded_surface;
 
 	TL_POINT(ec, TLP_CORE_REPAINT_BEGIN, TLP_OUTPUT(output), TLP_END);
 
@@ -3684,11 +3686,15 @@ weston_output_repaint(struct weston_output *output)
 			continue;
 
 		/*
-		 * avoid adding pnode's frame callbacks/presented
-		 * feedback to the respective lists if pnode/surface is
-		 * occluded
+		 * avoid adding pnode's frame callbacks/presented feedback to
+		 * the respective lists if pnode/surface is occluded
+		 *
+		 * short-circuit this check in case
+		 * send_frame_cb_occluded_surfaces is set -- this would allow
+		 * clients react to events even if occluded (user-defined)
 		 */
-		if (!pixman_region32_not_empty(&pnode->visible))
+		if (!pixman_region32_not_empty(&pnode->visible) &&
+		    !send_frame_cb_occluded_surface)
 			continue;
 
 		wl_list_insert_list(&frame_callback_list,

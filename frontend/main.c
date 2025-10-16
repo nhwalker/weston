@@ -5452,6 +5452,8 @@ wet_main(int argc, char *argv[], const struct weston_testsuite_data *test_data)
 
 	weston_config_section_get_bool(section, "require-input",
 				       &wet.compositor->require_input, true);
+	weston_config_section_get_bool(section, "send-frame-callback-to-occluded-surface",
+				       &wet.compositor->send_frame_cb_occluded_surface, false);
 
 	wet.require_outputs = REQUIRE_OUTPUTS_ANY;
 	weston_config_section_get_string(section, "require-outputs",
