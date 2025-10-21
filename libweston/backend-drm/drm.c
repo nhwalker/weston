@@ -3892,6 +3892,26 @@ drm_connector_find_property_by_id(struct drm_connector *connector,
 }
 
 static void
+weston_head_verify_bpc_status(struct drm_head *head)
+{
+	unsigned int link_bpc;
+	unsigned int current_max_bpc;
+
+	link_bpc = drm_property_get_value(&head->connector.props[WDRM_CONNECTOR_LINK_BPC],
+				          head->connector.props_drm, 0);
+
+	/* inherited_max_bpc is used only at head creation or if max_bpc
+	 * is not set by the user. Further more user might supply a different
+	 * max_bpc than one in the range. */
+	current_max_bpc = drm_property_get_value(&head->connector.props[WDRM_CONNECTOR_MAX_BPC],
+						 head->connector.props_drm, 0);
+
+	if (current_max_bpc != link_bpc)
+		weston_log("WARNING: max bpc was set to %u but current link bpc "
+			    "set to %u\n", current_max_bpc, link_bpc);
+}
+
+static void
 drm_backend_update_conn_props(struct drm_backend *b,
 			      struct drm_device *device,
 			      uint32_t	connector_id,
@@ -3918,6 +3938,9 @@ drm_backend_update_conn_props(struct drm_backend *b,
 		weston_head_set_content_protection_status(&head->base,
 					     drm_head_get_current_protection(head));
 	}
+
+	if (conn_prop == WDRM_CONNECTOR_LINK_BPC)
+		weston_head_verify_bpc_status(head);
 }
 
 static int

@@ -252,6 +252,7 @@ const struct drm_property_info connector_props[] = {
 	[WDRM_CONNECTOR_VRR_CAPABLE] = {
 		.name = "vrr_capable",
 	},
+	[WDRM_CONNECTOR_LINK_BPC] = { .name = "link bpc", },
 };
 
 const struct drm_property_info crtc_props[] = {
