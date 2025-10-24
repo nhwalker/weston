@@ -3747,7 +3747,6 @@ weston_output_repaint(struct weston_output *output)
 	struct wl_list frame_callback_list;
 	int r;
 	uint32_t frame_time_msec;
-	enum weston_hdcp_protection highest_requested = WESTON_HDCP_DISABLE;
 
 	weston_output_latch(output);
 
@@ -3774,25 +3773,6 @@ weston_output_repaint(struct weston_output *output)
 		assert(pnode->view->output_mask & (1u << pnode->output->id));
 		assert(pnode->output == output);
 	}
-
-	/* Find the highest protection desired for an output */
-	wl_list_for_each(pnode, &output->paint_node_z_order_list,
-			 z_order_link) {
-		/*
-		 * The desired_protection of the output should be the
-		 * maximum of the desired_protection of the surfaces,
-		 * that are displayed on that output, to avoid
-		 * reducing the protection for existing surfaces.
-		 */
-		if (pnode->surface->desired_protection > highest_requested)
-			highest_requested = pnode->surface->desired_protection;
-	}
-
-	/* If we're changing our protection characteristics, we need to go
-	 * through a full repaint. */
-	if (output->desired_protection != highest_requested)
-		output->full_repaint_needed = true;
-	output->desired_protection = highest_requested;
 
 	wl_list_for_each(pnode, &output->paint_node_z_order_list,
 			 z_order_link) {

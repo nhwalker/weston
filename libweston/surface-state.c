@@ -315,6 +315,25 @@ apply_damage_buffer(pixman_region32_t *dest,
 }
 
 static void
+output_update_desired_protection(struct weston_output *output)
+{
+	struct weston_paint_node *pnode;
+	enum weston_hdcp_protection protection = WESTON_HDCP_DISABLE;
+
+	wl_list_for_each(pnode, &output->paint_node_z_order_list,
+			 z_order_link) {
+		if (pnode->surface->desired_protection > protection)
+			protection = pnode->surface->desired_protection;
+	}
+
+	if (protection == output->desired_protection)
+		return;
+
+	output->desired_protection = protection;
+	weston_output_damage(output);
+}
+
+static void
 weston_surface_set_desired_protection(struct weston_surface *surface,
 				      enum weston_hdcp_protection protection)
 {
@@ -325,9 +344,12 @@ weston_surface_set_desired_protection(struct weston_surface *surface,
 
 	surface->desired_protection = protection;
 
+	weston_surface_dirty_paint_nodes(surface,
+					 WESTON_PAINT_NODE_VIEW_DIRTY);
+
 	wl_list_for_each(pnode, &surface->paint_node_list, surface_link) {
 		if (pixman_region32_not_empty(&pnode->visible))
-			weston_output_damage(pnode->output);
+			output_update_desired_protection(pnode->output);
 	}
 }
 
@@ -338,7 +360,14 @@ weston_surface_set_protection_mode(struct weston_surface *surface,
 	struct content_protection *cp = surface->compositor->content_protection;
 	struct protected_surface *psurface;
 
+	if (surface->protection_mode == p_mode)
+		return;
+
 	surface->protection_mode = p_mode;
+
+	weston_surface_dirty_paint_nodes(surface,
+					 WESTON_PAINT_NODE_VIEW_DIRTY);
+
 	wl_list_for_each(psurface, &cp->protected_list, link) {
 		if (!psurface || psurface->surface != surface)
 			continue;
