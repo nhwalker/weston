@@ -532,6 +532,15 @@ weston_output_pull_capture_task(struct weston_output *output,
 	return NULL;
 }
 
+/** Check if any capture tasks are waiting on the output */
+WL_EXPORT bool
+weston_output_has_any_capture_tasks(struct weston_output *output)
+{
+	struct weston_output_capture_info *ci = output->capture_info;
+
+	return ci && !wl_list_empty(&ci->pending_capture_list);
+}
+
 /** Check if any renderer-based capture tasks are waiting on the output */
 WL_EXPORT bool
 weston_output_has_renderer_capture_tasks(struct weston_output *output)

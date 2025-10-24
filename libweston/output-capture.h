@@ -70,6 +70,8 @@ weston_output_update_capture_info(struct weston_output *output,
 				  const struct weston_drm_format_array *writeback_formats);
 
 bool
+weston_output_has_any_capture_tasks(struct weston_output *output);
+bool
 weston_output_has_renderer_capture_tasks(struct weston_output *output);
 
 struct weston_capture_task;

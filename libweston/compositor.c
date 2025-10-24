@@ -210,7 +210,8 @@ paint_node_update_early(struct weston_paint_node *pnode)
 	bool view_dirty = pnode->status & WESTON_PAINT_NODE_VIEW_DIRTY;
 	bool output_dirty = pnode->status & WESTON_PAINT_NODE_OUTPUT_DIRTY;
 	bool buffer_dirty = pnode->status & WESTON_PAINT_NODE_BUFFER_DIRTY;
-	bool recording_censor, unprotected_censor;
+	bool recording_censor = false;
+	bool unprotected_censor = false;
 	bool was_solid = pnode->draw_solid;
 	struct weston_buffer *buffer;
 
@@ -247,9 +248,14 @@ paint_node_update_early(struct weston_paint_node *pnode)
 	 * - unprotected_censor: Censor regions of protected views
 	 *   when displayed on an output which has lower protection capability.
 	 */
-	recording_censor = (output->disable_planes > 0) &&
-			   (surface->desired_protection > WESTON_HDCP_DISABLE);
-	unprotected_censor = (surface->desired_protection > output->current_protection);
+	if (surface->desired_protection > WESTON_HDCP_DISABLE) {
+		if (output->disable_planes > 0)
+			recording_censor = true;
+		if (weston_output_has_any_capture_tasks(output))
+			recording_censor = true;
+		if (surface->desired_protection > output->current_protection)
+			unprotected_censor = true;
+	}
 	if (surface->protection_mode ==
 	    WESTON_SURFACE_PROTECTION_MODE_ENFORCED &&
 	    (recording_censor || unprotected_censor)) {
