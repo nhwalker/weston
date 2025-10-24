@@ -459,6 +459,9 @@ weston_surface_apply_state(struct weston_surface *surface,
 				weston_view_geometry_dirty_internal(view);
 				weston_view_update_transform(view);
 			}
+
+			weston_surface_dirty_paint_nodes(surface,
+							 WESTON_PAINT_NODE_VIEW_DIRTY);
 		}
 
 		pixman_region32_fini(&opaque);
