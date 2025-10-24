@@ -10961,6 +10961,7 @@ WL_EXPORT void
 weston_output_disable_planes_incr(struct weston_output *output)
 {
 	output->disable_planes++;
+
 	/*
 	 * If disable_planes changes from 0 to non-zero, it means some type of
 	 * recording of content has started, and therefore protection level of
@@ -10969,12 +10970,15 @@ weston_output_disable_planes_incr(struct weston_output *output)
 	 */
 	if (output->disable_planes == 1)
 		weston_schedule_surface_protection_update(output->compositor);
+
+	weston_output_damage(output);
 }
 
 WL_EXPORT void
 weston_output_disable_planes_decr(struct weston_output *output)
 {
 	output->disable_planes--;
+
 	/*
 	 * If disable_planes changes from non-zero to 0, it means no content
 	 * recording is going on any more, and the protected and surfaces can be
@@ -10983,6 +10987,7 @@ weston_output_disable_planes_decr(struct weston_output *output)
 	if (output->disable_planes == 0)
 		weston_schedule_surface_protection_update(output->compositor);
 
+	weston_output_damage(output);
 }
 
 /** Tell the renderer that the target framebuffer size has changed

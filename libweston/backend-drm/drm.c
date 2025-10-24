@@ -4434,8 +4434,6 @@ recorder_binding(struct weston_keyboard *keyboard, const struct timespec *time,
 		wl_signal_add(&output->base.frame_signal,
 			      &output->recorder_frame_listener);
 
-		weston_output_schedule_repaint(&output->base);
-
 		weston_log("[libva recorder] initialized\n");
 	} else {
 		recorder_destroy(output);

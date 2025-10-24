@@ -654,7 +654,6 @@ weston_capture_source_v1_capture(struct wl_client *client,
 	}
 
 	csrc->pending = weston_capture_task_create(csrc, buffer);
-	weston_output_schedule_repaint(csrc->output);
 }
 
 static const struct weston_capture_source_v1_interface weston_capture_source_v1_impl = {

@@ -1047,7 +1047,6 @@ shared_output_create(struct weston_output *output, struct screen_share *ss, int 
 	so->frame_listener.notify = shared_output_repainted;
 	wl_signal_add(&output->frame_signal, &so->frame_listener);
 	weston_output_disable_planes_incr(output);
-	weston_output_damage(output);
 
 	wl_list_insert(&ss->output_list, &so->output_link);
 

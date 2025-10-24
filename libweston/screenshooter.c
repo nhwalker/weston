@@ -233,7 +233,6 @@ weston_screenshooter_shoot(struct weston_output *output,
 	wl_signal_add(&buffer->destroy_signal, &l->buffer_destroy_listener);
 
 	weston_output_disable_planes_incr(output);
-	weston_output_schedule_repaint(output);
 
 	return 0;
 }
@@ -477,7 +476,6 @@ weston_recorder_create(struct weston_output *output, const char *filename)
 	recorder->frame_listener.notify = weston_recorder_frame_notify;
 	wl_signal_add(&output->frame_signal, &recorder->frame_listener);
 	weston_output_disable_planes_incr(output);
-	weston_output_damage(output);
 
 	return recorder;
 
