@@ -1393,6 +1393,9 @@ weston_surface_compute_protection(struct protected_surface *psurface)
 	if (!min_protection_valid)
 		min_protection = WESTON_HDCP_DISABLE;
 
+	if (surface->current_protection == min_protection)
+		return;
+
 	surface->current_protection = min_protection;
 
 	weston_protected_surface_send_event(psurface, surface->current_protection);
