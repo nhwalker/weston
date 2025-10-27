@@ -2334,23 +2334,21 @@ draw_paint_node(struct weston_paint_node *pnode,
 					  &pnode->view->geometry.scissor);
 	pixman_region32_subtract(&surface_blend, &surface_blend,
 				 &surface_opaque);
+	transform_damage(pnode, &repaint, &quads, &nquads);
 
 	if (pixman_region32_not_empty(&surface_opaque)) {
-		transform_damage(pnode, &repaint, &quads, &nquads);
 		repaint_region(gr, pnode, quads, nquads, &surface_opaque,
 			       &sconf, true);
-		gs->used_in_output_repaint = true;
 	}
-
 	if (pixman_region32_not_empty(&surface_blend)) {
-		transform_damage(pnode, &repaint, &quads, &nquads);
 		repaint_region(gr, pnode, quads, nquads, &surface_blend, &sconf,
 			       false);
-		gs->used_in_output_repaint = true;
 	}
 
 	if (quads)
 		free(quads);
+
+	gs->used_in_output_repaint = true;
 
 	pixman_region32_fini(&surface_blend);
 	pixman_region32_fini(&surface_opaque);
