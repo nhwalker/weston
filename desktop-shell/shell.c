@@ -3057,6 +3057,25 @@ fullscreen_binding(struct weston_keyboard *keyboard,
 }
 
 static void
+minimize_binding(struct weston_keyboard *keyboard,
+		   const struct timespec *time, uint32_t button, void *data)
+{
+	struct weston_surface *focus = keyboard->focus;
+	struct weston_surface *surface;
+	struct shell_surface *shsurf;
+
+	surface = weston_surface_get_main_surface(focus);
+	if (surface == NULL)
+		return;
+
+	shsurf = get_shell_surface(surface);
+	if (shsurf == NULL)
+		return;
+
+	set_minimized(surface);
+}
+
+static void
 set_tiled_orientation(struct weston_surface *focus,
 		      enum weston_top_level_tiled_orientation orientation)
 {
@@ -4730,6 +4749,8 @@ shell_add_bindings(struct weston_compositor *ec, struct desktop_shell *shell)
 					  maximize_binding, NULL);
 	weston_compositor_add_key_binding(ec, KEY_F, mod | MODIFIER_SHIFT,
 					  fullscreen_binding, NULL);
+	weston_compositor_add_key_binding(ec, KEY_N, mod | MODIFIER_SHIFT,
+					  minimize_binding, NULL);
 	weston_compositor_add_button_binding(ec, BTN_LEFT, mod, move_binding,
 					     shell);
 	weston_compositor_add_touch_binding(ec, mod, touch_move_binding, shell);
