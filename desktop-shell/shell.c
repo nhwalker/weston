@@ -1629,14 +1629,20 @@ set_minimized(struct weston_surface *surface)
 	struct shell_surface *shsurf;
 	struct workspace *current_ws;
 	struct weston_view *view;
+	struct weston_desktop_surface *desktop_surface;
 
 	view = get_default_view(surface);
 	if (!view)
 		return;
 
+
 	assert(weston_surface_get_main_surface(view->surface) == view->surface);
 
 	shsurf = get_shell_surface(surface);
+	desktop_surface = shsurf->desktop_surface;
+	if (weston_desktop_surface_get_fullscreen(desktop_surface))
+		return;
+
 	current_ws = get_current_workspace(shsurf->shell);
 
 	weston_view_move_to_layer(view,
