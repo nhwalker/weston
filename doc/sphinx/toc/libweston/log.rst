@@ -35,7 +35,8 @@ behaviour and you'll require at least a name and a description for the scope.
 A default log scope is always created with the :type:`weston_log_context`. This
 one can be retrieved with :func:`weston_log_ctx_get_default_log_scope`, and it
 doesn't need to be destroyed. Its name is 'log', and it is used by
-:func:`weston_log` to re-route its data.
+:func:`weston_log` to re-route its data. Also, our custom **weston_assert_***
+macros log assert failures in this scope.
 
 .. note::
 
@@ -53,7 +54,8 @@ Available scopes in weston
 Weston has a few scopes worth mentioning:
 
 - **log** - the default debug scope for generic logging, upon which
-  :func:`weston_log` re-routes its data.
+  :func:`weston_log` re-routes its data. Also, our custom **weston_assert_***
+  macros log assert failures in this scope.
 - **proto** - debug scope that displays the protocol communication. It is
   similar to WAYLAND_DEBUG=server environmental variable but has the ability to
   distinguish multiple clients.
