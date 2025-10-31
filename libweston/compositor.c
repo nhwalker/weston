@@ -6603,9 +6603,18 @@ weston_output_compute_protection(struct weston_output *output)
 		op_protection = WESTON_HDCP_DISABLE;
 
 	if (output->current_protection != op_protection) {
+		struct weston_paint_node *pnode;
+
 		output->current_protection = op_protection;
 		weston_output_damage(output);
 		weston_schedule_surface_protection_update(wc);
+
+		wl_list_for_each(pnode, &output->paint_node_list,
+				 output_link) {
+			if (pnode->view->surface->desired_protection >
+			    WESTON_HDCP_DISABLE)
+				pnode->status |= WESTON_PAINT_NODE_VIEW_DIRTY;
+		}
 	}
 }
 
