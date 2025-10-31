@@ -3810,7 +3810,11 @@ weston_output_repaint(struct weston_output *output)
 		paint_node_update_early(pnode);
 	}
 
-	output_update_visibility(output);
+	if (output->paint_node_changes &
+	    (WESTON_PAINT_NODE_VIEW_DIRTY | WESTON_PAINT_NODE_OUTPUT_DIRTY |
+	     WESTON_PAINT_NODE_BUFFER_PARAMS_DIRTY)) {
+		output_update_visibility(output);
+	}
 
 	output_assign_planes(output);
 
