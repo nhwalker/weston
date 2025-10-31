@@ -117,6 +117,8 @@ struct wet_test_active_breakpoint {
 	struct weston_compositor *compositor;
 	/** type-specific pointer to resource which triggered this breakpoint */
 	void *resource;
+	/** type-specific pointer to further data for this invocation */
+	void *data;
 	/** on release, reinsert the template to trigger next time */
 	bool rearm_on_release;
 	/** client's original breakpoint request */
