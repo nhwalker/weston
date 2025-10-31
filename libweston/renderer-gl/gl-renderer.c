@@ -2847,10 +2847,7 @@ gl_renderer_repaint_output(struct weston_output *output,
 
 	if (shadow_exists(go)) {
 		/* Repaint into shadow. */
-		if (compositor->test_data.test_quirks.gl_force_full_redraw_of_shadow_fb)
-			repaint_views(output, &output->region);
-		else
-			repaint_views(output, output_damage);
+		repaint_views(output, output_damage);
 
 		glBindFramebuffer(GL_FRAMEBUFFER, rb->fb);
 		glViewport(go->area.x, area_y,
@@ -2992,8 +2989,6 @@ gl_renderer_flush_damage(struct weston_paint_node *pnode)
 {
 	struct weston_surface *surface = pnode->surface;
 	struct gl_renderer *gr = get_renderer(surface->compositor);
-	const struct weston_testsuite_quirks *quirks =
-		&surface->compositor->test_data.test_quirks;
 	struct weston_buffer *buffer = surface->buffer_ref.buffer;
 	struct gl_surface_state *gs = get_surface_state(surface);
 	struct gl_buffer_state *gb = gs->buffer;
@@ -3021,7 +3016,7 @@ gl_renderer_flush_damage(struct weston_paint_node *pnode)
 
 	data = wl_shm_buffer_get_data(buffer->shm_buffer);
 
-	if (gb->needs_full_upload || quirks->force_full_upload) {
+	if (gb->needs_full_upload) {
 		wl_shm_buffer_begin_access(buffer->shm_buffer);
 
 		for (j = 0; j < gb->num_textures; j++) {
@@ -4464,12 +4459,9 @@ gl_renderer_output_create(struct weston_output *output,
 {
 	struct gl_output_state *go;
 	struct gl_renderer *gr = get_renderer(output->compositor);
-	const struct weston_testsuite_quirks *quirks;
 	int i;
 
 	assert(!get_output_state(output));
-
-	quirks = &output->compositor->test_data.test_quirks;
 
 	go = zalloc(sizeof *go);
 	if (go == NULL)
@@ -4493,9 +4485,8 @@ gl_renderer_output_create(struct weston_output *output,
 
 	go->render_sync = EGL_NO_SYNC_KHR;
 
-	if ((output->color_outcome->from_blend_to_output != NULL &&
-	     output->from_blend_to_output_by_backend == false) ||
-	    quirks->gl_force_full_redraw_of_shadow_fb) {
+	if (output->color_outcome->from_blend_to_output != NULL &&
+	    output->from_blend_to_output_by_backend == false) {
 		assert(gl_features_has(gr, FEATURE_COLOR_TRANSFORMS));
 
 		go->shadow_format =
