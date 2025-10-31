@@ -2579,8 +2579,15 @@ assert_output_matches(struct wet_testsuite_data *suite_data,
 	}
 	test_assert_true(found_client_resource);
 
-	test_assert_s32_eq(s->width, c->width);
-	test_assert_s32_eq(s->height, c->height);
+	if (!(s->transform & 1)) {
+		/* unrotated */
+		test_assert_s32_eq(s->width, c->width / s->current_scale);
+		test_assert_s32_eq(s->height, c->height / s->current_scale);
+	} else {
+		/* rotated */
+		test_assert_s32_eq(s->width, c->height / s->current_scale);
+		test_assert_s32_eq(s->height, c->width / s->current_scale);
+	}
 }
 
 /**
