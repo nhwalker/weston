@@ -210,8 +210,6 @@ paint_node_update_early(struct weston_paint_node *pnode)
 	bool view_dirty = pnode->status & WESTON_PAINT_NODE_VIEW_DIRTY;
 	bool output_dirty = pnode->status & WESTON_PAINT_NODE_OUTPUT_DIRTY;
 	bool buffer_dirty = pnode->status & WESTON_PAINT_NODE_BUFFER_DIRTY;
-	bool recording_censor = false;
-	bool unprotected_censor = false;
 	bool was_solid = pnode->draw_solid;
 	struct weston_buffer *buffer;
 
@@ -242,23 +240,9 @@ paint_node_update_early(struct weston_paint_node *pnode)
 	if (pnode->view->alpha == 0.0f)
 		pnode->is_fully_transparent = true;
 
-	/* Check for 2 types of censor requirements
-	 * - recording_censor: Censor protected view when a
-	 *   protected view is captured.
-	 * - unprotected_censor: Censor regions of protected views
-	 *   when displayed on an output which has lower protection capability.
-	 */
-	if (surface->desired_protection > WESTON_HDCP_DISABLE) {
-		if (output->disable_planes > 0)
-			recording_censor = true;
-		if (weston_output_has_any_capture_tasks(output))
-			recording_censor = true;
-		if (surface->desired_protection > output->current_protection)
-			unprotected_censor = true;
-	}
 	if (surface->protection_mode ==
 	    WESTON_SURFACE_PROTECTION_MODE_ENFORCED &&
-	    (recording_censor || unprotected_censor)) {
+	    surface->desired_protection > output->current_protection) {
 		pnode->draw_solid = true;
 		pnode->censored = true;
 		pnode->is_fully_opaque = (pnode->view->alpha == 1.0f);
@@ -6592,13 +6576,19 @@ weston_output_iterate_heads(struct weston_output *output,
 	return container_of(node, struct weston_head, output_link);
 }
 
-static void
+void
 weston_output_compute_protection(struct weston_output *output)
 {
 	struct weston_head *head;
 	enum weston_hdcp_protection op_protection;
 	bool op_protection_valid = false;
 	struct weston_compositor *wc = output->compositor;
+
+	if (output->disable_planes > 0 ||
+	    weston_output_has_any_capture_tasks(output)) {
+		op_protection = WESTON_HDCP_DISABLE;
+		op_protection_valid = true;
+	}
 
 	wl_list_for_each(head, &output->head_list, output_link) {
 		if (!op_protection_valid) {
@@ -10971,6 +10961,7 @@ weston_output_disable_planes_incr(struct weston_output *output)
 	if (output->disable_planes == 1)
 		weston_schedule_surface_protection_update(output->compositor);
 
+	weston_output_compute_protection(output);
 	weston_output_damage(output);
 }
 
@@ -10987,6 +10978,7 @@ weston_output_disable_planes_decr(struct weston_output *output)
 	if (output->disable_planes == 0)
 		weston_schedule_surface_protection_update(output->compositor);
 
+	weston_output_compute_protection(output);
 	weston_output_damage(output);
 }
 

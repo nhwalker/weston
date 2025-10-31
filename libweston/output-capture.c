@@ -394,6 +394,9 @@ weston_capture_task_destroy(struct weston_capture_task *ct)
 	ct->owner->pending = NULL;
 	wl_list_remove(&ct->link);
 	wl_list_remove(&ct->buffer_resource_destroy_listener.link);
+
+	weston_output_compute_protection(ct->owner->output);
+
 	free(ct);
 }
 
@@ -431,6 +434,8 @@ weston_capture_task_create(struct weston_capture_source *csrc,
 
 	if (ct->owner->pixel_source != WESTON_OUTPUT_CAPTURE_SOURCE_WRITEBACK)
 		weston_output_disable_planes_incr(ct->owner->output);
+
+	weston_output_compute_protection(ct->owner->output);
 
 	wl_signal_init(&ct->destroy_signal);
 
