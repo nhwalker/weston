@@ -44,6 +44,7 @@
 #include "viewporter-client-protocol.h"
 #include "weston-output-capture-client-protocol.h"
 #include "xdg-shell-client-protocol.h"
+#include "libweston-internal.h"
 #include "weston-testsuite-data.h"
 #include "fifo-v1-client-protocol.h"
 #include "commit-timing-v1-client-protocol.h"
@@ -398,6 +399,24 @@ color_rgb888(pixman_color_t *tmp, uint8_t r, uint8_t g, uint8_t b);
 
 /* Specifies that the currently-executing breakpoint should be rearmed */
 #define REARM_BREAKPOINT(breakpoint_) breakpoint_->rearm_on_release = true
+
+#define DECLARE_LIST_ITERATOR(name, parent, list, child, link)			\
+static inline child *									\
+next_##name(parent *from, child *pos)						\
+{										\
+	struct wl_list *entry = pos ? &pos->link : &from->list;			\
+	if (entry->next == &from->list)						\
+		return NULL;							\
+	return container_of(entry->next, child, link);				\
+}
+
+DECLARE_LIST_ITERATOR(output, struct weston_compositor, output_list,
+		      struct weston_output, link);
+DECLARE_LIST_ITERATOR(pnode_from_z, struct weston_output, paint_node_z_order_list,
+		      struct weston_paint_node, z_order_link);
+DECLARE_LIST_ITERATOR(view_from_surface, struct weston_surface, views,
+		      struct weston_view, link);
+
 
 void
 client_push_breakpoint(struct client *client,

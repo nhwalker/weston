@@ -65,21 +65,6 @@ surface_commit_color(struct client *client, struct wl_surface *surface,
 	return buf;
 }
 
-#define DECLARE_LIST_ITERATOR(name, parent, list, child, link)			\
-static child *									\
-next_##name(parent *from, child *pos)						\
-{										\
-	struct wl_list *entry = pos ? &pos->link : &from->list;			\
-	if (entry->next == &from->list)						\
-		return NULL;							\
-	return container_of(entry->next, child, link);				\
-}
-
-DECLARE_LIST_ITERATOR(output, struct weston_compositor, output_list,
-		      struct weston_output, link);
-DECLARE_LIST_ITERATOR(pnode_from_z, struct weston_output, paint_node_z_order_list,
-		      struct weston_paint_node, z_order_link);
-
 static enum weston_paint_node_status
 get_paint_node_status(struct client *client,
 		      struct wet_testsuite_data *suite_data)

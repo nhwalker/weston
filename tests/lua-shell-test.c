@@ -61,18 +61,6 @@ fixture_setup(struct weston_test_harness *harness)
 }
 DECLARE_FIXTURE_SETUP(fixture_setup);
 
-#define DECLARE_LIST_ITERATOR(name, parent, list, child, link)			\
-static child *									\
-next_##name(parent *from, child *pos)						\
-{										\
-	struct wl_list *entry = pos ? &pos->link : &from->list;			\
-	child *ret = wl_container_of(entry->next, ret, link);			\
-	return (&ret->link == &from->list) ? NULL : ret;			\
-}
-
-DECLARE_LIST_ITERATOR(pnode_from_z, struct weston_output, paint_node_z_order_list,
-		      struct weston_paint_node, z_order_link);
-
 TEST(four_apps_in_a_square)
 {
 	struct wet_testsuite_data *suite_data = TEST_GET_SUITE_DATA();
