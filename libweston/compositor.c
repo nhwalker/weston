@@ -119,6 +119,9 @@ static bool
 weston_view_is_fully_blended(struct weston_view *ev,
 			     pixman_region32_t *region);
 
+static bool
+weston_view_is_fully_transparent(struct weston_view *ev);
+
 static void
 weston_view_dirty_paint_nodes(struct weston_view *view)
 {
@@ -210,51 +213,55 @@ paint_node_update_early(struct weston_paint_node *pnode)
 	bool view_dirty = pnode->status & WESTON_PAINT_NODE_VIEW_DIRTY;
 	bool output_dirty = pnode->status & WESTON_PAINT_NODE_OUTPUT_DIRTY;
 	bool buffer_dirty = pnode->status & WESTON_PAINT_NODE_BUFFER_DIRTY;
-	bool was_solid = pnode->draw_solid;
-	struct weston_buffer *buffer;
+	struct weston_buffer *buffer = surface->buffer_ref.buffer;
+	bool params_dirty =
+		pnode->status & WESTON_PAINT_NODE_BUFFER_PARAMS_DIRTY;
 
 	if (view_dirty || output_dirty) {
 		weston_view_buffer_to_output_matrix(pnode->view,
 						    pnode->output, mat);
 		weston_matrix_invert(&pnode->output_to_buffer_matrix, mat);
 		pnode->needs_filtering = weston_matrix_needs_filtering(mat);
-
 		pnode->valid_transform = weston_matrix_to_transform(mat,
 								    &pnode->transform);
 	}
 
-	buffer = pnode->surface->buffer_ref.buffer;
-	pnode->draw_solid = false;
-	pnode->is_fully_transparent = false;
-	pnode->censored = false;
-	if (buffer->type == WESTON_BUFFER_SOLID) {
-		pnode->draw_solid = true;
-		pnode->is_fully_opaque = (pnode->view->alpha == 1.0f &&
-					  buffer->solid.a == 1.0f);
-		pnode->is_fully_blended = !pnode->is_fully_opaque;
-		pnode->solid = buffer->solid;
-		if (pnode->solid.a == 0.0f)
-			pnode->is_fully_transparent = true;
-	}
-
-	if (pnode->view->alpha == 0.0f)
-		pnode->is_fully_transparent = true;
-
-	if (surface->protection_mode ==
-	    WESTON_SURFACE_PROTECTION_MODE_ENFORCED &&
-	    surface->desired_protection > output->current_protection) {
-		pnode->draw_solid = true;
-		pnode->censored = true;
-		pnode->is_fully_opaque = (pnode->view->alpha == 1.0f);
-		pnode->is_fully_blended = !pnode->is_fully_opaque;
-		get_placeholder_color(pnode, &pnode->solid);
-	}
-
-	if (!pnode->draw_solid && (was_solid || view_dirty)) {
-		pnode->is_fully_opaque = weston_view_is_opaque(pnode->view,
-							       &pnode->view->transform.boundingbox);
-		pnode->is_fully_blended = weston_view_is_fully_blended(pnode->view,
-								       &pnode->view->transform.boundingbox);
+	if (view_dirty || params_dirty) {
+		if (surface->protection_mode ==
+		    WESTON_SURFACE_PROTECTION_MODE_ENFORCED &&
+		    surface->desired_protection > output->current_protection) {
+			pnode->draw_solid = true;
+			pnode->censored = true;
+			pnode->is_fully_opaque =
+				(pnode->view->alpha == 1.0f);
+			pnode->is_fully_blended = !pnode->is_fully_opaque;
+			pnode->is_fully_transparent =
+				(pnode->view->alpha == 0.0f);
+			get_placeholder_color(pnode, &pnode->solid);
+		} else if (buffer->type == WESTON_BUFFER_SOLID) {
+			pnode->draw_solid = true;
+			pnode->censored = false;
+			pnode->solid = buffer->solid;
+			pnode->is_fully_opaque =
+				weston_view_is_opaque(pnode->view,
+						      &pnode->view->transform.boundingbox);
+			pnode->is_fully_blended =
+				weston_view_is_fully_blended(pnode->view,
+							     &pnode->view->transform.boundingbox);
+			pnode->is_fully_transparent =
+				weston_view_is_fully_transparent(pnode->view);
+		} else {
+			pnode->draw_solid = false;
+			pnode->censored = false;
+			pnode->is_fully_opaque =
+				weston_view_is_opaque(pnode->view,
+						      &pnode->view->transform.boundingbox);
+			pnode->is_fully_blended =
+				weston_view_is_fully_blended(pnode->view,
+							     &pnode->view->transform.boundingbox);
+			pnode->is_fully_transparent =
+				weston_view_is_fully_transparent(pnode->view);
+		}
 	}
 
 	if (buffer_dirty)
@@ -2340,6 +2347,24 @@ weston_view_is_fully_blended(struct weston_view *ev, pixman_region32_t *region)
 		return false;
 
 	return !pixman_region32_not_empty(&ev->transform.opaque);
+}
+
+static bool
+weston_view_is_fully_transparent(struct weston_view *ev)
+{
+	struct weston_buffer *buffer = ev->surface->buffer_ref.buffer;
+
+	if (ev->alpha == 0.0)
+		return true;
+
+	/* Well, we're not going to draw anything. */
+	if (!buffer)
+		return true;
+
+	if (buffer->type == WESTON_BUFFER_SOLID && buffer->solid.a == 0.0)
+		return true;
+
+	return false;
 }
 
 /** Check if the view has a valid buffer available
