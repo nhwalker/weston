@@ -40,7 +40,9 @@
 
 /**
  * This is a set of assert macros intended for code that have a compositor
- * context, such as inside libweston and by users that can supply that.
+ * context, such as inside libweston and by users that can supply that. These
+ * macros differ from shared/common-assert.h, which doesn't require a compositor
+ * context parameter and is meant to be used by clients, tests, etc.
  *
  * Main advantages:
  *
