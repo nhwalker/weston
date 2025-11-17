@@ -27,7 +27,7 @@
 
 #define custom_assert_fail_ weston_log_assert_fail
 
-#include <libweston/weston-assert.h>
+#include <libweston/weston-assert-implementation.h>
 
 /**
  * weston-log implementation needs to override the custom_assert_fail_
