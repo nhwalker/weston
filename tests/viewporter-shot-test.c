@@ -97,7 +97,7 @@ TEST(viewport_upscale_solid)
 
 	match = verify_screen_content(client, "viewport_upscale_solid", 0,
 				      NULL, 0, NULL, NO_DECORATIONS);
-	test_assert_true(match);
+	assert_true(match);
 
 	wp_viewport_destroy(viewport);
 	client_destroy(client);

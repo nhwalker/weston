@@ -89,7 +89,7 @@ TEST(solid_buffer_argb_u32)
 									  0x8fffffff, /* g */
 									  0x4fffffff, /* b */
 									  0xffffffff /* a */);
-	test_assert_ptr_not_null(buffer);
+	assert_ptr_not_null(buffer);
 
 	weston_test_move_surface(client->test->weston_test,
 				 client->surface->wl_surface,
@@ -102,7 +102,7 @@ TEST(solid_buffer_argb_u32)
 
 	match = verify_screen_content(client, "single-pixel-buffer", 0,
 				      NULL, 0, NULL, NO_DECORATIONS);
-	test_assert_true(match);
+	assert_true(match);
 
 	wl_buffer_destroy(buffer);
 	wp_viewport_destroy(viewport);
@@ -129,7 +129,7 @@ TEST(solid_buffer_argb_u32_semi_transparent)
 									  0x8fffffff, /* g */
 									  0x4fffffff, /* b */
 									  0x7fffffff /* a */);
-	test_assert_ptr_not_null(buffer);
+	assert_ptr_not_null(buffer);
 
 	weston_test_move_surface(client->test->weston_test,
 				 client->surface->wl_surface,
@@ -142,7 +142,7 @@ TEST(solid_buffer_argb_u32_semi_transparent)
 
 	match = verify_screen_content(client, "single-pixel-buffer-semi-transparent", 0,
 				      NULL, 0, NULL, NO_DECORATIONS);
-	test_assert_true(match);
+	assert_true(match);
 
 	wl_buffer_destroy(buffer);
 	wp_viewport_destroy(viewport);
@@ -167,7 +167,7 @@ TEST(solid_buffer_argb_u32_scaled)
 									  0x8fffffff, /* g */
 									  0x4fffffff, /* b */
 									  0xffffffff /* a */);
-	test_assert_ptr_not_null(buffer);
+	assert_ptr_not_null(buffer);
 
 	weston_test_move_surface(client->test->weston_test,
 				 client->surface->wl_surface,
@@ -201,7 +201,7 @@ TEST(solid_buffer_argb_u32_scaled_in_second_commit)
 									  0x8fffffff, /* g */
 									  0x4fffffff, /* b */
 									  0xffffffff /* a */);
-	test_assert_ptr_not_null(buffer);
+	assert_ptr_not_null(buffer);
 
 	weston_test_move_surface(client->test->weston_test,
 				 client->surface->wl_surface,

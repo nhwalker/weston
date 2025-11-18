@@ -415,7 +415,7 @@ fixture_setup(struct weston_test_harness *harness)
 
 	len = read_blob_from_file(fname, &edid_data);
 	free(fname);
-	if (!test_assert_u64_gt(len, 0))
+	if (!assert_u64_gt(len, 0))
 		return RESULT_HARD_ERROR;
 
 	display_edid = di_info_parse_edid(edid_data, len);
@@ -444,7 +444,7 @@ create_config(const struct config_testcase *t)
 			 cfgln("%s", t->profile_string));
 
 	wc = weston_config_parse(setup.config_file);
-	test_assert_ptr_not_null(wc);
+	assert_ptr_not_null(wc);
 	free(setup.config_file);
 
 	return wc;
@@ -507,16 +507,16 @@ mock_cm_destroy_color_profile(struct weston_color_profile *cprof)
 }
 
 static bool
-test_assert_CIExy_eq(const struct weston_CIExy *ref,
-		     const struct weston_CIExy *tst,
-		     float tolerance,
-		     int indent,
-		     const char *desc)
+assert_CIExy_eq(const struct weston_CIExy *ref,
+	        const struct weston_CIExy *tst,
+		float tolerance,
+		int indent,
+		const char *desc)
 {
 	bool r = true;
 
-	r = test_assert_f32_absdiff_lt(ref->x, tst->x, tolerance) && r;
-	r = test_assert_f32_absdiff_lt(ref->y, tst->y, tolerance) && r;
+	r = assert_f32_absdiff_lt(ref->x, tst->x, tolerance) && r;
+	r = assert_f32_absdiff_lt(ref->y, tst->y, tolerance) && r;
 
 	if (!r)
 		testlog("%*sin %s\n", indent, "", desc);
@@ -525,23 +525,23 @@ test_assert_CIExy_eq(const struct weston_CIExy *ref,
 }
 
 static bool
-test_assert_color_gamut_eq(const struct weston_color_gamut *ref,
-			   const struct weston_color_gamut *tst,
-			   float tolerance,
-			   int indent,
-			   const char *desc)
+assert_color_gamut_eq(const struct weston_color_gamut *ref,
+		      const struct weston_color_gamut *tst,
+		      float tolerance,
+		      int indent,
+		      const char *desc)
 {
 	static const char *chan[] = { "red", "green", "blue" };
 	bool r = true;
 	unsigned i;
 
 	for (i = 0; i < ARRAY_LENGTH(tst->primary); i++) {
-		r = test_assert_CIExy_eq(&ref->primary[i], &tst->primary[i],
-					 tolerance, indent + 2, chan[i]) && r;
+		r = assert_CIExy_eq(&ref->primary[i], &tst->primary[i],
+				    tolerance, indent + 2, chan[i]) && r;
 	}
 
-	r = test_assert_CIExy_eq(&ref->white_point, &tst->white_point,
-				 tolerance, indent + 2, "white point") && r;
+	r = assert_CIExy_eq(&ref->white_point, &tst->white_point,
+			    tolerance, indent + 2, "white point") && r;
 
 	if (!r)
 		testlog("%*sin %s\n", indent, "", desc);
@@ -557,26 +557,26 @@ assert_params_equal(const struct weston_color_profile_params *ref,
 	int indent = 4;
 	unsigned i;
 
-	test_assert_color_gamut_eq(&tst->primaries, &ref->primaries, tol, indent, "primaries");
-	test_assert_ptr_eq(tst->primaries_info, ref->primaries_info);
+	assert_color_gamut_eq(&tst->primaries, &ref->primaries, tol, indent, "primaries");
+	assert_ptr_eq(tst->primaries_info, ref->primaries_info);
 
-	test_assert_ptr_eq(tst->tf.info, ref->tf.info);
+	assert_ptr_eq(tst->tf.info, ref->tf.info);
 	for (i = 0; i < ARRAY_LENGTH(tst->tf.params); i++) {
-		if (!test_assert_f32_absdiff_lt(ref->tf.params[i], tst->tf.params[i], tol))
+		if (!assert_f32_absdiff_lt(ref->tf.params[i], tst->tf.params[i], tol))
 			testlog("%*sin tf.params[%d]\n", indent, "", i);
 	}
 
-	test_assert_f32_absdiff_lt(ref->min_luminance, tst->min_luminance, tol);
-	test_assert_f32_absdiff_lt(ref->max_luminance, tst->max_luminance, tol);
-	test_assert_f32_absdiff_lt(ref->reference_white_luminance, tst->reference_white_luminance, tol);
+	assert_f32_absdiff_lt(ref->min_luminance, tst->min_luminance, tol);
+	assert_f32_absdiff_lt(ref->max_luminance, tst->max_luminance, tol);
+	assert_f32_absdiff_lt(ref->reference_white_luminance, tst->reference_white_luminance, tol);
 
-	test_assert_color_gamut_eq(&ref->target_primaries, &tst->target_primaries,
-				   tol, indent, "target primaries");
+	assert_color_gamut_eq(&ref->target_primaries, &tst->target_primaries,
+			      tol, indent, "target primaries");
 
-	test_assert_f32_absdiff_lt(ref->target_min_luminance, tst->target_min_luminance, tol);
-	test_assert_f32_absdiff_lt(ref->target_max_luminance, tst->target_max_luminance, tol);
-	test_assert_f32_absdiff_lt(ref->maxCLL, tst->maxCLL, tol);
-	test_assert_f32_absdiff_lt(ref->maxFALL, tst->maxFALL, tol);
+	assert_f32_absdiff_lt(ref->target_min_luminance, tst->target_min_luminance, tol);
+	assert_f32_absdiff_lt(ref->target_max_luminance, tst->target_max_luminance, tol);
+	assert_f32_absdiff_lt(ref->maxCLL, tst->maxCLL, tol);
+	assert_f32_absdiff_lt(ref->maxFALL, tst->maxFALL, tol);
 }
 
 static void
@@ -638,7 +638,7 @@ TEST_P(parametric_color_profile_parsing, config_cases)
 
 	wc = create_config(t);
 	cprof = wet_create_output_color_profile(&mock_output, wc, t->profile_name);
-	test_assert_ptr_not_null(cprof);
+	assert_ptr_not_null(cprof);
 
 	compare_results(cprof, &t->expected);
 

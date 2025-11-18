@@ -91,7 +91,7 @@ TEST(internal_screenshot)
 	/* Create the client */
 	testlog("Creating client for test\n");
 	client = create_client_and_test_surface(100, 100, 100, 100);
-	test_assert_ptr_not_null(client);
+	assert_ptr_not_null(client);
 	surface = client->surface->wl_surface;
 
 	/*
@@ -121,20 +121,20 @@ TEST(internal_screenshot)
 	/* Take a snapshot.  Result will be in screenshot->wl_buffer. */
 	testlog("Taking a screenshot\n");
 	screenshot = capture_screenshot_of_output(client, NULL, NO_DECORATIONS);
-	test_assert_ptr_not_null(screenshot);
+	assert_ptr_not_null(screenshot);
 
 	/* Load good reference image */
 	fname = screenshot_reference_filename("internal-screenshot-good", 0);
 	testlog("Loading good reference image %s\n", fname);
 	reference_good = load_image_from_png(fname);
-	test_assert_ptr_not_null(reference_good);
+	assert_ptr_not_null(reference_good);
 	free(fname);
 
 	/* Load bad reference image */
 	fname = screenshot_reference_filename("internal-screenshot-bad", 0);
 	testlog("Loading bad reference image %s\n", fname);
 	reference_bad = load_image_from_png(fname);
-	test_assert_ptr_not_null(reference_bad);
+	assert_ptr_not_null(reference_bad);
 	free(fname);
 
 	/* Test check_images_match() without a clip.
@@ -142,7 +142,7 @@ TEST(internal_screenshot)
 	 */
 	match = check_images_match(screenshot->image, reference_bad, NULL, NULL);
 	testlog("Screenshot %s reference image\n", match? "equal to" : "different from");
-	test_assert_false(match);
+	assert_false(match);
 	pixman_image_unref(reference_bad);
 
 	/* Test check_images_match() with clip.
@@ -175,7 +175,7 @@ TEST(internal_screenshot)
 	buffer_destroy(screenshot);
 
 	testlog("Test complete\n");
-	test_assert_true(match);
+	assert_true(match);
 
 	buffer_destroy(buf);
 	client_destroy(client);

@@ -42,12 +42,12 @@ TEST(test_sequential_ids)
 	ida = weston_idalloc_create(NULL);
 
 	for (i = 1; i < 10000; i++)
-		test_assert_u32_eq(weston_idalloc_get_id(ida), i);
+		assert_u32_eq(weston_idalloc_get_id(ida), i);
 
 	/* Additional testing of lowest_free_bucket manipulation. */
 	weston_idalloc_put_id(ida, 99);
-	test_assert_u32_eq(weston_idalloc_get_id(ida), 99);
-	test_assert_u32_eq(weston_idalloc_get_id(ida), 10000);
+	assert_u32_eq(weston_idalloc_get_id(ida), 99);
+	assert_u32_eq(weston_idalloc_get_id(ida), 10000);
 
 	weston_idalloc_destroy(ida);
 

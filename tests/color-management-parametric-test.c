@@ -596,45 +596,45 @@ color_manager_init(struct color_manager *cm, struct client *client)
 	client_roundtrip(client);
 
 	/* Weston supports all color features. */
-	test_assert_u32_eq(cm->supported_features,
-			   (1 << WP_COLOR_MANAGER_V1_FEATURE_ICC_V2_V4) |
-			   (1 << WP_COLOR_MANAGER_V1_FEATURE_PARAMETRIC) |
-			   (1 << WP_COLOR_MANAGER_V1_FEATURE_SET_PRIMARIES) |
-			   (1 << WP_COLOR_MANAGER_V1_FEATURE_SET_LUMINANCES) |
-			   (1 << WP_COLOR_MANAGER_V1_FEATURE_SET_TF_POWER) |
-			   (1 << WP_COLOR_MANAGER_V1_FEATURE_SET_MASTERING_DISPLAY_PRIMARIES) |
-			   (1 << WP_COLOR_MANAGER_V1_FEATURE_EXTENDED_TARGET_VOLUME));
+	assert_u32_eq(cm->supported_features,
+		      (1 << WP_COLOR_MANAGER_V1_FEATURE_ICC_V2_V4) |
+		      (1 << WP_COLOR_MANAGER_V1_FEATURE_PARAMETRIC) |
+		      (1 << WP_COLOR_MANAGER_V1_FEATURE_SET_PRIMARIES) |
+		      (1 << WP_COLOR_MANAGER_V1_FEATURE_SET_LUMINANCES) |
+		      (1 << WP_COLOR_MANAGER_V1_FEATURE_SET_TF_POWER) |
+		      (1 << WP_COLOR_MANAGER_V1_FEATURE_SET_MASTERING_DISPLAY_PRIMARIES) |
+		      (1 << WP_COLOR_MANAGER_V1_FEATURE_EXTENDED_TARGET_VOLUME));
 
 	/* Weston supports all rendering intents. */
-	test_assert_u32_eq(cm->supported_rendering_intents,
-			   (1 << WP_COLOR_MANAGER_V1_RENDER_INTENT_PERCEPTUAL) |
-			   (1 << WP_COLOR_MANAGER_V1_RENDER_INTENT_RELATIVE) |
-			   (1 << WP_COLOR_MANAGER_V1_RENDER_INTENT_SATURATION) |
-			   (1 << WP_COLOR_MANAGER_V1_RENDER_INTENT_ABSOLUTE) |
-			   (1 << WP_COLOR_MANAGER_V1_RENDER_INTENT_RELATIVE_BPC));
+	assert_u32_eq(cm->supported_rendering_intents,
+		      (1 << WP_COLOR_MANAGER_V1_RENDER_INTENT_PERCEPTUAL) |
+		      (1 << WP_COLOR_MANAGER_V1_RENDER_INTENT_RELATIVE) |
+		      (1 << WP_COLOR_MANAGER_V1_RENDER_INTENT_SATURATION) |
+		      (1 << WP_COLOR_MANAGER_V1_RENDER_INTENT_ABSOLUTE) |
+		      (1 << WP_COLOR_MANAGER_V1_RENDER_INTENT_RELATIVE_BPC));
 
 	/* Weston supports all primaries. */
-	test_assert_u32_eq(cm->supported_color_primaries,
-			   (1 << WP_COLOR_MANAGER_V1_PRIMARIES_SRGB) |
-			   (1 << WP_COLOR_MANAGER_V1_PRIMARIES_PAL_M) |
-			   (1 << WP_COLOR_MANAGER_V1_PRIMARIES_PAL) |
-			   (1 << WP_COLOR_MANAGER_V1_PRIMARIES_NTSC) |
-			   (1 << WP_COLOR_MANAGER_V1_PRIMARIES_GENERIC_FILM) |
-			   (1 << WP_COLOR_MANAGER_V1_PRIMARIES_BT2020) |
-			   (1 << WP_COLOR_MANAGER_V1_PRIMARIES_CIE1931_XYZ) |
-			   (1 << WP_COLOR_MANAGER_V1_PRIMARIES_DCI_P3) |
-			   (1 << WP_COLOR_MANAGER_V1_PRIMARIES_DISPLAY_P3) |
-			   (1 << WP_COLOR_MANAGER_V1_PRIMARIES_ADOBE_RGB));
+	assert_u32_eq(cm->supported_color_primaries,
+		      (1 << WP_COLOR_MANAGER_V1_PRIMARIES_SRGB) |
+		      (1 << WP_COLOR_MANAGER_V1_PRIMARIES_PAL_M) |
+		      (1 << WP_COLOR_MANAGER_V1_PRIMARIES_PAL) |
+		      (1 << WP_COLOR_MANAGER_V1_PRIMARIES_NTSC) |
+		      (1 << WP_COLOR_MANAGER_V1_PRIMARIES_GENERIC_FILM) |
+		      (1 << WP_COLOR_MANAGER_V1_PRIMARIES_BT2020) |
+		      (1 << WP_COLOR_MANAGER_V1_PRIMARIES_CIE1931_XYZ) |
+		      (1 << WP_COLOR_MANAGER_V1_PRIMARIES_DCI_P3) |
+		      (1 << WP_COLOR_MANAGER_V1_PRIMARIES_DISPLAY_P3) |
+		      (1 << WP_COLOR_MANAGER_V1_PRIMARIES_ADOBE_RGB));
 
 	/* Weston supports only a few transfer functions, and we make use of
 	 * them in our tests. */
-	test_assert_u32_eq(cm->supported_tf,
-			   (1 << WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_GAMMA22) |
-			   (1 << WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_GAMMA28) |
-			   (1 << WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_SRGB) |
-			   (1 << WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_ST2084_PQ));
+	assert_u32_eq(cm->supported_tf,
+		      (1 << WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_GAMMA22) |
+		      (1 << WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_GAMMA28) |
+		      (1 << WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_SRGB) |
+		      (1 << WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_ST2084_PQ));
 
-	test_assert_true(cm->done);
+	assert_true(cm->done);
 }
 
 static void
@@ -670,8 +670,8 @@ TEST_P(create_parametric_image_description, good_test_cases)
 	struct image_description *image_desc = NULL;
 
 	/* No good test case should have expected error. */
-	test_assert_enum(args->error_point, ERROR_POINT_NONE);
-	test_assert_enum(args->expected_error, NOT_SET);
+	assert_enum(args->error_point, ERROR_POINT_NONE);
+	assert_enum(args->expected_error, NOT_SET);
 
 	client = create_client();
 	color_manager_init(&cm, client);
@@ -721,8 +721,8 @@ TEST_P(create_parametric_image_description, good_test_cases)
 	image_desc_creator_param = NULL;
 
 	while (image_desc->status == CM_IMAGE_DESC_NOT_CREATED)
-		test_assert_int_ge(wl_display_dispatch(client->wl_display), 0);
-	test_assert_enum(image_desc->status, CM_IMAGE_DESC_READY);
+		assert_int_ge(wl_display_dispatch(client->wl_display), 0);
+	assert_enum(image_desc->status, CM_IMAGE_DESC_READY);
 
 	image_description_destroy(image_desc);
 	color_manager_fini(&cm);
@@ -837,13 +837,13 @@ TEST_P(fail_to_create_parametric_image_description, bad_test_cases)
 	}
 
 	while (image_desc->status == CM_IMAGE_DESC_NOT_CREATED)
-		test_assert_int_ge(wl_display_dispatch(client->wl_display), 0);
+		assert_int_ge(wl_display_dispatch(client->wl_display), 0);
 
 	/* This TEST() is for bad params, so we shouldn't be able to
 	 * successfully create an image description. */
-	test_assert_enum(args->error_point, ERROR_POINT_GRACEFUL_FAILURE);
-	test_assert_enum(image_desc->status, CM_IMAGE_DESC_FAILED);
-	test_assert_enum(image_desc->failure_reason, args->expected_error);
+	assert_enum(args->error_point, ERROR_POINT_GRACEFUL_FAILURE);
+	assert_enum(image_desc->status, CM_IMAGE_DESC_FAILED);
+	assert_enum(image_desc->failure_reason, args->expected_error);
 
 out:
 	if (image_desc)

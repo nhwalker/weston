@@ -1,5 +1,5 @@
 /*
- * Copyright 2022 Collabora, Ltd.
+ * Copyright 2022-2025 Collabora, Ltd.
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -27,8 +27,8 @@
 
 #include <stdlib.h>
 
-#include "weston-test-runner.h"
 #include "weston-test-assert.h"
+#include "weston-test-runner.h"
 
 static void
 abort_if_not(bool cond)
@@ -62,21 +62,19 @@ my_type_cmp(const struct my_type *a, const struct my_type *b)
 	return 0;
 }
 
-#define weston_assert_my_type_lt(compositor, a, b) \
-	weston_assert_fn_(compositor, my_type_cmp, a, b, const struct my_type *, "my_type %p", <)
+#define assert_my_type_lt(a, b) \
+	assert_fn_(my_type_cmp, a, b, const struct my_type *, "my_type %p", <)
 
 TEST(asserts_custom)
 {
-	/* Unused by the macros for now, so let's just use NULL. */
-	struct weston_compositor *compositor = NULL;
 	bool ret;
 
 	struct my_type a = { 1, 2.0 };
 	struct my_type b = { 0, 2.0 };
 
-	ret = weston_assert_my_type_lt(compositor, &b, &a);
+	ret = assert_my_type_lt(&b, &a);
 	abort_if_not(ret);
-	ret = weston_assert_my_type_lt(compositor, &a, &b);
+	ret = assert_my_type_lt(&a, &b);
 	abort_if_not(ret == false);
 
 	/* If we reach that point, it's a success so reset the assert counter
@@ -88,19 +86,17 @@ TEST(asserts_custom)
 
 TEST(asserts_boolean)
 {
-	/* Unused by the macros for now, so let's just use NULL. */
-	struct weston_compositor *compositor = NULL;
 	bool ret;
 
-	ret = weston_assert_true(compositor, false);
+	ret = assert_true(false);
 	abort_if_not(ret == false);
-	ret = weston_assert_true(compositor, true);
+	ret = assert_true(true);
 	abort_if_not(ret);
-	ret = weston_assert_false(compositor, true);
+	ret = assert_false(true);
 	abort_if_not(ret == false);
-	ret = weston_assert_false(compositor, false);
+	ret = assert_false(false);
 	abort_if_not(ret);
-	ret = weston_assert_true(compositor, true && false);
+	ret = assert_true(true && false);
 	abort_if_not(ret == false);
 
 	/* If we reach that point, it's a success so reset the assert counter
@@ -112,28 +108,26 @@ TEST(asserts_boolean)
 
 TEST(asserts_pointer)
 {
-	/* Unused by the macros for now, so let's just use NULL. */
-	struct weston_compositor *compositor = NULL;
 	bool ret;
 
-	ret = weston_assert_ptr_not_null(compositor, &ret);
+	ret = assert_ptr_not_null(&ret);
 	abort_if_not(ret);
-	ret = weston_assert_ptr_not_null(compositor, NULL);
+	ret = assert_ptr_not_null(NULL);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_ptr_null(compositor, NULL);
+	ret = assert_ptr_null(NULL);
 	abort_if_not(ret);
-	ret = weston_assert_ptr_null(compositor, &ret);
+	ret = assert_ptr_null(&ret);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_ptr_eq(compositor, &ret, &ret);
+	ret = assert_ptr_eq(&ret, &ret);
 	abort_if_not(ret);
-	ret = weston_assert_ptr_eq(compositor, &ret, &ret + 1);
+	ret = assert_ptr_eq(&ret, &ret + 1);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_ptr_ne(compositor, &ret, &ret + 1);
+	ret = assert_ptr_ne(&ret, &ret + 1);
 	abort_if_not(ret);
-	ret = weston_assert_ptr_ne(compositor, &ret, &ret);
+	ret = assert_ptr_ne(&ret, &ret);
 	abort_if_not(ret == false);
 
 	/* If we reach that point, it's a success so reset the assert counter
@@ -145,15 +139,13 @@ TEST(asserts_pointer)
 
 TEST(asserts_string)
 {
-	/* Unused by the macros for now, so let's just use NULL. */
-	struct weston_compositor *compositor = NULL;
 	bool ret;
 
 	const char *nom = "bar";
 
-	ret = weston_assert_str_eq(compositor, nom, "bar");
+	ret = assert_str_eq(nom, "bar");
 	abort_if_not(ret);
-	ret = weston_assert_str_eq(compositor, nom, "baz");
+	ret = assert_str_eq(nom, "baz");
 	abort_if_not(ret == false);
 
 	/* If we reach that point, it's a success so reset the assert counter
@@ -165,15 +157,13 @@ TEST(asserts_string)
 
 TEST(asserts_bitmask)
 {
-	/* Unused by the macros for now, so let's just use NULL. */
-	struct weston_compositor *compositor = NULL;
 	bool ret;
 
 	uint32_t bitfield = 0xffff;
 
-	ret = weston_assert_bit_set(compositor, bitfield, 1ull << 2);
+	ret = assert_bit_set(bitfield, 1ull << 2);
 	abort_if_not(ret);
-	ret = weston_assert_bit_set(compositor, bitfield, 1ull << 57);
+	ret = assert_bit_set(bitfield, 1ull << 57);
 	abort_if_not(ret == false);
 
 	/* If we reach that point, it's a success so reset the assert counter
@@ -185,16 +175,14 @@ TEST(asserts_bitmask)
 
 TEST(asserts_misc)
 {
-	/* Unused by the macros for now, so let's just use NULL. */
-	struct weston_compositor *compositor = NULL;
 	bool ret;
 
-	ret = weston_assert_enum(compositor, MY_ENUM_A, MY_ENUM_A);
+	ret = assert_enum(MY_ENUM_A, MY_ENUM_A);
 	abort_if_not(ret);
-	ret = weston_assert_enum(compositor, MY_ENUM_A, MY_ENUM_B);
+	ret = assert_enum(MY_ENUM_A, MY_ENUM_B);
 	abort_if_not(ret == false);
 
-	/* weston_assert_not_reached is a bit awkward to test, so let's skip */
+	/* assert_not_reached is a bit awkward to test, so let's skip */
 
 	/* If we reach that point, it's a success so reset the assert counter
 	 * that's been incremented to check that assertions work. */
@@ -205,82 +193,80 @@ TEST(asserts_misc)
 
 TEST(asserts_floating_point)
 {
-	/* Unused by the macros for now, so let's just use NULL. */
-	struct weston_compositor *compositor = NULL;
 	bool ret;
 
 	/* Float asserts. */
 
 	float sixteen = 16.0;
-	ret = weston_assert_f32_eq(compositor, sixteen, 16.000001);
+	ret = assert_f32_eq(sixteen, 16.000001);
 	abort_if_not(ret == false);
-	ret = weston_assert_f32_eq(compositor, sixteen, 16);
+	ret = assert_f32_eq(sixteen, 16);
 	abort_if_not(ret);
 
-	ret = weston_assert_f32_ne(compositor, sixteen, 16.000001);
+	ret = assert_f32_ne(sixteen, 16.000001);
 	abort_if_not(ret);
-	ret = weston_assert_f32_ne(compositor, sixteen, sixteen);
+	ret = assert_f32_ne(sixteen, sixteen);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_f32_gt(compositor, 16.000001, sixteen);
+	ret = assert_f32_gt(16.000001, sixteen);
 	abort_if_not(ret);
-	ret = weston_assert_f32_gt(compositor, sixteen, 16.000001);
+	ret = assert_f32_gt(sixteen, 16.000001);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_f32_ge(compositor, sixteen, sixteen);
+	ret = assert_f32_ge(sixteen, sixteen);
 	abort_if_not(ret);
-	ret = weston_assert_f32_ge(compositor, 16.000001, sixteen);
+	ret = assert_f32_ge(16.000001, sixteen);
 	abort_if_not(ret);
-	ret = weston_assert_f32_ge(compositor, sixteen, 16.000001);
+	ret = assert_f32_ge(sixteen, 16.000001);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_f32_lt(compositor, sixteen, 16.000001);
+	ret = assert_f32_lt(sixteen, 16.000001);
 	abort_if_not(ret);
-	ret = weston_assert_f32_lt(compositor, 16.000001, sixteen);
+	ret = assert_f32_lt(16.000001, sixteen);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_f32_le(compositor, sixteen, sixteen);
+	ret = assert_f32_le(sixteen, sixteen);
 	abort_if_not(ret);
-	ret = weston_assert_f32_le(compositor, sixteen, 16.000001);
+	ret = assert_f32_le(sixteen, 16.000001);
 	abort_if_not(ret);
-	ret = weston_assert_f32_le(compositor, 16.000001, sixteen);
+	ret = assert_f32_le(16.000001, sixteen);
 	abort_if_not(ret == false);
 
 	/* Double asserts. */
 
 	double fifteen = 15.0;
-	ret = weston_assert_f64_eq(compositor, fifteen, 15.000001);
+	ret = assert_f64_eq(fifteen, 15.000001);
 	abort_if_not(ret == false);
-	ret = weston_assert_f64_eq(compositor, fifteen, 15);
+	ret = assert_f64_eq(fifteen, 15);
 	abort_if_not(ret);
 
-	ret = weston_assert_f64_ne(compositor, fifteen, 15.000001);
+	ret = assert_f64_ne(fifteen, 15.000001);
 	abort_if_not(ret);
-	ret = weston_assert_f64_ne(compositor, fifteen, fifteen);
+	ret = assert_f64_ne(fifteen, fifteen);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_f64_gt(compositor, 15.000001, fifteen);
+	ret = assert_f64_gt(15.000001, fifteen);
 	abort_if_not(ret);
-	ret = weston_assert_f64_gt(compositor, fifteen, 15.000001);
+	ret = assert_f64_gt(fifteen, 15.000001);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_f64_ge(compositor, fifteen, fifteen);
+	ret = assert_f64_ge(fifteen, fifteen);
 	abort_if_not(ret);
-	ret = weston_assert_f64_ge(compositor, 15.000001, fifteen);
+	ret = assert_f64_ge(15.000001, fifteen);
 	abort_if_not(ret);
-	ret = weston_assert_f64_ge(compositor, fifteen, 15.000001);
+	ret = assert_f64_ge(fifteen, 15.000001);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_f64_lt(compositor, fifteen, 15.000001);
+	ret = assert_f64_lt(fifteen, 15.000001);
 	abort_if_not(ret);
-	ret = weston_assert_f64_lt(compositor, 15.000001, fifteen);
+	ret = assert_f64_lt(15.000001, fifteen);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_f64_le(compositor, fifteen, fifteen);
+	ret = assert_f64_le(fifteen, fifteen);
 	abort_if_not(ret);
-	ret = weston_assert_f64_le(compositor, fifteen, 15.000001);
+	ret = assert_f64_le(fifteen, 15.000001);
 	abort_if_not(ret);
-	ret = weston_assert_f64_le(compositor, 15.000001, fifteen);
+	ret = assert_f64_le(15.000001, fifteen);
 	abort_if_not(ret == false);
 
 	/* If we reach that point, it's a success so reset the assert counter
@@ -292,188 +278,186 @@ TEST(asserts_floating_point)
 
 TEST(asserts_unsigned_int)
 {
-	/* Unused by the macros for now, so let's just use NULL. */
-	struct weston_compositor *compositor = NULL;
 	bool ret;
 
 	/* uint8_t asserts. */
 
-	ret = weston_assert_u8_eq(compositor, 5, 5);
+	ret = assert_u8_eq(5, 5);
 	abort_if_not(ret);
-	ret = weston_assert_u8_eq(compositor, 5, 6);
+	ret = assert_u8_eq(5, 6);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_u8_ne(compositor, 5, 6);
+	ret = assert_u8_ne(5, 6);
 	abort_if_not(ret);
-	ret = weston_assert_u8_ne(compositor, 5, 5);
+	ret = assert_u8_ne(5, 5);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_u8_gt(compositor, 6, 5);
+	ret = assert_u8_gt(6, 5);
 	abort_if_not(ret);
-	ret = weston_assert_u8_gt(compositor, 5, 6);
+	ret = assert_u8_gt(5, 6);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_u8_ge(compositor, 6, 5);
+	ret = assert_u8_ge(6, 5);
 	abort_if_not(ret);
-	ret = weston_assert_u8_ge(compositor, 5, 5);
+	ret = assert_u8_ge(5, 5);
 	abort_if_not(ret);
-	ret = weston_assert_u8_ge(compositor, 5, 6);
+	ret = assert_u8_ge(5, 6);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_u8_lt(compositor, 5, 6);
+	ret = assert_u8_lt(5, 6);
 	abort_if_not(ret);
-	ret = weston_assert_u8_lt(compositor, 6, 5);
+	ret = assert_u8_lt(6, 5);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_u8_le(compositor, 5, 6);
+	ret = assert_u8_le(5, 6);
 	abort_if_not(ret);
-	ret = weston_assert_u8_le(compositor, 5, 5);
+	ret = assert_u8_le(5, 5);
 	abort_if_not(ret);
-	ret = weston_assert_u8_le(compositor, 6, 5);
+	ret = assert_u8_le(6, 5);
 	abort_if_not(ret == false);
 
 	/* uint16_t asserts. */
 
-	ret = weston_assert_u16_eq(compositor, 5, 5);
+	ret = assert_u16_eq(5, 5);
 	abort_if_not(ret);
-	ret = weston_assert_u16_eq(compositor, 5, 6);
+	ret = assert_u16_eq(5, 6);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_u16_ne(compositor, 5, 6);
+	ret = assert_u16_ne(5, 6);
 	abort_if_not(ret);
-	ret = weston_assert_u16_ne(compositor, 5, 5);
+	ret = assert_u16_ne(5, 5);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_u16_gt(compositor, 6, 5);
+	ret = assert_u16_gt(6, 5);
 	abort_if_not(ret);
-	ret = weston_assert_u16_gt(compositor, 5, 6);
+	ret = assert_u16_gt(5, 6);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_u16_ge(compositor, 6, 5);
+	ret = assert_u16_ge(6, 5);
 	abort_if_not(ret);
-	ret = weston_assert_u16_ge(compositor, 5, 5);
+	ret = assert_u16_ge(5, 5);
 	abort_if_not(ret);
-	ret = weston_assert_u16_ge(compositor, 5, 6);
+	ret = assert_u16_ge(5, 6);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_u16_lt(compositor, 5, 6);
+	ret = assert_u16_lt(5, 6);
 	abort_if_not(ret);
-	ret = weston_assert_u16_lt(compositor, 6, 5);
+	ret = assert_u16_lt(6, 5);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_u16_le(compositor, 5, 6);
+	ret = assert_u16_le(5, 6);
 	abort_if_not(ret);
-	ret = weston_assert_u16_le(compositor, 5, 5);
+	ret = assert_u16_le(5, 5);
 	abort_if_not(ret);
-	ret = weston_assert_u16_le(compositor, 6, 5);
+	ret = assert_u16_le(6, 5);
 	abort_if_not(ret == false);
 
 	/* uint32_t asserts. */
 
-	ret = weston_assert_u32_eq(compositor, 5, 5);
+	ret = assert_u32_eq(5, 5);
 	abort_if_not(ret);
-	ret = weston_assert_u32_eq(compositor, 5, 6);
+	ret = assert_u32_eq(5, 6);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_u32_ne(compositor, 5, 6);
+	ret = assert_u32_ne(5, 6);
 	abort_if_not(ret);
-	ret = weston_assert_u32_ne(compositor, 5, 5);
+	ret = assert_u32_ne(5, 5);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_u32_gt(compositor, 6, 5);
+	ret = assert_u32_gt(6, 5);
 	abort_if_not(ret);
-	ret = weston_assert_u32_gt(compositor, 5, 6);
+	ret = assert_u32_gt(5, 6);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_u32_ge(compositor, 6, 5);
+	ret = assert_u32_ge(6, 5);
 	abort_if_not(ret);
-	ret = weston_assert_u32_ge(compositor, 5, 5);
+	ret = assert_u32_ge(5, 5);
 	abort_if_not(ret);
-	ret = weston_assert_u32_ge(compositor, 5, 6);
+	ret = assert_u32_ge(5, 6);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_u32_lt(compositor, 5, 6);
+	ret = assert_u32_lt(5, 6);
 	abort_if_not(ret);
-	ret = weston_assert_u32_lt(compositor, 6, 5);
+	ret = assert_u32_lt(6, 5);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_u32_le(compositor, 5, 6);
+	ret = assert_u32_le(5, 6);
 	abort_if_not(ret);
-	ret = weston_assert_u32_le(compositor, 5, 5);
+	ret = assert_u32_le(5, 5);
 	abort_if_not(ret);
-	ret = weston_assert_u32_le(compositor, 6, 5);
+	ret = assert_u32_le(6, 5);
 	abort_if_not(ret == false);
 
 	/* uint64_t asserts. */
 
-	ret = weston_assert_u64_eq(compositor, 5, 5);
+	ret = assert_u64_eq(5, 5);
 	abort_if_not(ret);
-	ret = weston_assert_u64_eq(compositor, 5, 6);
+	ret = assert_u64_eq(5, 6);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_u64_ne(compositor, 5, 6);
+	ret = assert_u64_ne(5, 6);
 	abort_if_not(ret);
-	ret = weston_assert_u64_ne(compositor, 5, 5);
+	ret = assert_u64_ne(5, 5);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_u64_gt(compositor, 6, 5);
+	ret = assert_u64_gt(6, 5);
 	abort_if_not(ret);
-	ret = weston_assert_u64_gt(compositor, 5, 6);
+	ret = assert_u64_gt(5, 6);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_u64_ge(compositor, 6, 5);
+	ret = assert_u64_ge(6, 5);
 	abort_if_not(ret);
-	ret = weston_assert_u64_ge(compositor, 5, 5);
+	ret = assert_u64_ge(5, 5);
 	abort_if_not(ret);
-	ret = weston_assert_u64_ge(compositor, 5, 6);
+	ret = assert_u64_ge(5, 6);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_u64_lt(compositor, 5, 6);
+	ret = assert_u64_lt(5, 6);
 	abort_if_not(ret);
-	ret = weston_assert_u64_lt(compositor, 6, 5);
+	ret = assert_u64_lt(6, 5);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_u64_le(compositor, 5, 6);
+	ret = assert_u64_le(5, 6);
 	abort_if_not(ret);
-	ret = weston_assert_u64_le(compositor, 5, 5);
+	ret = assert_u64_le(5, 5);
 	abort_if_not(ret);
-	ret = weston_assert_u64_le(compositor, 6, 5);
+	ret = assert_u64_le(6, 5);
 	abort_if_not(ret == false);
 
 	/* unsigned int asserts. */
 
-	ret = weston_assert_uint_eq(compositor, 5, 5);
+	ret = assert_uint_eq(5, 5);
 	abort_if_not(ret);
-	ret = weston_assert_uint_eq(compositor, 5, 6);
+	ret = assert_uint_eq(5, 6);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_uint_ne(compositor, 5, 6);
+	ret = assert_uint_ne(5, 6);
 	abort_if_not(ret);
-	ret = weston_assert_uint_ne(compositor, 5, 5);
+	ret = assert_uint_ne(5, 5);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_uint_gt(compositor, 6, 5);
+	ret = assert_uint_gt(6, 5);
 	abort_if_not(ret);
-	ret = weston_assert_uint_gt(compositor, 5, 6);
+	ret = assert_uint_gt(5, 6);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_uint_ge(compositor, 6, 5);
+	ret = assert_uint_ge(6, 5);
 	abort_if_not(ret);
-	ret = weston_assert_uint_ge(compositor, 5, 5);
+	ret = assert_uint_ge(5, 5);
 	abort_if_not(ret);
-	ret = weston_assert_uint_ge(compositor, 5, 6);
+	ret = assert_uint_ge(5, 6);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_uint_lt(compositor, 5, 6);
+	ret = assert_uint_lt(5, 6);
 	abort_if_not(ret);
-	ret = weston_assert_uint_lt(compositor, 6, 5);
+	ret = assert_uint_lt(6, 5);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_uint_le(compositor, 5, 6);
+	ret = assert_uint_le(5, 6);
 	abort_if_not(ret);
-	ret = weston_assert_uint_le(compositor, 5, 5);
+	ret = assert_uint_le(5, 5);
 	abort_if_not(ret);
-	ret = weston_assert_uint_le(compositor, 6, 5);
+	ret = assert_uint_le(6, 5);
 	abort_if_not(ret == false);
 
 	/* If we reach that point, it's a success so reset the assert counter
@@ -485,188 +469,186 @@ TEST(asserts_unsigned_int)
 
 TEST(asserts_signed_int)
 {
-	/* Unused by the macros for now, so let's just use NULL. */
-	struct weston_compositor *compositor = NULL;
 	bool ret;
 
 	/* int8_t asserts. */
 
-	ret = weston_assert_s8_eq(compositor, -5, -5);
+	ret = assert_s8_eq(-5, -5);
 	abort_if_not(ret);
-	ret = weston_assert_s8_eq(compositor, -5, -6);
+	ret = assert_s8_eq(-5, -6);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_s8_ne(compositor, -5, -6);
+	ret = assert_s8_ne(-5, -6);
 	abort_if_not(ret);
-	ret = weston_assert_s8_ne(compositor, -5, -5);
+	ret = assert_s8_ne(-5, -5);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_s8_gt(compositor, -5, -6);
+	ret = assert_s8_gt(-5, -6);
 	abort_if_not(ret);
-	ret = weston_assert_s8_gt(compositor, -6, -5);
+	ret = assert_s8_gt(-6, -5);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_s8_ge(compositor, -5, -6);
+	ret = assert_s8_ge(-5, -6);
 	abort_if_not(ret);
-	ret = weston_assert_s8_ge(compositor, -5, -5);
+	ret = assert_s8_ge(-5, -5);
 	abort_if_not(ret);
-	ret = weston_assert_s8_ge(compositor, -6, -5);
+	ret = assert_s8_ge(-6, -5);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_s8_lt(compositor, -6, -5);
+	ret = assert_s8_lt(-6, -5);
 	abort_if_not(ret);
-	ret = weston_assert_s8_lt(compositor, -5, -6);
+	ret = assert_s8_lt(-5, -6);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_s8_le(compositor, -6, -5);
+	ret = assert_s8_le(-6, -5);
 	abort_if_not(ret);
-	ret = weston_assert_s8_le(compositor, -5, -5);
+	ret = assert_s8_le(-5, -5);
 	abort_if_not(ret);
-	ret = weston_assert_s8_le(compositor, -5, -6);
+	ret = assert_s8_le(-5, -6);
 	abort_if_not(ret == false);
 
 	/* int16_t asserts. */
 
-	ret = weston_assert_s16_eq(compositor, -5, -5);
+	ret = assert_s16_eq(-5, -5);
 	abort_if_not(ret);
-	ret = weston_assert_s16_eq(compositor, -5, -6);
+	ret = assert_s16_eq(-5, -6);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_s16_ne(compositor, -5, -6);
+	ret = assert_s16_ne(-5, -6);
 	abort_if_not(ret);
-	ret = weston_assert_s16_ne(compositor, -5, -5);
+	ret = assert_s16_ne(-5, -5);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_s16_gt(compositor, -5, -6);
+	ret = assert_s16_gt(-5, -6);
 	abort_if_not(ret);
-	ret = weston_assert_s16_gt(compositor, -6, -5);
+	ret = assert_s16_gt(-6, -5);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_s16_ge(compositor, -5, -6);
+	ret = assert_s16_ge(-5, -6);
 	abort_if_not(ret);
-	ret = weston_assert_s16_ge(compositor, -5, -5);
+	ret = assert_s16_ge(-5, -5);
 	abort_if_not(ret);
-	ret = weston_assert_s16_ge(compositor, -6, -5);
+	ret = assert_s16_ge(-6, -5);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_s16_lt(compositor, -6, -5);
+	ret = assert_s16_lt(-6, -5);
 	abort_if_not(ret);
-	ret = weston_assert_s16_lt(compositor, -5, -6);
+	ret = assert_s16_lt(-5, -6);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_s16_le(compositor, -6, -5);
+	ret = assert_s16_le(-6, -5);
 	abort_if_not(ret);
-	ret = weston_assert_s16_le(compositor, -5, -5);
+	ret = assert_s16_le(-5, -5);
 	abort_if_not(ret);
-	ret = weston_assert_s16_le(compositor, -5, -6);
+	ret = assert_s16_le(-5, -6);
 	abort_if_not(ret == false);
 
 	/* int32_t asserts. */
 
-	ret = weston_assert_s32_eq(compositor, -5, -5);
+	ret = assert_s32_eq(-5, -5);
 	abort_if_not(ret);
-	ret = weston_assert_s32_eq(compositor, -5, -6);
+	ret = assert_s32_eq(-5, -6);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_s32_ne(compositor, -5, -6);
+	ret = assert_s32_ne(-5, -6);
 	abort_if_not(ret);
-	ret = weston_assert_s32_ne(compositor, -5, -5);
+	ret = assert_s32_ne(-5, -5);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_s32_gt(compositor, -5, -6);
+	ret = assert_s32_gt(-5, -6);
 	abort_if_not(ret);
-	ret = weston_assert_s32_gt(compositor, -6, -5);
+	ret = assert_s32_gt(-6, -5);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_s32_ge(compositor, -5, -6);
+	ret = assert_s32_ge(-5, -6);
 	abort_if_not(ret);
-	ret = weston_assert_s32_ge(compositor, -5, -5);
+	ret = assert_s32_ge(-5, -5);
 	abort_if_not(ret);
-	ret = weston_assert_s32_ge(compositor, -6, -5);
+	ret = assert_s32_ge(-6, -5);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_s32_lt(compositor, -6, -5);
+	ret = assert_s32_lt(-6, -5);
 	abort_if_not(ret);
-	ret = weston_assert_s32_lt(compositor, -5, -6);
+	ret = assert_s32_lt(-5, -6);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_s32_le(compositor, -6, -5);
+	ret = assert_s32_le(-6, -5);
 	abort_if_not(ret);
-	ret = weston_assert_s32_le(compositor, -5, -5);
+	ret = assert_s32_le(-5, -5);
 	abort_if_not(ret);
-	ret = weston_assert_s32_le(compositor, -5, -6);
+	ret = assert_s32_le(-5, -6);
 	abort_if_not(ret == false);
 
 	/* int64_t asserts. */
 
-	ret = weston_assert_s64_eq(compositor, -5, -5);
+	ret = assert_s64_eq(-5, -5);
 	abort_if_not(ret);
-	ret = weston_assert_s64_eq(compositor, -5, -6);
+	ret = assert_s64_eq(-5, -6);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_s64_ne(compositor, -5, -6);
+	ret = assert_s64_ne(-5, -6);
 	abort_if_not(ret);
-	ret = weston_assert_s64_ne(compositor, -5, -5);
+	ret = assert_s64_ne(-5, -5);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_s64_gt(compositor, -5, -6);
+	ret = assert_s64_gt(-5, -6);
 	abort_if_not(ret);
-	ret = weston_assert_s64_gt(compositor, -6, -5);
+	ret = assert_s64_gt(-6, -5);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_s64_ge(compositor, -5, -6);
+	ret = assert_s64_ge(-5, -6);
 	abort_if_not(ret);
-	ret = weston_assert_s64_ge(compositor, -5, -5);
+	ret = assert_s64_ge(-5, -5);
 	abort_if_not(ret);
-	ret = weston_assert_s64_ge(compositor, -6, -5);
+	ret = assert_s64_ge(-6, -5);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_s64_lt(compositor, -6, -5);
+	ret = assert_s64_lt(-6, -5);
 	abort_if_not(ret);
-	ret = weston_assert_s64_lt(compositor, -5, -6);
+	ret = assert_s64_lt(-5, -6);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_s64_le(compositor, -6, -5);
+	ret = assert_s64_le(-6, -5);
 	abort_if_not(ret);
-	ret = weston_assert_s64_le(compositor, -5, -5);
+	ret = assert_s64_le(-5, -5);
 	abort_if_not(ret);
-	ret = weston_assert_s64_le(compositor, -5, -6);
+	ret = assert_s64_le(-5, -6);
 	abort_if_not(ret == false);
 
 	/* int asserts. */
 
-	ret = weston_assert_int_eq(compositor, -5, -5);
+	ret = assert_int_eq(-5, -5);
 	abort_if_not(ret);
-	ret = weston_assert_int_eq(compositor, -5, -6);
+	ret = assert_int_eq(-5, -6);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_int_ne(compositor, -5, -6);
+	ret = assert_int_ne(-5, -6);
 	abort_if_not(ret);
-	ret = weston_assert_int_ne(compositor, -5, -5);
+	ret = assert_int_ne(-5, -5);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_int_gt(compositor, -5, -6);
+	ret = assert_int_gt(-5, -6);
 	abort_if_not(ret);
-	ret = weston_assert_int_gt(compositor, -6, -5);
+	ret = assert_int_gt(-6, -5);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_int_ge(compositor, -5, -6);
+	ret = assert_int_ge(-5, -6);
 	abort_if_not(ret);
-	ret = weston_assert_int_ge(compositor, -5, -5);
+	ret = assert_int_ge(-5, -5);
 	abort_if_not(ret);
-	ret = weston_assert_int_ge(compositor, -6, -5);
+	ret = assert_int_ge(-6, -5);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_int_lt(compositor, -6, -5);
+	ret = assert_int_lt(-6, -5);
 	abort_if_not(ret);
-	ret = weston_assert_int_lt(compositor, -5, -6);
+	ret = assert_int_lt(-5, -6);
 	abort_if_not(ret == false);
 
-	ret = weston_assert_int_le(compositor, -6, -5);
+	ret = assert_int_le(-6, -5);
 	abort_if_not(ret);
-	ret = weston_assert_int_le(compositor, -5, -5);
+	ret = assert_int_le(-5, -5);
 	abort_if_not(ret);
-	ret = weston_assert_int_le(compositor, -5, -6);
+	ret = assert_int_le(-5, -6);
 	abort_if_not(ret == false);
 
 	/* If we reach that point, it's a success so reset the assert counter

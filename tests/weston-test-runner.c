@@ -292,7 +292,7 @@ result_to_str(enum test_result_code ret)
 #endif
 	};
 
-	test_assert_true(ret >= 0 && ret < ARRAY_LENGTH(names));
+	assert_true(ret >= 0 && ret < ARRAY_LENGTH(names));
 	return names[ret];
 }
 
@@ -476,7 +476,7 @@ weston_test_harness_create(int argc, char **argv)
 	struct weston_test_harness *harness;
 
 	harness = zalloc(sizeof(*harness));
-	test_assert_ptr_not_null(harness);
+	assert_ptr_not_null(harness);
 
 	harness->fixt_ind = -1;
 	harness->case_ind = -1;

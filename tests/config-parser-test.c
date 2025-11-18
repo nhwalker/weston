@@ -43,12 +43,12 @@ load_config(const char *text)
 	FILE *file;
 
 	file = open_memstream(&content, &file_len);
-	test_assert_ptr_not_null(file);
+	assert_ptr_not_null(file);
 
 	write_len = fwrite(text, 1, strlen(text), file);
-	test_assert_int_eq((int)strlen(text), write_len);
+	assert_int_eq((int)strlen(text), write_len);
 
-	test_assert_int_eq(fflush(file), 0);
+	assert_int_eq(fflush(file), 0);
 	fseek(file, 0L, SEEK_SET);
 
 	config = weston_config_parse_fp(file);
@@ -63,7 +63,7 @@ static struct weston_config *
 assert_load_config(const char *text)
 {
 	struct weston_config *config = load_config(text);
-	test_assert_ptr_not_null(config);
+	assert_ptr_not_null(config);
 
 	return config;
 }
@@ -132,7 +132,7 @@ TEST(legit_test01)
 
 	section = weston_config_get_section(config,
 					    "mollusc", NULL, NULL);
-	test_assert_ptr_null(section);
+	assert_ptr_null(section);
 
 	weston_config_destroy(config);
 
@@ -149,8 +149,8 @@ TEST(legit_test02)
 	section = weston_config_get_section(config, "foo", NULL, NULL);
 	r = weston_config_section_get_string(section, "a", &s, NULL);
 
-	test_assert_int_eq(0, r);
-	test_assert_str_eq("b", s);
+	assert_int_eq(0, r);
+	assert_str_eq("b", s);
 
 	free(s);
 	weston_config_destroy(config);
@@ -168,9 +168,9 @@ TEST(legit_test03)
 	section = weston_config_get_section(config, "foo", NULL, NULL);
 	r = weston_config_section_get_string(section, "b", &s, NULL);
 
-	test_assert_int_eq(-1, r);
-	test_assert_errno(ENOENT);
-	test_assert_ptr_null(s);
+	assert_int_eq(-1, r);
+	assert_errno(ENOENT);
+	assert_ptr_null(s);
 
 	weston_config_destroy(config);
 
@@ -187,8 +187,8 @@ TEST(legit_test04)
 	section = weston_config_get_section(config, "foo", NULL, NULL);
 	r = weston_config_section_get_string(section, "name", &s, NULL);
 
-	test_assert_int_eq(0, r);
-	test_assert_str_eq("Roy Batty", s);
+	assert_int_eq(0, r);
+	assert_str_eq("Roy Batty", s);
 
 	free(s);
 	weston_config_destroy(config);
@@ -206,9 +206,9 @@ TEST(legit_test05)
 	section = weston_config_get_section(config, "bar", NULL, NULL);
 	r = weston_config_section_get_string(section, "a", &s, "boo");
 
-	test_assert_int_eq(-1, r);
-	test_assert_errno(ENOENT);
-	test_assert_str_eq("boo", s);
+	assert_int_eq(-1, r);
+	assert_errno(ENOENT);
+	assert_str_eq("boo", s);
 
 	free(s);
 	weston_config_destroy(config);
@@ -226,9 +226,9 @@ TEST(legit_test06)
 	section = weston_config_get_section(config, "bar", NULL, NULL);
 	r = weston_config_section_get_int(section, "number", &n, 600);
 
-	test_assert_int_eq(0, r);
-	test_assert_s32_eq(5252, n);
-	test_assert_errno(0);
+	assert_int_eq(0, r);
+	assert_s32_eq(5252, n);
+	assert_errno(0);
 
 	weston_config_destroy(config);
 
@@ -245,9 +245,9 @@ TEST(legit_test07)
 	section = weston_config_get_section(config, "bar", NULL, NULL);
 	r = weston_config_section_get_int(section, "+++", &n, 700);
 
-	test_assert_int_eq(-1, r);
-	test_assert_errno(ENOENT);
-	test_assert_s32_eq(700, n);
+	assert_int_eq(-1, r);
+	assert_errno(ENOENT);
+	assert_s32_eq(700, n);
 
 	weston_config_destroy(config);
 
@@ -264,9 +264,9 @@ TEST(legit_test08)
 	section = weston_config_get_section(config, "bar", NULL, NULL);
 	r = weston_config_section_get_uint(section, "number", &u, 600);
 
-	test_assert_int_eq(0, r);
-	test_assert_u32_eq(5252, u);
-	test_assert_errno(0);
+	assert_int_eq(0, r);
+	assert_u32_eq(5252, u);
+	assert_errno(0);
 
 	weston_config_destroy(config);
 
@@ -283,9 +283,9 @@ TEST(legit_test09)
 	section = weston_config_get_section(config, "bar", NULL, NULL);
 	r = weston_config_section_get_uint(section, "+++", &u, 600);
 
-	test_assert_int_eq(-1, r);
-	test_assert_errno(ENOENT);
-	test_assert_u32_eq(600, u);
+	assert_int_eq(-1, r);
+	assert_errno(ENOENT);
+	assert_u32_eq(600, u);
 
 	weston_config_destroy(config);
 
@@ -302,8 +302,8 @@ TEST(legit_test10)
 	section = weston_config_get_section(config, "bar", NULL, NULL);
 	r = weston_config_section_get_bool(section, "flag", &b, true);
 
-	test_assert_int_eq(0, r);
-	test_assert_false(b);
+	assert_int_eq(0, r);
+	assert_false(b);
 
 	weston_config_destroy(config);
 
@@ -320,8 +320,8 @@ TEST(legit_test11)
 	section = weston_config_get_section(config, "stuff", NULL, NULL);
 	r = weston_config_section_get_bool(section, "flag", &b, false);
 
-	test_assert_int_eq(0, r);
-	test_assert_true(b);
+	assert_int_eq(0, r);
+	assert_true(b);
 
 	weston_config_destroy(config);
 
@@ -338,9 +338,9 @@ TEST(legit_test12)
 	section = weston_config_get_section(config, "stuff", NULL, NULL);
 	r = weston_config_section_get_bool(section, "bonk", &b, false);
 
-	test_assert_int_eq(-1, r);
-	test_assert_errno(ENOENT);
-	test_assert_false(b);
+	assert_int_eq(-1, r);
+	assert_errno(ENOENT);
+	assert_false(b);
 
 	weston_config_destroy(config);
 
@@ -358,8 +358,8 @@ TEST(legit_test13)
 					    "bucket", "color", "blue");
 	r = weston_config_section_get_string(section, "contents", &s, NULL);
 
-	test_assert_int_eq(0, r);
-	test_assert_str_eq("live crabs", s);
+	assert_int_eq(0, r);
+	assert_str_eq("live crabs", s);
 
 	free(s);
 	weston_config_destroy(config);
@@ -378,8 +378,8 @@ TEST(legit_test14)
 					    "bucket", "color", "red");
 	r = weston_config_section_get_string(section, "contents", &s, NULL);
 
-	test_assert_int_eq(0, r);
-	test_assert_str_eq("sand", s);
+	assert_int_eq(0, r);
+	assert_str_eq("sand", s);
 
 	free(s);
 	weston_config_destroy(config);
@@ -396,12 +396,12 @@ TEST(legit_test15)
 
 	section = weston_config_get_section(config,
 					    "bucket", "color", "pink");
-	test_assert_ptr_null(section);
+	assert_ptr_null(section);
 	r = weston_config_section_get_string(section, "contents", &s, "eels");
 
-	test_assert_int_eq(-1, r);
-	test_assert_errno(ENOENT);
-	test_assert_str_eq("eels", s);
+	assert_int_eq(-1, r);
+	assert_errno(ENOENT);
+	assert_str_eq("eels", s);
 
 	free(s);
 	weston_config_destroy(config);
@@ -422,9 +422,9 @@ TEST(legit_test16)
 	section = NULL;
 	i = 0;
 	while (weston_config_next_section(config, &section, &name))
-		test_assert_str_eq(section_names[i++], name);
+		assert_str_eq(section_names[i++], name);
 
-	test_assert_int_eq(6, i);
+	assert_int_eq(6, i);
 
 	weston_config_destroy(config);
 
@@ -441,9 +441,9 @@ TEST(legit_test17)
 	section = weston_config_get_section(config, "bar", NULL, NULL);
 	r = weston_config_section_get_int(section, "zero", &n, 600);
 
-	test_assert_int_eq(0, r);
-	test_assert_s32_eq(0, n);
-	test_assert_errno(0);
+	assert_int_eq(0, r);
+	assert_s32_eq(0, n);
+	assert_errno(0);
 
 	weston_config_destroy(config);
 
@@ -460,9 +460,9 @@ TEST(legit_test18)
 	section = weston_config_get_section(config, "bar", NULL, NULL);
 	r = weston_config_section_get_uint(section, "zero", &n, 600);
 
-	test_assert_int_eq(0, r);
-	test_assert_u32_eq(0, n);
-	test_assert_errno(0);
+	assert_int_eq(0, r);
+	assert_u32_eq(0, n);
+	assert_errno(0);
 
 	weston_config_destroy(config);
 
@@ -479,9 +479,9 @@ TEST(legit_test19)
 	section = weston_config_get_section(config, "colors", NULL, NULL);
 	r = weston_config_section_get_color(section, "none", &n, 0xff336699);
 
-	test_assert_int_eq(0, r);
-	test_assert_u32_eq(0x000000, n);
-	test_assert_errno(0);
+	assert_int_eq(0, r);
+	assert_u32_eq(0x000000, n);
+	assert_errno(0);
 
 	weston_config_destroy(config);
 
@@ -498,9 +498,9 @@ TEST(legit_test20)
 	section = weston_config_get_section(config, "colors", NULL, NULL);
 	r = weston_config_section_get_color(section, "low", &n, 0xff336699);
 
-	test_assert_int_eq(0, r);
-	test_assert_u32_eq(0x11223344, n);
-	test_assert_errno(0);
+	assert_int_eq(0, r);
+	assert_u32_eq(0x11223344, n);
+	assert_errno(0);
 
 	weston_config_destroy(config);
 
@@ -517,9 +517,9 @@ TEST(legit_test21)
 	section = weston_config_get_section(config, "colors", NULL, NULL);
 	r = weston_config_section_get_color(section, "high", &n, 0xff336699);
 
-	test_assert_int_eq(0, r);
-	test_assert_u32_eq(0xff00ff00, n);
-	test_assert_errno(0);
+	assert_int_eq(0, r);
+	assert_u32_eq(0xff00ff00, n);
+	assert_errno(0);
 
 	weston_config_destroy(config);
 
@@ -537,9 +537,9 @@ TEST(legit_test22)
 	section = weston_config_get_section(config, "colors", NULL, NULL);
 	r = weston_config_section_get_color(section, "oct", &n, 0xff336699);
 
-	test_assert_int_eq(0, r);
-	test_assert_u32_eq(0x01234567, n);
-	test_assert_errno(0);
+	assert_int_eq(0, r);
+	assert_u32_eq(0x01234567, n);
+	assert_errno(0);
 
 	weston_config_destroy(config);
 
@@ -557,9 +557,9 @@ TEST(legit_test23)
 	section = weston_config_get_section(config, "colors", NULL, NULL);
 	r = weston_config_section_get_color(section, "dec", &n, 0xff336699);
 
-	test_assert_int_eq(0, r);
-	test_assert_u32_eq(0x12345670, n);
-	test_assert_errno(0);
+	assert_int_eq(0, r);
+	assert_u32_eq(0x12345670, n);
+	assert_errno(0);
 
 	weston_config_destroy(config);
 
@@ -577,9 +577,9 @@ TEST(legit_test24)
 	section = weston_config_get_section(config, "colors", NULL, NULL);
 	r = weston_config_section_get_color(section, "short", &n, 0xff336699);
 
-	test_assert_int_eq(-1, r);
-	test_assert_u32_eq(0xff336699, n);
-	test_assert_errno(EINVAL);
+	assert_int_eq(-1, r);
+	assert_u32_eq(0xff336699, n);
+	assert_errno(EINVAL);
 
 	weston_config_destroy(config);
 
@@ -597,9 +597,9 @@ TEST(legit_test25)
 	section = weston_config_get_section(config, "bucket", NULL, NULL);
 	r = weston_config_section_get_color(section, "color", &n, 0xff336699);
 
-	test_assert_int_eq(-1, r);
-	test_assert_u32_eq(0xff336699, n);
-	test_assert_errno(EINVAL);
+	assert_int_eq(-1, r);
+	assert_u32_eq(0xff336699, n);
+	assert_errno(EINVAL);
 
 	weston_config_destroy(config);
 
@@ -616,9 +616,9 @@ TEST(legit_test26)
 	section = weston_config_get_section(config, "bar", NULL, NULL);
 	r = weston_config_section_get_int(section, "negative", &n, 600);
 
-	test_assert_int_eq(0, r);
-	test_assert_s32_eq(-42, n);
-	test_assert_errno(0);
+	assert_int_eq(0, r);
+	assert_s32_eq(-42, n);
+	assert_errno(0);
 
 	weston_config_destroy(config);
 
@@ -635,9 +635,9 @@ TEST(legit_test27)
 	section = weston_config_get_section(config, "bar", NULL, NULL);
 	r = weston_config_section_get_uint(section, "negative", &n, 600);
 
-	test_assert_int_eq(-1, r);
-	test_assert_u32_eq(600, n);
-	test_assert_errno(ERANGE);
+	assert_int_eq(-1, r);
+	assert_u32_eq(600, n);
+	assert_errno(ERANGE);
 
 	weston_config_destroy(config);
 
@@ -655,9 +655,9 @@ TEST(get_double_number)
 	section = weston_config_get_section(config, "bar", NULL, NULL);
 	r = weston_config_section_get_double(section, "number", &n, 600.0);
 
-	test_assert_int_eq(0, r);
-	test_assert_f64_eq(5252.0, n);
-	test_assert_errno(0);
+	assert_int_eq(0, r);
+	assert_f64_eq(5252.0, n);
+	assert_errno(0);
 
 	weston_config_destroy(config);
 
@@ -674,9 +674,9 @@ TEST(get_double_missing)
 	section = weston_config_get_section(config, "bar", NULL, NULL);
 	r = weston_config_section_get_double(section, "+++", &n, 600.0);
 
-	test_assert_int_eq(-1, r);
-	test_assert_f64_eq(600.0, n);
-	test_assert_errno(ENOENT);
+	assert_int_eq(-1, r);
+	assert_f64_eq(600.0, n);
+	assert_errno(ENOENT);
 
 	weston_config_destroy(config);
 
@@ -694,9 +694,9 @@ TEST(get_double_zero)
 	section = weston_config_get_section(config, "bar", NULL, NULL);
 	r = weston_config_section_get_double(section, "zero", &n, 600.0);
 
-	test_assert_int_eq(0, r);
-	test_assert_f64_eq(n, 0.0);
-	test_assert_errno(0);
+	assert_int_eq(0, r);
+	assert_f64_eq(n, 0.0);
+	assert_errno(0);
 
 	weston_config_destroy(config);
 
@@ -714,9 +714,9 @@ TEST(get_double_negative)
 	section = weston_config_get_section(config, "bar", NULL, NULL);
 	r = weston_config_section_get_double(section, "negative", &n, 600.0);
 
-	test_assert_int_eq(0, r);
-	test_assert_f64_eq(n, -42.0);
-	test_assert_errno(0);
+	assert_int_eq(0, r);
+	assert_f64_eq(n, -42.0);
+	assert_errno(0);
 
 	weston_config_destroy(config);
 
@@ -734,9 +734,9 @@ TEST(get_double_flag)
 	section = weston_config_get_section(config, "bar", NULL, NULL);
 	r = weston_config_section_get_double(section, "flag", &n, 600.0);
 
-	test_assert_int_eq(-1, r);
-	test_assert_f64_eq(n, 600.0);
-	test_assert_errno(EINVAL);
+	assert_int_eq(-1, r);
+	assert_f64_eq(n, 600.0);
+	assert_errno(EINVAL);
 
 	weston_config_destroy(config);
 
@@ -754,9 +754,9 @@ TEST(get_double_real)
 	section = weston_config_get_section(config, "bar", NULL, NULL);
 	r = weston_config_section_get_double(section, "real", &n, 600.0);
 
-	test_assert_int_eq(0, r);
-	test_assert_f64_eq(4.667, n);
-	test_assert_errno(0);
+	assert_int_eq(0, r);
+	assert_f64_eq(4.667, n);
+	assert_errno(0);
 
 	weston_config_destroy(config);
 
@@ -774,9 +774,9 @@ TEST(get_double_negreal)
 	section = weston_config_get_section(config, "bar", NULL, NULL);
 	r = weston_config_section_get_double(section, "negreal", &n, 600.0);
 
-	test_assert_int_eq(0, r);
-	test_assert_f64_eq(-3.2, n);
-	test_assert_errno(0);
+	assert_int_eq(0, r);
+	assert_f64_eq(-3.2, n);
+	assert_errno(0);
 
 	weston_config_destroy(config);
 
@@ -794,9 +794,9 @@ TEST(get_double_expval)
 	section = weston_config_get_section(config, "bar", NULL, NULL);
 	r = weston_config_section_get_double(section, "expval", &n, 600.0);
 
-	test_assert_int_eq(0, r);
-	test_assert_f64_eq(24.687e+15, n);
-	test_assert_errno(0);
+	assert_int_eq(0, r);
+	assert_f64_eq(24.687e+15, n);
+	assert_errno(0);
 
 	weston_config_destroy(config);
 
@@ -814,9 +814,9 @@ TEST(get_double_negexpval)
 	section = weston_config_get_section(config, "bar", NULL, NULL);
 	r = weston_config_section_get_double(section, "negexpval", &n, 600.0);
 
-	test_assert_int_eq(0, r);
-	test_assert_f64_eq(-3e-2, n);
-	test_assert_errno(0);
+	assert_int_eq(0, r);
+	assert_f64_eq(-3e-2, n);
+	assert_errno(0);
 
 	weston_config_destroy(config);
 
@@ -834,9 +834,9 @@ TEST(get_double_notanumber)
 	section = weston_config_get_section(config, "bar", NULL, NULL);
 	r = weston_config_section_get_double(section, "notanumber", &n, 600.0);
 
-	test_assert_int_eq(0, r);
-	test_assert_true(isnan(n));
-	test_assert_errno(0);
+	assert_int_eq(0, r);
+	assert_true(isnan(n));
+	assert_errno(0);
 
 	weston_config_destroy(config);
 
@@ -854,9 +854,9 @@ TEST(get_double_empty)
 	section = weston_config_get_section(config, "bar", NULL, NULL);
 	r = weston_config_section_get_double(section, "empty", &n, 600.0);
 
-	test_assert_int_eq(0, r);
-	test_assert_f64_eq(0.0, n);
-	test_assert_errno(0);
+	assert_int_eq(0, r);
+	assert_f64_eq(0.0, n);
+	assert_errno(0);
 
 	weston_config_destroy(config);
 
@@ -874,9 +874,9 @@ TEST(get_double_tiny)
 	section = weston_config_get_section(config, "bar", NULL, NULL);
 	r = weston_config_section_get_double(section, "tiny", &n, 600.0);
 
-	test_assert_int_eq(0, r);
-	test_assert_f64_eq(6.3548e-39, n);
-	test_assert_errno(0);
+	assert_int_eq(0, r);
+	assert_f64_eq(6.3548e-39, n);
+	assert_errno(0);
 
 	weston_config_destroy(config);
 
@@ -904,7 +904,7 @@ TEST_P(doesnt_parse, doesnt_parse_test_data)
 {
 	struct doesnt_parse_test *test = (struct doesnt_parse_test *) data;
 	struct weston_config *config = load_config(test->text);
-	test_assert_ptr_null(config);
+	assert_ptr_null(config);
 
 	return RESULT_OK;
 }
@@ -912,7 +912,7 @@ TEST_P(doesnt_parse, doesnt_parse_test_data)
 TEST(destroy_null)
 {
 	weston_config_destroy(NULL);
-	test_assert_int_eq(0, weston_config_next_section(NULL, NULL, NULL));
+	assert_int_eq(0, weston_config_next_section(NULL, NULL, NULL));
 
 	return RESULT_OK;
 }
@@ -921,7 +921,7 @@ TEST(section_from_null)
 {
 	struct weston_config_section *section;
 	section = weston_config_get_section(NULL, "bucket", NULL, NULL);
-	test_assert_ptr_null(section);
+	assert_ptr_null(section);
 
 	return RESULT_OK;
 }
@@ -933,69 +933,69 @@ TEST(parse_comma_separated_list)
 
 	matter = "";
 	strarr = weston_parse_space_separated_list(matter);
-	test_assert_u64_eq(strarr.len, 0);
+	assert_u64_eq(strarr.len, 0);
 
 	matter = "   ";
 	strarr = weston_parse_space_separated_list(matter);
-	test_assert_u64_eq(strarr.len, 0);
+	assert_u64_eq(strarr.len, 0);
 
 	matter = " \t    \t \t";
 	strarr = weston_parse_space_separated_list(matter);
-	test_assert_u64_eq(strarr.len, 0);
+	assert_u64_eq(strarr.len, 0);
 
 	matter = "k";
 	strarr = weston_parse_space_separated_list(matter);
-	test_assert_u64_eq(strarr.len, 1);
-	test_assert_str_eq(strarr.array[0], "k");
+	assert_u64_eq(strarr.len, 1);
+	assert_str_eq(strarr.array[0], "k");
 	weston_string_array_fini(&strarr);
 
 	matter = " k";
 	strarr = weston_parse_space_separated_list(matter);
-	test_assert_u64_eq(strarr.len, 1);
-	test_assert_str_eq(strarr.array[0], "k");
+	assert_u64_eq(strarr.len, 1);
+	assert_str_eq(strarr.array[0], "k");
 	weston_string_array_fini(&strarr);
 
 	matter = "k ";
 	strarr = weston_parse_space_separated_list(matter);
-	test_assert_u64_eq(strarr.len, 1);
-	test_assert_str_eq(strarr.array[0], "k");
+	assert_u64_eq(strarr.len, 1);
+	assert_str_eq(strarr.array[0], "k");
 	weston_string_array_fini(&strarr);
 
 	matter = " k ";
 	strarr = weston_parse_space_separated_list(matter);
-	test_assert_u64_eq(strarr.len, 1);
-	test_assert_str_eq(strarr.array[0], "k");
+	assert_u64_eq(strarr.len, 1);
+	assert_str_eq(strarr.array[0], "k");
 	weston_string_array_fini(&strarr);
 
 	matter = "kissa kassi";
 	strarr = weston_parse_space_separated_list(matter);
-	test_assert_u64_eq(strarr.len, 2);
-	test_assert_str_eq(strarr.array[0], "kissa");
-	test_assert_str_eq(strarr.array[1], "kassi");
+	assert_u64_eq(strarr.len, 2);
+	assert_str_eq(strarr.array[0], "kissa");
+	assert_str_eq(strarr.array[1], "kassi");
 	weston_string_array_fini(&strarr);
 
 	matter = "kissa\tkassi";
 	strarr = weston_parse_space_separated_list(matter);
-	test_assert_u64_eq(strarr.len, 2);
-	test_assert_str_eq(strarr.array[0], "kissa");
-	test_assert_str_eq(strarr.array[1], "kassi");
+	assert_u64_eq(strarr.len, 2);
+	assert_str_eq(strarr.array[0], "kissa");
+	assert_str_eq(strarr.array[1], "kassi");
 	weston_string_array_fini(&strarr);
 
 	matter = "  kissa\t kassi";
 	strarr = weston_parse_space_separated_list(matter);
-	test_assert_u64_eq(strarr.len, 2);
-	test_assert_str_eq(strarr.array[0], "kissa");
-	test_assert_str_eq(strarr.array[1], "kassi");
+	assert_u64_eq(strarr.len, 2);
+	assert_str_eq(strarr.array[0], "kissa");
+	assert_str_eq(strarr.array[1], "kassi");
 	weston_string_array_fini(&strarr);
 
 	matter = " 4.556\ra bab c \nkoe\t";
 	strarr = weston_parse_space_separated_list(matter);
-	test_assert_u64_eq(strarr.len, 5);
-	test_assert_str_eq(strarr.array[0], "4.556");
-	test_assert_str_eq(strarr.array[1], "a");
-	test_assert_str_eq(strarr.array[2], "bab");
-	test_assert_str_eq(strarr.array[3], "c");
-	test_assert_str_eq(strarr.array[4], "koe");
+	assert_u64_eq(strarr.len, 5);
+	assert_str_eq(strarr.array[0], "4.556");
+	assert_str_eq(strarr.array[1], "a");
+	assert_str_eq(strarr.array[2], "bab");
+	assert_str_eq(strarr.array[3], "c");
+	assert_str_eq(strarr.array[4], "koe");
 	weston_string_array_fini(&strarr);
 
 	return RESULT_OK;

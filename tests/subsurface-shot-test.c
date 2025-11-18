@@ -83,18 +83,18 @@ get_subcompositor(struct client *client)
 			continue;
 
 		if (global_sub)
-			test_assert_not_reached("multiple wl_subcompositor objects");
+			assert_not_reached("multiple wl_subcompositor objects");
 
 		global_sub = g;
 	}
 
-	test_assert_ptr_not_null(global_sub);
+	assert_ptr_not_null(global_sub);
 
-	test_assert_u32_eq(global_sub->version, 1);
+	assert_u32_eq(global_sub->version, 1);
 
 	sub = wl_registry_bind(client->wl_registry, global_sub->name,
 			       &wl_subcompositor_interface, 1);
-	test_assert_ptr_not_null(sub);
+	assert_ptr_not_null(sub);
 
 	return sub;
 }
@@ -149,7 +149,7 @@ TEST(subsurface_recursive_unmap)
 	color_rgb888(&green, 0, 255, 0);
 
 	client = create_client_and_test_surface(100, 50, 100, 100);
-	test_assert_ptr_not_null(client);
+	assert_ptr_not_null(client);
 	subco = get_subcompositor(client);
 
 	/* move the pointer clearly away from our screenshooting area */
@@ -200,7 +200,7 @@ TEST(subsurface_recursive_unmap)
 	surf[1] = NULL;
 	fail += check_screen(client, "subsurface_z_order", 0, &clip, 0);
 
-	test_assert_int_eq(fail, 0);
+	assert_int_eq(fail, 0);
 
 	for (i = 0; i < ARRAY_LENGTH(sub); i++)
 		if (sub[i])
@@ -241,7 +241,7 @@ TEST(subsurface_z_order)
 	color_rgb888(&green, 0, 255, 0);
 
 	client = create_client_and_test_surface(100, 50, 100, 100);
-	test_assert_ptr_not_null(client);
+	assert_ptr_not_null(client);
 	subco = get_subcompositor(client);
 
 	/* move the pointer clearly away from our screenshooting area */
@@ -293,7 +293,7 @@ TEST(subsurface_z_order)
 
 	fail += check_screen(client, "subsurface_z_order", 4, &clip, 4);
 
-	test_assert_int_eq(fail, 0);
+	assert_int_eq(fail, 0);
 
 	for (i = 0; i < ARRAY_LENGTH(sub); i++)
 		if (sub[i])
@@ -332,7 +332,7 @@ TEST(subsurface_sync_damage_buffer)
 	color_rgb888(&green, 0, 255, 0);
 
 	client = create_client_and_test_surface(100, 50, 100, 100);
-	test_assert_ptr_not_null(client);
+	assert_ptr_not_null(client);
 	subco = get_subcompositor(client);
 
 	/* move the pointer clearly away from our screenshooting area */
@@ -362,7 +362,7 @@ TEST(subsurface_sync_damage_buffer)
 
 	fail += check_screen(client, "subsurface_sync_damage_buffer", 2, &clip, 2);
 
-	test_assert_int_eq(fail, 0);
+	assert_int_eq(fail, 0);
 
 	for (i = 0; i < ARRAY_LENGTH(sub); i++)
 		if (sub[i])
@@ -404,7 +404,7 @@ TEST(subsurface_empty_mapping)
 	color_rgb888(&green, 0, 255, 0);
 
 	client = create_client_and_test_surface(100, 50, 100, 100);
-	test_assert_ptr_not_null(client);
+	assert_ptr_not_null(client);
 	subco = get_subcompositor(client);
 	viewporter = bind_to_singleton_global(client,
 					      &wp_viewporter_interface, 1);
@@ -493,7 +493,7 @@ TEST(subsurface_empty_mapping)
 
 	fail += check_screen(client, "subsurface_empty_mapping", 1, &clip, 11);
 
-	test_assert_int_eq(fail, 0);
+	assert_int_eq(fail, 0);
 
 	wp_viewport_destroy(viewport);
 
@@ -532,7 +532,7 @@ TEST(subsurface_desync_commit)
 	color_rgb888(&green, 0, 255, 0);
 
 	client = create_client_and_test_surface(100, 50, 100, 100);
-	test_assert_ptr_not_null(client);
+	assert_ptr_not_null(client);
 	subco = get_subcompositor(client);
 
 	/* make the parent surface red */

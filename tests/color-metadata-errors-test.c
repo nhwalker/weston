@@ -190,7 +190,7 @@ mock_cm_get_color_profile_from_params(struct weston_color_manager *cm,
 				      struct weston_color_profile **cprof_out,
 				      char **errmsg)
 {
-	test_assert_not_reached("This cannot be a valid parametric profile.");
+	assert_not_reached("This cannot be a valid parametric profile.");
 }
 
 static void
@@ -234,17 +234,17 @@ TEST_P(color_characteristics_config_error, config_cases)
 
 	wc = create_config(t);
 	section = weston_config_get_section(wc, "output", "name", "mockoutput");
-	test_assert_ptr_not_null(section);
+	assert_ptr_not_null(section);
 
 	retval = wet_output_set_color_characteristics(&mock_output, wc, section);
 
-	test_assert_int_eq(fclose(logfile), 0);
+	assert_int_eq(fclose(logfile), 0);
 	logfile = NULL;
 
 	testlog("retval %d, logs:\n%s\n", retval, logbuf);
 
-	test_assert_int_eq(retval, t->expected_retval);
-	test_assert_int_eq(strcmp(logbuf, t->expected_error), 0);
+	assert_int_eq(retval, t->expected_retval);
+	assert_int_eq(strcmp(logbuf, t->expected_error), 0);
 
 	weston_config_destroy(wc);
 	free(logbuf);
@@ -275,7 +275,7 @@ TEST(weston_output_set_color_characteristics_null)
 
 	mock_output.color_characteristics.group_mask = 1;
 	weston_output_set_color_characteristics(&mock_output, NULL);
-	test_assert_u32_eq(mock_output.color_characteristics.group_mask, 0);
+	assert_u32_eq(mock_output.color_characteristics.group_mask, 0);
 
 	weston_output_release(&mock_output);
 	weston_idalloc_destroy(mock_compositor.color_profile_id_generator);
@@ -360,10 +360,10 @@ TEST_P(hdr_metadata_type1_errors, value_cases)
 	wl_list_init(&mock_compositor.plane_list);
 	weston_output_init(&mock_output, &mock_compositor, "mockoutput");
 
-	test_assert_uint_lt(t->field_index, ARRAY_LENGTH(fields));
+	assert_uint_lt(t->field_index, ARRAY_LENGTH(fields));
 	*fields[t->field_index] = t->value;
 	ret = weston_output_set_color_outcome(&mock_output);
-	test_assert_int_eq(ret, t->retval);
+	assert_int_eq(ret, t->retval);
 
 	weston_output_color_outcome_destroy(&mock_output.color_outcome);
 	weston_output_release(&mock_output);
@@ -408,7 +408,7 @@ TEST(hdr_metadata_type1_ignore_unflagged)
 	weston_output_init(&mock_output, &mock_compositor, "mockoutput");
 
 	ret = weston_output_set_color_outcome(&mock_output);
-	test_assert_true(ret);
+	assert_true(ret);
 
 	weston_output_color_outcome_destroy(&mock_output.color_outcome);
 	weston_output_release(&mock_output);
@@ -650,14 +650,14 @@ TEST_P(mode_config_error, mode_config_cases)
 	weston_head_set_supported_eotf_mask(&mock_head, t->supported_eotf_mask);
 	weston_head_set_supported_colorimetry_mask(&mock_head, t->supported_colorimetry_mask);
 	attached = weston_output_attach_head(&mock_output, &mock_head);
-	test_assert_int_eq(attached, 0);
+	assert_int_eq(attached, 0);
 
 	logfile = open_memstream(&logbuf, &logsize);
 	weston_log_set_handler(logger, logger);
 
 	wc = create_mode_config(t);
 	section = weston_config_get_section(wc, "output", "name", "mockoutput");
-	test_assert_ptr_not_null(section);
+	assert_ptr_not_null(section);
 
 	retval = wet_output_set_eotf_mode(&mock_output, section, t->color_management);
 	if (retval == 0) {
@@ -665,15 +665,15 @@ TEST_P(mode_config_error, mode_config_cases)
 							 t->color_management);
 	}
 
-	test_assert_int_eq(fclose(logfile), 0);
+	assert_int_eq(fclose(logfile), 0);
 	logfile = NULL;
 
 	testlog("retval %d, logs:\n%s\n", retval, logbuf);
 
-	test_assert_int_eq(retval, t->expected_retval);
-	test_assert_int_eq(strcmp(logbuf, t->expected_error), 0);
-	test_assert_enum(weston_output_get_eotf_mode(&mock_output), t->expected_eotf_mode);
-	test_assert_enum(weston_output_get_colorimetry_mode(&mock_output), t->expected_colorimetry_mode);
+	assert_int_eq(retval, t->expected_retval);
+	assert_int_eq(strcmp(logbuf, t->expected_error), 0);
+	assert_enum(weston_output_get_eotf_mode(&mock_output), t->expected_eotf_mode);
+	assert_enum(weston_output_get_colorimetry_mode(&mock_output), t->expected_colorimetry_mode);
 
 	weston_config_destroy(wc);
 	free(logbuf);
@@ -719,14 +719,14 @@ test_creating_output_color_profile(struct weston_config *wc,
 	weston_output_init(&mock_output, &mock_compositor, "mockoutput");
 
 	cprof = wet_create_output_color_profile(&mock_output, wc, profile_name);
-	test_assert_ptr_null(cprof);
+	assert_ptr_null(cprof);
 
-	test_assert_int_eq(fclose(logfile), 0);
+	assert_int_eq(fclose(logfile), 0);
 	logfile = NULL;
 
 	testlog("logs:\n%s\n------\n", logbuf);
 
-	test_assert_str_eq(logbuf, expected_error);
+	assert_str_eq(logbuf, expected_error);
 
 	free(logbuf);
 	weston_output_release(&mock_output);
@@ -910,7 +910,7 @@ TEST_P(parametric_color_profile_parsing_errors, param_config_cases)
 			 cfgln("%s", t->profile_string));
 
 	wc = weston_config_parse(setup.config_file);
-	test_assert_ptr_not_null(wc);
+	assert_ptr_not_null(wc);
 	free(setup.config_file);
 
 	test_creating_output_color_profile(wc, "mydisp",
@@ -959,7 +959,7 @@ TEST_P(parametric_color_profile_parsing_unsupported, param_unsupported_cases)
 			 cfgln("%s", t->profile_string));
 
 	wc = weston_config_parse(setup.config_file);
-	test_assert_ptr_not_null(wc);
+	assert_ptr_not_null(wc);
 	free(setup.config_file);
 
 	test_creating_output_color_profile(wc, "mydisp",

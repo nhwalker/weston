@@ -43,8 +43,8 @@
 #define ASSERT_STR_MATCH(_as, _bs) do { \
 	const char *as = _as; \
 	const char *bs = _bs; \
-	test_assert_true(!!as == !!bs); \
-	test_assert_true(!as || strcmp(as, bs) == 0); \
+	assert_true(!!as == !!bs); \
+	assert_true(!as || strcmp(as, bs) == 0); \
 } while (0)
 
 #define ASSERT_STR_ARRAY_MATCH(_name, _aa, _ba) do { \
@@ -84,7 +84,7 @@ TEST(basic_env)
 	custom_env_set_env_var(&env, "ENV5", "five");
 	custom_env_set_env_var(&env, "ENV3", "four");
 	ASSERT_STR_ARRAY_MATCH("envp", custom_env_get_envp(&env), envp);
-	test_assert_true(env.env_finalized);
+	assert_true(env.env_finalized);
 	custom_env_fini(&env);
 
 	return RESULT_OK;
@@ -101,9 +101,9 @@ TEST(basic_env_arg)
 	custom_env_add_arg(&env, "arg3");
 
 	ASSERT_STR_ARRAY_MATCH("envp", custom_env_get_envp(&env), DEFAULT_ENVP);
-	test_assert_true(env.env_finalized);
+	assert_true(env.env_finalized);
 	ASSERT_STR_ARRAY_MATCH("argp", custom_env_get_argp(&env), argp);
-	test_assert_true(env.arg_finalized);
+	assert_true(env.arg_finalized);
 	custom_env_fini(&env);
 
 	return RESULT_OK;

@@ -61,9 +61,9 @@ check_client_move(struct client *client, int x, int y)
 	move_client_offscreenable(client, x, y);
 
 	if (output_contains_client(client)) {
-		test_assert_ptr_eq(client->surface->output, client->output);
+		assert_ptr_eq(client->surface->output, client->output);
 	} else {
-		test_assert_ptr_null(client->surface->output);
+		assert_ptr_null(client->surface->output);
 	}
 }
 
@@ -73,9 +73,9 @@ TEST(test_surface_output)
 	int x, y;
 
 	client = create_client_and_test_surface(100, 100, 100, 100);
-	test_assert_ptr_not_null(client);
+	assert_ptr_not_null(client);
 
-	test_assert_true(output_contains_client(client));
+	assert_true(output_contains_client(client));
 
 	/* not visible */
 	x = 0;
@@ -100,17 +100,17 @@ TEST(test_surface_output)
 
 	/* visible */
 	check_client_move(client, --x, y);
-	test_assert_true(output_contains_client(client));
+	assert_true(output_contains_client(client));
 
 	/* not visible */
 	x = 0;
 	y = client->output->height;
 	check_client_move(client, x, y);
-	test_assert_false(output_contains_client(client));
+	assert_false(output_contains_client(client));
 
 	/* visible */
 	check_client_move(client, x, --y);
-	test_assert_true(output_contains_client(client));
+	assert_true(output_contains_client(client));
 
 	client_destroy(client);
 
@@ -145,7 +145,7 @@ TEST(buffer_release)
 	color_rgb888(&black, 0, 0, 0);
 
 	client = create_client_and_test_surface(100, 100, 100, 100);
-	test_assert_ptr_not_null(client);
+	assert_ptr_not_null(client);
 	surface = client->surface->wl_surface;
 
 	buf1 = create_shm_buffer_solid(client, 100, 100, &black);
@@ -167,25 +167,25 @@ TEST(buffer_release)
 	frame_callback_set(surface, &frame);
 	wl_surface_commit(surface);
 	frame_callback_wait(client, &frame);
-	test_assert_int_eq(buf1_released, 0);
+	assert_int_eq(buf1_released, 0);
 	/* buf2 may or may not be released */
-	test_assert_int_eq(buf3_released, 0);
+	assert_int_eq(buf3_released, 0);
 
 	wl_surface_attach(surface, buf3->proxy, 0, 0);
 	frame_callback_set(surface, &frame);
 	wl_surface_commit(surface);
 	frame_callback_wait(client, &frame);
-	test_assert_int_eq(buf1_released, 0);
-	test_assert_int_eq(buf2_released, 1);
+	assert_int_eq(buf1_released, 0);
+	assert_int_eq(buf2_released, 1);
 	/* buf3 may or may not be released */
 
 	wl_surface_attach(surface, client->surface->buffer->proxy, 0, 0);
 	frame_callback_set(surface, &frame);
 	wl_surface_commit(surface);
 	frame_callback_wait(client, &frame);
-	test_assert_int_eq(buf1_released, 0);
-	test_assert_int_eq(buf2_released, 1);
-	test_assert_int_eq(buf3_released, 1);
+	assert_int_eq(buf1_released, 0);
+	assert_int_eq(buf2_released, 1);
+	assert_int_eq(buf3_released, 1);
 
 	buffer_destroy(buf1);
 	buffer_destroy(buf2);

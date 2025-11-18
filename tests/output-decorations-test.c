@@ -88,7 +88,7 @@ TEST(output_decorations)
 
 	match = verify_screen_content(client, "output-decorations", 0, NULL, 0,
 				      client->output->name, INCLUDE_DECORATIONS);
-	test_assert_true(match);
+	assert_true(match);
 
 	client_destroy(client);
 

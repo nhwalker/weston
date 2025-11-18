@@ -111,8 +111,8 @@ fill_alpha_pattern(struct buffer *buf)
 	struct image_header ih = image_header_from(buf->image);
 	int y;
 
-	test_assert_enum(ih.pixman_format, PIXMAN_a8r8g8b8);
-	test_assert_int_eq(ih.width, BLOCK_WIDTH * ALPHA_STEPS);
+	assert_enum(ih.pixman_format, PIXMAN_a8r8g8b8);
+	assert_int_eq(ih.width, BLOCK_WIDTH * ALPHA_STEPS);
 
 	for (y = 0; y < ih.height; y++) {
 		uint32_t *row = image_header_get_row_u32(&ih, y);
@@ -199,8 +199,8 @@ get_middle_row(pixman_image_t *image)
 {
 	struct image_header ih = image_header_from(image);
 
-	test_assert_int_ge(ih.width, BLOCK_WIDTH * ALPHA_STEPS);
-	test_assert_int_ge(ih.height, BLOCK_WIDTH);
+	assert_int_ge(ih.width, BLOCK_WIDTH * ALPHA_STEPS);
+	assert_int_ge(ih.height, BLOCK_WIDTH);
 
 	return image_header_get_row_u32(&ih, (BLOCK_WIDTH - 1) / 2);
 }
@@ -353,10 +353,10 @@ TEST(alpha_blend)
 	move_client(client, 0, 0);
 
 	shot = capture_screenshot_of_output(client, NULL, NO_DECORATIONS);
-	test_assert_ptr_not_null(shot);
+	assert_ptr_not_null(shot);
 	match = verify_image(shot->image, "alpha_blend", seq_no, NULL, seq_no);
-	test_assert_true(check_blend_pattern(bg, fg, shot, space));
-	test_assert_true(match);
+	assert_true(check_blend_pattern(bg, fg, shot, space));
+	assert_true(match);
 
 	buffer_destroy(shot);
 

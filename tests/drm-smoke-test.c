@@ -54,7 +54,7 @@ TEST(drm_smoke) {
 	color_rgb888(&red, 255, 0, 0);
 
 	client = create_client_and_test_surface(0, 0, 200, 200);
-	test_assert_ptr_not_null(client);
+	assert_ptr_not_null(client);
 
 	surface = client->surface->wl_surface;
 	buffer = create_shm_buffer_solid(client, 200, 200, &red);
@@ -79,7 +79,7 @@ TEST(drm_screenshot_no_damage) {
 	bool ret;
 
 	client = create_client_and_test_surface(0, 0, 200, 200);
-	test_assert_ptr_not_null(client);
+	assert_ptr_not_null(client);
 
 	/*
 	 * DRM-backend has an optimization to not even call the renderer if
@@ -93,7 +93,7 @@ TEST(drm_screenshot_no_damage) {
 	for (i = 0; i < 5; i++) {
 		ret = verify_screen_content(client, "drm_screenshot_no_damage",
 					    0, NULL, i, NULL, NO_DECORATIONS);
-		test_assert_true(ret);
+		assert_true(ret);
 	}
 
 	client_destroy(client);

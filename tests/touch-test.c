@@ -56,7 +56,7 @@ static struct client *
 create_touch_test_client(void)
 {
 	struct client *cl = create_client_and_test_surface(0, 0, 100, 100);
-	test_assert_ptr_not_null(cl);
+	assert_ptr_not_null(cl);
 	return cl;
 }
 
@@ -115,16 +115,16 @@ TEST(touch_events)
 		input_timestamps_create_for_touch(client);
 
 	send_touch(client, &t1, WL_TOUCH_DOWN);
-	test_assert_s64_eq(touch->down_time_msec, timespec_to_msec(&t1));
-	test_assert_true(timespec_eq(&touch->down_time_timespec, &t1));
+	assert_s64_eq(touch->down_time_msec, timespec_to_msec(&t1));
+	assert_true(timespec_eq(&touch->down_time_timespec, &t1));
 
 	send_touch(client, &t2, WL_TOUCH_MOTION);
-	test_assert_s64_eq(touch->motion_time_msec, timespec_to_msec(&t2));
-	test_assert_true(timespec_eq(&touch->motion_time_timespec, &t2));
+	assert_s64_eq(touch->motion_time_msec, timespec_to_msec(&t2));
+	assert_true(timespec_eq(&touch->motion_time_timespec, &t2));
 
 	send_touch(client, &t3, WL_TOUCH_UP);
-	test_assert_s64_eq(touch->up_time_msec, timespec_to_msec(&t3));
-	test_assert_true(timespec_eq(&touch->up_time_timespec, &t3));
+	assert_s64_eq(touch->up_time_msec, timespec_to_msec(&t3));
+	assert_true(timespec_eq(&touch->up_time_timespec, &t3));
 
 	input_timestamps_destroy(input_ts);
 
@@ -141,14 +141,14 @@ TEST(touch_timestamps_stop_after_input_timestamps_object_is_destroyed)
 		input_timestamps_create_for_touch(client);
 
 	send_touch(client, &t1, WL_TOUCH_DOWN);
-	test_assert_s64_eq(touch->down_time_msec, timespec_to_msec(&t1));
-	test_assert_true(timespec_eq(&touch->down_time_timespec, &t1));
+	assert_s64_eq(touch->down_time_msec, timespec_to_msec(&t1));
+	assert_true(timespec_eq(&touch->down_time_timespec, &t1));
 
 	input_timestamps_destroy(input_ts);
 
 	send_touch(client, &t2, WL_TOUCH_UP);
-	test_assert_s64_eq(touch->up_time_msec, timespec_to_msec(&t2));
-	test_assert_true(timespec_is_zero(&touch->up_time_timespec));
+	assert_s64_eq(touch->up_time_msec, timespec_to_msec(&t2));
+	assert_true(timespec_is_zero(&touch->up_time_timespec));
 
 	client_destroy(client);
 
@@ -163,8 +163,8 @@ TEST(touch_timestamps_stop_after_client_releases_wl_touch)
 		input_timestamps_create_for_touch(client);
 
 	send_touch(client, &t1, WL_TOUCH_DOWN);
-	test_assert_s64_eq(touch->down_time_msec, timespec_to_msec(&t1));
-	test_assert_true(timespec_eq(&touch->down_time_timespec, &t1));
+	assert_s64_eq(touch->down_time_msec, timespec_to_msec(&t1));
+	assert_true(timespec_eq(&touch->down_time_timespec, &t1));
 
 	wl_touch_release(client->input->touch->wl_touch);
 
@@ -175,7 +175,7 @@ TEST(touch_timestamps_stop_after_client_releases_wl_touch)
 	 * event and checking for it here may lead to false negatives. */
 	touch->input_timestamp = t_other;
 	send_touch(client, &t2, WL_TOUCH_UP);
-	test_assert_true(timespec_eq(&touch->input_timestamp, &t_other));
+	assert_true(timespec_eq(&touch->input_timestamp, &t_other));
 
 	input_timestamps_destroy(input_ts);
 

@@ -54,12 +54,12 @@ TEST(vec3_layout)
 	static_assert(sizeof(v) == 3 * sizeof(float), "vec3 storage");
 
 	v = WESTON_VEC3F(1, 2, 3);
-	test_assert_f64_eq(v.x, 1);
-	test_assert_f64_eq(v.y, 2);
-	test_assert_f64_eq(v.z, 3);
+	assert_f64_eq(v.x, 1);
+	assert_f64_eq(v.y, 2);
+	assert_f64_eq(v.z, 3);
 
 	for (i = 0; i < 3; i++)
-		test_assert_f64_eq(v.el[i], i + 1);
+		assert_f64_eq(v.el[i], i + 1);
 
 	return RESULT_OK;
 }
@@ -83,12 +83,12 @@ TEST(mat3_layout)
 
 	for (row = 0; row < 3; row++)
 		for (col = 0; col < 3; col++)
-			test_assert_f64_eq(M.col[col].el[row], 1 + col + 3 * row);
+			assert_f64_eq(M.col[col].el[row], 1 + col + 3 * row);
 
 	M = weston_m3f_transpose(M);
 
 	for (i = 0; i < 9; i++)
-		test_assert_f64_eq(M.colmaj[i], i + 1);
+		assert_f64_eq(M.colmaj[i], i + 1);
 
 	return RESULT_OK;
 }
@@ -101,7 +101,7 @@ TEST(mat3_inf_norm)
 		5, 6, 7
 	);
 
-	test_assert_f64_eq(weston_m3f_inf_norm(M), 42.0);
+	assert_f64_eq(weston_m3f_inf_norm(M), 42.0);
 
 	return RESULT_OK;
 }
@@ -203,7 +203,7 @@ TEST_P(mat3_inversion_precision, matrices3)
 	double err;
 
 	/* Compute rr = M * inv(M) */
-	test_assert_true(weston_m3f_invert(&rr, tm->M));
+	assert_true(weston_m3f_invert(&rr, tm->M));
 	rr = weston_m3f_mul_m3f(tm->M, rr);
 
 	/* Residual: subtract identity matrix (expected result) */
@@ -220,7 +220,7 @@ TEST_P(mat3_inversion_precision, matrices3)
 	if (err > tm->err_limit) {
 		testlog("Error is too high for matrix\n");
 		print_mat3(tm->M);
-		test_assert_true(false);
+		assert_true(false);
 	}
 
 	return RESULT_OK;
@@ -250,13 +250,13 @@ TEST(vec4_layout)
 	static_assert(sizeof(v) == 4 * sizeof(float), "vec4 storage");
 
 	v = WESTON_VEC4F(1, 2, 3, 4);
-	test_assert_f32_eq(v.x, 1);
-	test_assert_f32_eq(v.y, 2);
-	test_assert_f32_eq(v.z, 3);
-	test_assert_f32_eq(v.w, 4);
+	assert_f32_eq(v.x, 1);
+	assert_f32_eq(v.y, 2);
+	assert_f32_eq(v.z, 3);
+	assert_f32_eq(v.w, 4);
 
 	for (i = 0; i < 4; i++)
-		test_assert_f32_eq(v.el[i], i + 1);
+		assert_f32_eq(v.el[i], i + 1);
 
 	return RESULT_OK;
 }
@@ -281,12 +281,12 @@ TEST(mat4_layout)
 
 	for (row = 0; row < 4; row++)
 		for (col = 0; col < 4; col++)
-			test_assert_f32_eq(M.col[col].el[row], 1 + col + 4 * row);
+			assert_f32_eq(M.col[col].el[row], 1 + col + 4 * row);
 
 	M = weston_m4f_transpose(M);
 
 	for (i = 0; i < 16; i++)
-		test_assert_f32_eq(M.colmaj[i], i + 1);
+		assert_f32_eq(M.colmaj[i], i + 1);
 
 	return RESULT_OK;
 }
@@ -299,7 +299,7 @@ TEST(mat4_inf_norm)
 		5, 6, 7, 8,
 		9, 10, 11, 12);
 
-	test_assert_f32_eq(weston_m4f_inf_norm(M), 58.0);
+	assert_f32_eq(weston_m4f_inf_norm(M), 58.0);
 
 	return RESULT_OK;
 }
@@ -448,7 +448,7 @@ TEST_P(mat4_inversion_precision, matrices4)
 	float err;
 
 	/* Compute rr = M * inv(M) */
-	test_assert_true(weston_m4f_invert(&rr, tm->M));
+	assert_true(weston_m4f_invert(&rr, tm->M));
 	rr = weston_m4f_mul_m4f(tm->M, rr);
 
 	/* Residual: subtract identity matrix (expected result) */
@@ -465,7 +465,7 @@ TEST_P(mat4_inversion_precision, matrices4)
 	if (err > tm->err_limit) {
 		testlog("Error is too high for matrix\n");
 		print_mat4(tm->M);
-		test_assert_true(false);
+		assert_true(false);
 	}
 
 	return RESULT_OK;

@@ -189,8 +189,8 @@ handle_events_and_check_flags(struct window_x11 *win, enum w_state flag)
 		if ((wstate->pending_state & flag) == flag)
 			found_pending_flag = true;
 	}
-	test_assert_true(found_pending_flag);
+	assert_true(found_pending_flag);
 
 	handle_events_x11(win);
-	test_assert_true(window_state_has_flag(win, flag));
+	assert_true(window_state_has_flag(win, flag));
 }

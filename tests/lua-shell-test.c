@@ -95,11 +95,11 @@ TEST(four_apps_in_a_square)
 	struct xdg_surface_data *xdg_surface3 = create_xdg_surface(xdg_client);
 	struct xdg_surface_data *xdg_surface4 = create_xdg_surface(xdg_client);
 
-	test_assert_ptr_not_null(xdg_client);
-	test_assert_ptr_not_null(xdg_surface1);
-	test_assert_ptr_not_null(xdg_surface2);
-	test_assert_ptr_not_null(xdg_surface3);
-	test_assert_ptr_not_null(xdg_surface4);
+	assert_ptr_not_null(xdg_client);
+	assert_ptr_not_null(xdg_surface1);
+	assert_ptr_not_null(xdg_surface2);
+	assert_ptr_not_null(xdg_surface3);
+	assert_ptr_not_null(xdg_surface4);
 
 	xdg_surface_make_toplevel(xdg_surface1, "weston.test.lua.one", "one");
 	xdg_surface_wait_configure(xdg_surface1);
@@ -127,8 +127,8 @@ TEST(four_apps_in_a_square)
 		struct weston_output *output = head->output;
 		struct weston_paint_node *pnode = NULL;
 
-		test_assert_enum(breakpoint->template_->breakpoint,
-				 WESTON_TEST_BREAKPOINT_POST_REPAINT);
+		assert_enum(breakpoint->template_->breakpoint,
+			    WESTON_TEST_BREAKPOINT_POST_REPAINT);
 
 		while ((pnode = next_pnode_from_z(output, pnode)) != NULL && i > -1) {
 			struct weston_view *view = pnode->view;
@@ -144,21 +144,21 @@ TEST(four_apps_in_a_square)
 				weston_view_get_pos_offset_global(view);
 			struct app app = apps[i--];
 
-			test_assert_ptr_not_null(pnode);
-			test_assert_ptr_not_null(surface);
-			test_assert_ptr_not_null(view);
-			test_assert_ptr_not_null(buffer);
+			assert_ptr_not_null(pnode);
+			assert_ptr_not_null(surface);
+			assert_ptr_not_null(view);
+			assert_ptr_not_null(buffer);
 
-			test_assert_true(weston_view_is_mapped(view));
-			test_assert_true(weston_surface_is_mapped(surface));
+			assert_true(weston_view_is_mapped(view));
+			assert_true(weston_surface_is_mapped(surface));
 
-			test_assert_str_eq(wds_title, app.title_id);
+			assert_str_eq(wds_title, app.title_id);
 
-			test_assert_int_eq(geom.width, app.width);
-			test_assert_int_eq(geom.height, app.height);
+			assert_int_eq(geom.width, app.width);
+			assert_int_eq(geom.height, app.height);
 
-			test_assert_f32_eq(pos.c.x, app.x);
-			test_assert_f32_eq(pos.c.y, app.y);
+			assert_f32_eq(pos.c.x, app.x);
+			assert_f32_eq(pos.c.y, app.y);
 		}
 	}
 

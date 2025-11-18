@@ -133,7 +133,7 @@ presentation_wait_nofail(struct client *client, enum feedback_result *result)
 {
 	while (*result == FB_PENDING) {
 		if (wl_display_dispatch(client->wl_display) < 0)
-			test_assert_not_reached("Connection error");
+			assert_not_reached("Connection error");
 	}
 }
 
@@ -178,9 +178,9 @@ TEST(drm_offload_fullscreen) {
 	xdg_toplevel_set_fullscreen(xdg_surface->xdg_toplevel, NULL);
 	xdg_surface_wait_configure(xdg_surface);
 
-	test_assert_true(xdg_surface->configure.fullscreen);
-	test_assert_int_gt(xdg_surface->configure.width, 0);
-	test_assert_int_gt(xdg_surface->configure.height, 0);
+	assert_true(xdg_surface->configure.fullscreen);
+	assert_int_gt(xdg_surface->configure.width, 0);
+	assert_int_gt(xdg_surface->configure.height, 0);
 
 	buffer = client_buffer_util_create_dmabuf_buffer(client->wl_display,
 							 client->dmabuf,
@@ -200,7 +200,7 @@ TEST(drm_offload_fullscreen) {
 					      &result);
 	wl_surface_commit(surface);
 	presentation_wait_nofail(client, &result);
-	test_assert_enum(result, FB_PRESENTED_ZERO_COPY);
+	assert_enum(result, FB_PRESENTED_ZERO_COPY);
 
 	client_buffer_util_destroy_buffer(buffer);
 	destroy_xdg_surface(xdg_surface);
@@ -238,9 +238,9 @@ TEST(drm_offload_fullscreen_transparent_overlay) {
 	xdg_toplevel_set_fullscreen(xdg_surface->xdg_toplevel, NULL);
 	xdg_surface_wait_configure(xdg_surface);
 
-	test_assert_true(xdg_surface->configure.fullscreen);
-	test_assert_int_gt(xdg_surface->configure.width, 0);
-	test_assert_int_gt(xdg_surface->configure.height, 0);
+	assert_true(xdg_surface->configure.fullscreen);
+	assert_int_gt(xdg_surface->configure.width, 0);
+	assert_int_gt(xdg_surface->configure.height, 0);
 
 	buffer = client_buffer_util_create_dmabuf_buffer(client->wl_display,
 							 client->dmabuf,
@@ -276,7 +276,7 @@ TEST(drm_offload_fullscreen_transparent_overlay) {
 					      &result);
 	wl_surface_commit(surface);
 	presentation_wait_nofail(client, &result);
-	test_assert_enum(result, FB_PRESENTED_ZERO_COPY);
+	assert_enum(result, FB_PRESENTED_ZERO_COPY);
 
 	wp_viewport_destroy(overlay_viewport);
 	wl_subsurface_destroy(overlay_subsurface);
@@ -314,9 +314,9 @@ TEST(drm_offload_fullscreen_black_background) {
 	xdg_toplevel_set_fullscreen(xdg_surface->xdg_toplevel, NULL);
 	xdg_surface_wait_configure(xdg_surface);
 
-	test_assert_true(xdg_surface->configure.fullscreen);
-	test_assert_int_gt(xdg_surface->configure.width, 0);
-	test_assert_int_gt(xdg_surface->configure.height, 0);
+	assert_true(xdg_surface->configure.fullscreen);
+	assert_int_gt(xdg_surface->configure.width, 0);
+	assert_int_gt(xdg_surface->configure.height, 0);
 
 	buffer = client_buffer_util_create_dmabuf_buffer(client->wl_display,
 							 client->dmabuf,
@@ -336,7 +336,7 @@ TEST(drm_offload_fullscreen_black_background) {
 					      &result);
 	wl_surface_commit(surface);
 	presentation_wait_nofail(client, &result);
-	test_assert_enum(result, FB_PRESENTED_ZERO_COPY);
+	assert_enum(result, FB_PRESENTED_ZERO_COPY);
 
 	client_buffer_util_destroy_buffer(buffer);
 	destroy_xdg_surface(xdg_surface);
@@ -375,9 +375,9 @@ TEST(drm_offload_fullscreen_semi_transparent_black_background) {
 	xdg_toplevel_set_fullscreen(xdg_surface->xdg_toplevel, NULL);
 	xdg_surface_wait_configure(xdg_surface);
 
-	test_assert_true(xdg_surface->configure.fullscreen);
-	test_assert_int_gt(xdg_surface->configure.width, 0);
-	test_assert_int_gt(xdg_surface->configure.height, 0);
+	assert_true(xdg_surface->configure.fullscreen);
+	assert_int_gt(xdg_surface->configure.width, 0);
+	assert_int_gt(xdg_surface->configure.height, 0);
 
 	viewport = wp_viewporter_get_viewport(client->viewporter, surface);
 	wp_viewport_set_destination(viewport,
@@ -415,7 +415,7 @@ TEST(drm_offload_fullscreen_semi_transparent_black_background) {
 	wl_surface_commit(overlay_surface);
 	wl_surface_commit(surface);
 	presentation_wait_nofail(client, &result);
-	test_assert_enum(result, FB_PRESENTED_ZERO_COPY);
+	assert_enum(result, FB_PRESENTED_ZERO_COPY);
 
 	wp_viewport_destroy(viewport);
 	wl_subsurface_destroy(overlay_subsurface);
@@ -460,9 +460,9 @@ TEST(drm_offload_fullscreen_semi_transparent_white_background) {
 	xdg_toplevel_set_fullscreen(xdg_surface->xdg_toplevel, NULL);
 	xdg_surface_wait_configure(xdg_surface);
 
-	test_assert_true(xdg_surface->configure.fullscreen);
-	test_assert_int_gt(xdg_surface->configure.width, 0);
-	test_assert_int_gt(xdg_surface->configure.height, 0);
+	assert_true(xdg_surface->configure.fullscreen);
+	assert_int_gt(xdg_surface->configure.width, 0);
+	assert_int_gt(xdg_surface->configure.height, 0);
 
 	viewport = wp_viewporter_get_viewport(client->viewporter, surface);
 	wp_viewport_set_destination(viewport,
@@ -501,7 +501,7 @@ TEST(drm_offload_fullscreen_semi_transparent_white_background) {
 	wl_surface_commit(overlay_surface);
 	wl_surface_commit(surface);
 	presentation_wait_nofail(client, &result);
-	test_assert_enum(result, FB_PRESENTED);
+	assert_enum(result, FB_PRESENTED);
 
 	wp_viewport_destroy(viewport);
 	wl_subsurface_destroy(overlay_subsurface);
@@ -544,9 +544,9 @@ TEST(drm_offload_fullscreen_black_background_black_subsurface_underlay) {
 	xdg_toplevel_set_fullscreen(xdg_surface->xdg_toplevel, NULL);
 	xdg_surface_wait_configure(xdg_surface);
 
-	test_assert_true(xdg_surface->configure.fullscreen);
-	test_assert_int_gt(xdg_surface->configure.width, 0);
-	test_assert_int_gt(xdg_surface->configure.height, 0);
+	assert_true(xdg_surface->configure.fullscreen);
+	assert_int_gt(xdg_surface->configure.width, 0);
+	assert_int_gt(xdg_surface->configure.height, 0);
 
 	viewport = wp_viewporter_get_viewport(client->viewporter, surface);
 	wp_viewport_set_destination(viewport,
@@ -584,7 +584,7 @@ TEST(drm_offload_fullscreen_black_background_black_subsurface_underlay) {
 	wl_surface_commit(overlay_surface);
 	wl_surface_commit(surface);
 	presentation_wait_nofail(client, &result);
-	test_assert_enum(result, FB_PRESENTED_ZERO_COPY);
+	assert_enum(result, FB_PRESENTED_ZERO_COPY);
 
 	//TODO: check the spb surface for FB_PRESENTED_ZERO_COPY, too (does not yet work).
 
@@ -630,9 +630,9 @@ TEST(drm_offload_fullscreen_black_background_black_subsurface_overlay) {
 	xdg_toplevel_set_fullscreen(xdg_surface->xdg_toplevel, NULL);
 	xdg_surface_wait_configure(xdg_surface);
 
-	test_assert_true(xdg_surface->configure.fullscreen);
-	test_assert_int_gt(xdg_surface->configure.width, 0);
-	test_assert_int_gt(xdg_surface->configure.height, 0);
+	assert_true(xdg_surface->configure.fullscreen);
+	assert_int_gt(xdg_surface->configure.width, 0);
+	assert_int_gt(xdg_surface->configure.height, 0);
 
 	buffer = client_buffer_util_create_dmabuf_buffer(client->wl_display,
 							 client->dmabuf,
@@ -668,7 +668,7 @@ TEST(drm_offload_fullscreen_black_background_black_subsurface_overlay) {
 					      &result);
 	wl_surface_commit(surface);
 	presentation_wait_nofail(client, &result);
-	test_assert_enum(result, FB_PRESENTED);
+	assert_enum(result, FB_PRESENTED);
 
 	wp_viewport_destroy(overlay_viewport);
 	wl_subsurface_destroy(overlay_subsurface);
@@ -715,9 +715,9 @@ TEST(drm_offload_fullscreen_black_background_red_subsurface_underlay) {
 	xdg_toplevel_set_fullscreen(xdg_surface->xdg_toplevel, NULL);
 	xdg_surface_wait_configure(xdg_surface);
 
-	test_assert_true(xdg_surface->configure.fullscreen);
-	test_assert_int_gt(xdg_surface->configure.width, 0);
-	test_assert_int_gt(xdg_surface->configure.height, 0);
+	assert_true(xdg_surface->configure.fullscreen);
+	assert_int_gt(xdg_surface->configure.width, 0);
+	assert_int_gt(xdg_surface->configure.height, 0);
 
 	viewport = wp_viewporter_get_viewport(client->viewporter, surface);
 	wp_viewport_set_destination(viewport,
@@ -755,7 +755,7 @@ TEST(drm_offload_fullscreen_black_background_red_subsurface_underlay) {
 	wl_surface_commit(overlay_surface);
 	wl_surface_commit(surface);
 	presentation_wait_nofail(client, &result);
-	test_assert_enum(result, FB_PRESENTED);
+	assert_enum(result, FB_PRESENTED);
 
 	wp_viewport_destroy(viewport);
 	wl_subsurface_destroy(overlay_subsurface);
@@ -794,9 +794,9 @@ TEST(drm_offload_windowed) {
 	xdg_surface_make_toplevel(xdg_surface, "weston.test.drm-offload", "one");
 	xdg_surface_wait_configure(xdg_surface);
 
-	test_assert_false(xdg_surface->configure.fullscreen);
-	test_assert_int_eq(xdg_surface->configure.width, 0);
-	test_assert_int_eq(xdg_surface->configure.height, 0);
+	assert_false(xdg_surface->configure.fullscreen);
+	assert_int_eq(xdg_surface->configure.width, 0);
+	assert_int_eq(xdg_surface->configure.height, 0);
 
 	buffer = client_buffer_util_create_dmabuf_buffer(client->wl_display,
 							 client->dmabuf,
@@ -816,7 +816,7 @@ TEST(drm_offload_windowed) {
 					      &result);
 	wl_surface_commit(surface);
 	presentation_wait_nofail(client, &result);
-	test_assert_enum(result, FB_PRESENTED);
+	assert_enum(result, FB_PRESENTED);
 
 	client_buffer_util_destroy_buffer(buffer);
 	destroy_xdg_surface(xdg_surface);
@@ -850,9 +850,9 @@ TEST(drm_offload_windowed_shm) {
 	xdg_surface_make_toplevel(xdg_surface, "weston.test.drm-offload", "one");
 	xdg_surface_wait_configure(xdg_surface);
 
-	test_assert_false(xdg_surface->configure.fullscreen);
-	test_assert_int_eq(xdg_surface->configure.width, 0);
-	test_assert_int_eq(xdg_surface->configure.height, 0);
+	assert_false(xdg_surface->configure.fullscreen);
+	assert_int_eq(xdg_surface->configure.width, 0);
+	assert_int_eq(xdg_surface->configure.height, 0);
 
 	buffer = client_buffer_util_create_shm_buffer(client->wl_shm,
 						      fmt_info,
@@ -871,7 +871,7 @@ TEST(drm_offload_windowed_shm) {
 					      &result);
 	wl_surface_commit(surface);
 	presentation_wait_nofail(client, &result);
-	test_assert_enum(result, FB_PRESENTED);
+	assert_enum(result, FB_PRESENTED);
 
 	client_buffer_util_destroy_buffer(buffer);
 	destroy_xdg_surface(xdg_surface);
