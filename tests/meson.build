@@ -248,6 +248,7 @@ tests = [
 		],
 		'dep_objs': [ dep_libweston_public ]
 	},
+	{	'name': 'weston-assert', },
 ]
 
 if get_option('renderer-gl')
