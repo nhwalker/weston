@@ -156,6 +156,13 @@ tests = [
 	{	'name': 'event', },
 	{	'name': 'idalloc', },
 	{
+		'name': 'iterate-debug-scopes',
+		'sources': [
+		  'iterate-debug-scopes-test.c',
+		],
+		'dep_objs': [ dep_libweston_public ]
+	},
+	{
 		'name': 'keyboard',
 		'sources': [
 			'keyboard-test.c',
@@ -239,12 +246,6 @@ tests = [
 	{	'name': 'safe-signal-output-removal',
 		'sources': [
 		  'safe-signal-output-removal-test.c',
-		],
-		'dep_objs': [ dep_libweston_public ]
-	},
-	{	'name': 'iterate-debug-scopes',
-		'sources': [
-		  'iterate-debug-scopes-test.c',
 		],
 		'dep_objs': [ dep_libweston_public ]
 	},
