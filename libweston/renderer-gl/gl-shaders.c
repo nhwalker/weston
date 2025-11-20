@@ -44,7 +44,7 @@
 #include "pixel-formats.h"
 #include "shared/helpers.h"
 #include "shared/timespec-util.h"
-#include "shared/weston-assert.h"
+#include <libweston/weston-assert.h>
 
 /* static const char vertex_shader[]; vertex.glsl */
 #include "vertex-shader.h"

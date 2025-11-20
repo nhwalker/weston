@@ -188,8 +188,8 @@ TEST(find_neighbors_test)
 		find_neighbors(compositor, tests[i].len_lut, tests[i].lut,
 			       tests[i].val, &index_neigh_A, &index_neigh_B);
 
-		test_assert_u32_eq(index_neigh_A, tests[i].index_A);
-		test_assert_u32_eq(index_neigh_B, tests[i].index_B);
+		assert_u32_eq(index_neigh_A, tests[i].index_A);
+		assert_u32_eq(index_neigh_B, tests[i].index_B);
 	}
 
 	return RESULT_OK;
@@ -234,7 +234,7 @@ test_inverse_lut_with_curve(float (*sample_fn)(float))
 		output = weston_inverse_evaluate_lut1d(compositor,
 						       len_lut, lut,
 						       output);
-		test_assert_f32_lt(fabs(input - output), 1e-3);
+		assert_f32_lt(fabs(input - output), 1e-3);
 	}
 
 	return RESULT_OK;
@@ -347,12 +347,12 @@ TEST_P(npm, npm_test_cases)
 	struct weston_mat3f npm_inv;
 	struct weston_mat3f roundtrip;
 
-	test_assert_true(weston_normalized_primary_matrix_init(&npm, &t->gm, WESTON_NPM_FORWARD));
-	test_assert_f32_ge(diff_precision(npm, t->expected), precision_bits);
+	assert_true(weston_normalized_primary_matrix_init(&npm, &t->gm, WESTON_NPM_FORWARD));
+	assert_f32_ge(diff_precision(npm, t->expected), precision_bits);
 
-	test_assert_true(weston_normalized_primary_matrix_init(&npm_inv, &t->gm, WESTON_NPM_INVERSE));
+	assert_true(weston_normalized_primary_matrix_init(&npm_inv, &t->gm, WESTON_NPM_INVERSE));
 	roundtrip = weston_m3f_mul_m3f(npm_inv, npm);
-	test_assert_f32_ge(diff_precision(roundtrip, WESTON_MAT3F_IDENTITY), precision_bits);
+	assert_f32_ge(diff_precision(roundtrip, WESTON_MAT3F_IDENTITY), precision_bits);
 
 	return RESULT_OK;
 }
@@ -370,7 +370,7 @@ TEST(bradform_adaptation_D65_D50)
 	struct weston_mat3f M;
 
 	M = weston_bradford_adaptation(D65, D50);
-	test_assert_f32_ge(diff_precision(M, ref), 13);
+	assert_f32_ge(diff_precision(M, ref), 13);
 
 	return RESULT_OK;
 }

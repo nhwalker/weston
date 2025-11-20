@@ -74,12 +74,12 @@ get_x11_window_name(struct window_x11 *window, xcb_drawable_t win)
 	struct atom_x11 *atoms = window_get_atoms(window);
 
 	reply = window_x11_dump_prop(window, win, atoms->net_wm_name);
-	test_assert_ptr_not_null(reply);
+	assert_ptr_not_null(reply);
 
-	test_assert_true(reply->type == atoms->string ||
-			 reply->type == atoms->utf8_string);
+	assert_true(reply->type == atoms->string ||
+		    reply->type == atoms->utf8_string);
 	reply_len = xcb_get_property_value_length(reply);
-	test_assert_int_gt(reply_len, 0);
+	assert_int_gt(reply_len, 0);
 
 	str_printf(&name, "%.*s", reply_len,
 		   (char *) xcb_get_property_value(reply));
@@ -101,9 +101,9 @@ get_wm_name(struct window_x11 *window)
 				       atoms->net_supporting_wm_check,
 				       XCB_ATOM_WINDOW, 0, 1024);
 	reply = xcb_get_property_reply(conn, prop_cookie, &error);
-	test_assert_ptr_not_null(reply);
-	test_assert_enum(reply->type, XCB_ATOM_WINDOW);
-	test_assert_u8_eq(reply->format, 32);
+	assert_ptr_not_null(reply);
+	assert_enum(reply->type, XCB_ATOM_WINDOW);
+	assert_u8_eq(reply->format, 32);
 
 	xcb_window_t wm_id = *(xcb_window_t *) xcb_get_property_value(reply);
 	wm_name = get_x11_window_name(window, wm_id);
@@ -125,12 +125,12 @@ TEST(xwayland_client_test)
 
 	color_rgb888(&bg_color, 255, 0, 0);
 
-	test_assert_ptr_not_null(getenv("DISPLAY"));
+	assert_ptr_not_null(getenv("DISPLAY"));
 
 	conn = create_x11_connection();
-	test_assert_ptr_not_null(conn);
+	assert_ptr_not_null(conn);
 	window = create_x11_window(100, 100, 100, 100, conn, bg_color, NULL);
-	test_assert_ptr_not_null(window);
+	assert_ptr_not_null(window);
 
 	window_x11_set_win_name(window, "Xwayland Test Window");
 	handle_events_and_check_flags(window, PROPERTY_NAME);
@@ -150,27 +150,27 @@ TEST(xwayland_client_test)
 	 * _NET_SUPPORTING_WM_CHECK
 	 * */
 	atoms = window_get_atoms(window);
-	test_assert_false(atoms->net_supporting_wm_check == XCB_ATOM_NONE);
-	test_assert_false(atoms->wl_surface_id == XCB_ATOM_NONE);
-	test_assert_false(atoms->net_wm_name == XCB_ATOM_NONE);
-	test_assert_false(atoms->utf8_string == XCB_ATOM_NONE);
+	assert_false(atoms->net_supporting_wm_check == XCB_ATOM_NONE);
+	assert_false(atoms->wl_surface_id == XCB_ATOM_NONE);
+	assert_false(atoms->net_wm_name == XCB_ATOM_NONE);
+	assert_false(atoms->utf8_string == XCB_ATOM_NONE);
 
 	reply = window_x11_dump_prop(window, window->root_win_id,
 				     atoms->net_supporting_wm_check);
-	test_assert_ptr_not_null(reply);
-	test_assert_u8_eq(reply->type, XCB_ATOM_WINDOW);
+	assert_ptr_not_null(reply);
+	assert_u8_eq(reply->type, XCB_ATOM_WINDOW);
 	free(reply);
 
 	window_x11_map(window);
 	handle_events_and_check_flags(window, MAPPED);
 
 	win_name = get_x11_window_name(window, window->win_id);
-	test_assert_str_eq(win_name, "Xwayland Test Window");
+	assert_str_eq(win_name, "Xwayland Test Window");
 	free(win_name);
 
 	wm_name = get_wm_name(window);
-	test_assert_ptr_not_null(wm_name);
-	test_assert_str_eq(wm_name, "Weston WM");
+	assert_ptr_not_null(wm_name);
+	assert_str_eq(wm_name, "Weston WM");
 	free(wm_name);
 
 	window_x11_unmap(window);

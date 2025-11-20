@@ -38,7 +38,7 @@
 #include "drm-internal.h"
 #include "pixel-formats.h"
 #include "renderer-gl/gl-renderer.h"
-#include "shared/weston-assert.h"
+#include <libweston/weston-assert.h>
 
 #define POISON_PTR ((void *)8)
 

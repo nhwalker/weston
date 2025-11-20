@@ -33,7 +33,7 @@
 #include "lua-shell.h"
 #include "frontend/weston.h"
 #include "shared/helpers.h"
-#include "shared/weston-assert.h"
+#include <libweston/weston-assert.h>
 #include "shared/xalloc.h"
 #include "libweston/shell-utils.h"
 

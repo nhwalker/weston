@@ -328,20 +328,20 @@ TEST(test_viewporter_source_buffer_params)
 	const int max_scale = 2;
 
 	/* buffer_scale requirement */
-	test_assert_int_eq(WIN_W % max_scale, 0);
-	test_assert_int_eq(WIN_H % max_scale, 0);
+	assert_int_eq(WIN_W % max_scale, 0);
+	assert_int_eq(WIN_H % max_scale, 0);
 
 	/* source rect must fit inside regardless of scale and transform */
-	test_assert_int_lt(SRC_W, WIN_W / max_scale);
-	test_assert_int_lt(SRC_H, WIN_H / max_scale);
-	test_assert_int_lt(SRC_W, WIN_H / max_scale);
-	test_assert_int_lt(SRC_H, WIN_W / max_scale);
+	assert_int_lt(SRC_W, WIN_W / max_scale);
+	assert_int_lt(SRC_H, WIN_H / max_scale);
+	assert_int_lt(SRC_W, WIN_H / max_scale);
+	assert_int_lt(SRC_H, WIN_W / max_scale);
 
 	/* If buffer scale was ignored, source rect should be inside instead */
-	test_assert_int_lt(WIN_W / max_scale + SRC_W + MRG, WIN_W);
-	test_assert_int_lt(WIN_H / max_scale + SRC_H + MRG, WIN_H);
-	test_assert_int_lt(WIN_W / max_scale + SRC_H + MRG, WIN_W);
-	test_assert_int_lt(WIN_H / max_scale + SRC_W + MRG, WIN_H);
+	assert_int_lt(WIN_W / max_scale + SRC_W + MRG, WIN_W);
+	assert_int_lt(WIN_H / max_scale + SRC_H + MRG, WIN_H);
+	assert_int_lt(WIN_W / max_scale + SRC_H + MRG, WIN_W);
+	assert_int_lt(WIN_H / max_scale + SRC_W + MRG, WIN_H);
 
 	return RESULT_OK;
 }

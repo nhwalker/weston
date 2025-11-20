@@ -1,5 +1,5 @@
 /*
- * Copyright 2022 Collabora, Ltd.
+ * Copyright 2022-2025 Collabora, Ltd.
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -32,24 +32,19 @@
 #include <stdbool.h>
 #include <inttypes.h>
 
-struct weston_compositor;
-
-__attribute__((noreturn, format(printf, 2, 3)))
-static inline void
-weston_assert_fail_(const struct weston_compositor *compositor, const char *fmt, ...)
-{
-	va_list ap;
-
-	va_start(ap, fmt);
-	vfprintf(stderr, fmt, ap);
-	va_end(ap);
-
-	abort();
-}
+#include <libweston/libweston.h>
+#include <libweston/weston-log.h>
 
 #ifndef custom_assert_fail_
-#define custom_assert_fail_ weston_assert_fail_
+#error "You need to define custom_assert_fail_ before including this header, maybe in a header of your own."
 #endif
+
+/**
+ * Implementation of assert macros that have a compositor context parameter. See
+ * weston-assert.h, you probably want to import that header in your code. This
+ * should only be imported by those that want to implement their own
+ * custom_assert_fail_.
+ */
 
 #define weston_assert_(compositor, a, b, val_type, val_fmt, cmp)		\
 ({										\

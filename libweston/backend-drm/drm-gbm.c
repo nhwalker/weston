@@ -41,7 +41,7 @@
 #include "pixel-formats.h"
 #include "renderer-gl/gl-renderer.h"
 #include "renderer-vulkan/vulkan-renderer.h"
-#include "shared/weston-assert.h"
+#include <libweston/weston-assert.h>
 #include "shared/weston-egl-ext.h"
 #include "linux-dmabuf.h"
 #include "linux-explicit-synchronization.h"

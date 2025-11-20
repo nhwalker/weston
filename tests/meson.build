@@ -156,6 +156,13 @@ tests = [
 	{	'name': 'event', },
 	{	'name': 'idalloc', },
 	{
+		'name': 'iterate-debug-scopes',
+		'sources': [
+		  'iterate-debug-scopes-test.c',
+		],
+		'dep_objs': [ dep_libweston_public ]
+	},
+	{
 		'name': 'keyboard',
 		'sources': [
 			'keyboard-test.c',
@@ -242,12 +249,7 @@ tests = [
 		],
 		'dep_objs': [ dep_libweston_public ]
 	},
-	{	'name': 'iterate-debug-scopes',
-		'sources': [
-		  'iterate-debug-scopes-test.c',
-		],
-		'dep_objs': [ dep_libweston_public ]
-	},
+	{	'name': 'weston-assert', },
 ]
 
 if get_option('renderer-gl')

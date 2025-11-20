@@ -88,7 +88,7 @@ get_effect_type_str(enum effect_type type)
 	case EFFECT_TYPE_NONE:
 		return NULL;
 	};
-	test_assert_not_reached("unknown color effect");
+	assert_not_reached("unknown color effect");
 }
 
 static enum test_result_code
@@ -126,7 +126,7 @@ TEST(color_effects)
 	int frame;
 
 	client = create_client_and_test_surface(0, 0, width, height);
-	test_assert_ptr_not_null(client);
+	assert_ptr_not_null(client);
 	surface = client->surface->wl_surface;
 
 	/* move pointer away so it does not interfere */
@@ -134,7 +134,7 @@ TEST(color_effects)
 
 	/* buffer with cat image */
 	buffer = client_buffer_from_image_file(client, "colorful-cat", 1);
-	test_assert_ptr_not_null(buffer);
+	assert_ptr_not_null(buffer);
 
 	/* commit buffer */
 	wl_surface_attach(surface, buffer->proxy, 0, 0);

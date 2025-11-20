@@ -91,10 +91,10 @@ pipeline_context_new(void)
 	struct pipeline_context ret;
 
 	ret.context_id = cmsCreateContext(NULL, NULL);
-	test_assert_ptr_not_null(ret.context_id);
+	assert_ptr_not_null(ret.context_id);
 
 	ret.pipeline = cmsPipelineAlloc(ret.context_id, N_CHANNELS, N_CHANNELS);
-	test_assert_ptr_not_null(ret.pipeline);
+	assert_ptr_not_null(ret.pipeline);
 
 	return ret;
 }
@@ -116,15 +116,15 @@ add_curve(struct pipeline_context *pc, cmsInt32Number type,
 	unsigned int i;
 
 	curve = cmsBuildParametricToneCurve(pc->context_id, type, params);
-	test_assert_ptr_not_null(curve);
+	assert_ptr_not_null(curve);
 
 	for (i = 0; i < N_CHANNELS; i++)
 		curveset[i] = curve;
 
 	stage = cmsStageAllocToneCurves(pc->context_id, ARRAY_LENGTH(curveset), curveset);
-	test_assert_ptr_not_null(stage);
+	assert_ptr_not_null(stage);
 
-	test_assert_true(cmsPipelineInsertStage(pc->pipeline, cmsAT_END, stage));
+	assert_true(cmsPipelineInsertStage(pc->pipeline, cmsAT_END, stage));
 
 	cmsFreeToneCurve(curve);
 }
@@ -135,9 +135,9 @@ add_identity_curve(struct pipeline_context *pc)
 	cmsStage *stage;
 
 	stage = cmsStageAllocToneCurves(pc->context_id, N_CHANNELS, NULL);
-	test_assert_ptr_not_null(stage);
+	assert_ptr_not_null(stage);
 
-	test_assert_true(cmsPipelineInsertStage(pc->pipeline, cmsAT_END, stage));
+	assert_true(cmsPipelineInsertStage(pc->pipeline, cmsAT_END, stage));
 }
 
 static void
@@ -147,9 +147,9 @@ add_matrix(struct pipeline_context *pc,
 	cmsStage *stage;
 
 	stage = cmsStageAllocMatrix(pc->context_id, N_CHANNELS, N_CHANNELS, matrix, NULL);
-	test_assert_ptr_not_null(stage);
+	assert_ptr_not_null(stage);
 
-	test_assert_true(cmsPipelineInsertStage(pc->pipeline, cmsAT_END, stage));
+	assert_true(cmsPipelineInsertStage(pc->pipeline, cmsAT_END, stage));
 }
 
 static bool
@@ -177,11 +177,11 @@ TEST(keep_regular_matrix)
 	lcms_optimize_pipeline(&pc.pipeline, pc.context_id);
 
 	elem = cmsPipelineGetPtrToFirstStage(pc.pipeline);
-	test_assert_ptr_not_null(elem);
+	assert_ptr_not_null(elem);
 	data = cmsStageData(elem);
-	test_assert_true(are_matrices_equal(regular_matrix, data->Double));
+	assert_true(are_matrices_equal(regular_matrix, data->Double));
 
-	test_assert_ptr_null(cmsStageNext(elem));
+	assert_ptr_null(cmsStageNext(elem));
 
 	pipeline_context_release(&pc);
 
@@ -197,7 +197,7 @@ TEST(drop_identity_matrix)
 
 	lcms_optimize_pipeline(&pc.pipeline, pc.context_id);
 
-	test_assert_u32_eq(cmsPipelineStageCount(pc.pipeline), 0);
+	assert_u32_eq(cmsPipelineStageCount(pc.pipeline), 0);
 
 	pipeline_context_release(&pc);
 
@@ -215,7 +215,7 @@ TEST(drop_inverse_matrices)
 
 	lcms_optimize_pipeline(&pc.pipeline, pc.context_id);
 
-	test_assert_u32_eq(cmsPipelineStageCount(pc.pipeline), 0);
+	assert_u32_eq(cmsPipelineStageCount(pc.pipeline), 0);
 
 	pipeline_context_release(&pc);
 
@@ -234,7 +234,7 @@ TEST(drop_identity_and_inverse_matrices)
 
 	lcms_optimize_pipeline(&pc.pipeline, pc.context_id);
 
-	test_assert_u32_eq(cmsPipelineStageCount(pc.pipeline), 0);
+	assert_u32_eq(cmsPipelineStageCount(pc.pipeline), 0);
 
 	pipeline_context_release(&pc);
 
@@ -256,11 +256,11 @@ TEST(only_drop_inverse_matrices)
 	lcms_optimize_pipeline(&pc.pipeline, pc.context_id);
 
 	elem = cmsPipelineGetPtrToFirstStage(pc.pipeline);
-	test_assert_ptr_not_null(elem);
+	assert_ptr_not_null(elem);
 	data = cmsStageData(elem);
-	test_assert_true(are_matrices_equal(regular_matrix, data->Double));
+	assert_true(are_matrices_equal(regular_matrix, data->Double));
 
-	test_assert_ptr_null(cmsStageNext(elem));
+	assert_ptr_null(cmsStageNext(elem));
 
 	pipeline_context_release(&pc);
 
@@ -281,11 +281,11 @@ TEST(only_drop_inverse_matrices_another_order)
 	lcms_optimize_pipeline(&pc.pipeline, pc.context_id);
 
 	elem = cmsPipelineGetPtrToFirstStage(pc.pipeline);
-	test_assert_ptr_not_null(elem);
+	assert_ptr_not_null(elem);
 	data = cmsStageData(elem);
-	test_assert_true(are_matrices_equal(regular_matrix, data->Double));
+	assert_true(are_matrices_equal(regular_matrix, data->Double));
 
-	test_assert_ptr_null(cmsStageNext(elem));
+	assert_ptr_null(cmsStageNext(elem));
 
 	pipeline_context_release(&pc);
 
@@ -301,7 +301,7 @@ TEST(drop_identity_curve)
 
 	lcms_optimize_pipeline(&pc.pipeline, pc.context_id);
 
-	test_assert_u32_eq(cmsPipelineStageCount(pc.pipeline), 0);
+	assert_u32_eq(cmsPipelineStageCount(pc.pipeline), 0);
 
 	pipeline_context_release(&pc);
 
@@ -319,7 +319,7 @@ TEST(drop_inverse_curves)
 
 	lcms_optimize_pipeline(&pc.pipeline, pc.context_id);
 
-	test_assert_u32_eq(cmsPipelineStageCount(pc.pipeline), 0);
+	assert_u32_eq(cmsPipelineStageCount(pc.pipeline), 0);
 
 	pipeline_context_release(&pc);
 
@@ -338,7 +338,7 @@ TEST(drop_identity_and_inverse_curves)
 
 	lcms_optimize_pipeline(&pc.pipeline, pc.context_id);
 
-	test_assert_u32_eq(cmsPipelineStageCount(pc.pipeline), 0);
+	assert_u32_eq(cmsPipelineStageCount(pc.pipeline), 0);
 
 	pipeline_context_release(&pc);
 
@@ -356,7 +356,7 @@ TEST(drop_identity_and_inverse_curves_another_order)
 
 	lcms_optimize_pipeline(&pc.pipeline, pc.context_id);
 
-	test_assert_u32_eq(cmsPipelineStageCount(pc.pipeline), 0);
+	assert_u32_eq(cmsPipelineStageCount(pc.pipeline), 0);
 
 	pipeline_context_release(&pc);
 
@@ -376,7 +376,7 @@ are_curveset_curves_equal_to_curve(struct pipeline_context *pc,
 		cmsBuildParametricToneCurve(pc->context_id, curve->type,
 					    curve->params);
 
-	test_assert_u32_eq(curveset_data->nCurves, N_CHANNELS);
+	assert_u32_eq(curveset_data->nCurves, N_CHANNELS);
 
 	for (i = 0; i < N_CHANNELS; i++) {
 		if (!are_curves_equal(curveset_data->TheCurves[i], cms_curve)) {
@@ -401,11 +401,11 @@ TEST(keep_regular_curve)
 	lcms_optimize_pipeline(&pc.pipeline, pc.context_id);
 
 	stage = cmsPipelineGetPtrToFirstStage(pc.pipeline);
-	test_assert_ptr_not_null(stage);
-	test_assert_true(are_curveset_curves_equal_to_curve(&pc, cmsStageData(stage),
-							    &power_law_curve_A));
+	assert_ptr_not_null(stage);
+	assert_true(are_curveset_curves_equal_to_curve(&pc, cmsStageData(stage),
+						       &power_law_curve_A));
 
-	test_assert_ptr_null(cmsStageNext(stage));
+	assert_ptr_null(cmsStageNext(stage));
 
 	pipeline_context_release(&pc);
 
@@ -427,11 +427,11 @@ TEST(do_not_merge_identity_with_parametric)
 	lcms_optimize_pipeline(&pc.pipeline, pc.context_id);
 
 	stage = cmsPipelineGetPtrToFirstStage(pc.pipeline);
-	test_assert_ptr_not_null(stage);
-	test_assert_true(are_curveset_curves_equal_to_curve(&pc, cmsStageData(stage),
-							    &srgb_curve));
+	assert_ptr_not_null(stage);
+	assert_true(are_curveset_curves_equal_to_curve(&pc, cmsStageData(stage),
+						       &srgb_curve));
 
-	test_assert_ptr_null(cmsStageNext(stage));
+	assert_ptr_null(cmsStageNext(stage));
 
 	pipeline_context_release(&pc);
 
@@ -455,11 +455,11 @@ TEST(merge_power_law_curves_with_itself)
 	lcms_optimize_pipeline(&pc.pipeline, pc.context_id);
 
 	stage = cmsPipelineGetPtrToFirstStage(pc.pipeline);
-	test_assert_ptr_not_null(stage);
-	test_assert_true(are_curveset_curves_equal_to_curve(&pc, cmsStageData(stage),
-							    &result_curve));
+	assert_ptr_not_null(stage);
+	assert_true(are_curveset_curves_equal_to_curve(&pc, cmsStageData(stage),
+						       &result_curve));
 
-	test_assert_ptr_null(cmsStageNext(stage));
+	assert_ptr_null(cmsStageNext(stage));
 
 	pipeline_context_release(&pc);
 
@@ -483,11 +483,11 @@ TEST(merge_power_law_curves_with_another)
 	lcms_optimize_pipeline(&pc.pipeline, pc.context_id);
 
 	stage = cmsPipelineGetPtrToFirstStage(pc.pipeline);
-	test_assert_ptr_not_null(stage);
-	test_assert_true(are_curveset_curves_equal_to_curve(&pc, cmsStageData(stage),
-							    &result_curve));
+	assert_ptr_not_null(stage);
+	assert_true(are_curveset_curves_equal_to_curve(&pc, cmsStageData(stage),
+						       &result_curve));
 
-	test_assert_ptr_null(cmsStageNext(stage));
+	assert_ptr_null(cmsStageNext(stage));
 
 	pipeline_context_release(&pc);
 

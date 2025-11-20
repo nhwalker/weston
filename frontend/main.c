@@ -55,7 +55,6 @@
 #include "shared/process-util.h"
 #include "shared/string-helpers.h"
 #include "shared/xalloc.h"
-#include "shared/weston-assert.h"
 #include "git-version.h"
 #include <libweston/version.h>
 #include "weston.h"
@@ -69,6 +68,7 @@
 #include <libweston/backend-x11.h>
 #include <libweston/backend-wayland.h>
 #include <libweston/windowed-output-api.h>
+#include <libweston/weston-assert.h>
 #include <libweston/weston-log.h>
 #include <libweston/remoting-plugin.h>
 #include <libweston/pipewire-plugin.h>
@@ -5377,8 +5377,7 @@ wet_main(int argc, char *argv[], const struct weston_testsuite_data *test_data)
 		return EXIT_FAILURE;
 	}
 
-	log_scope = weston_log_ctx_add_log_scope(log_ctx, "log",
-			"Weston and Wayland log\n", NULL, NULL, NULL);
+	log_scope = weston_log_ctx_get_default_log_scope(log_ctx);
 
 	if (!weston_log_file_open(log))
 		return EXIT_FAILURE;
@@ -5701,8 +5700,6 @@ out_signals:
 	wl_display_destroy(display);
 
 out_display:
-	weston_log_scope_destroy(log_scope);
-	log_scope = NULL;
 	weston_log_subscriber_destroy(logger);
 	if (flight_rec)
 		weston_log_subscriber_destroy(flight_rec);

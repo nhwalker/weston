@@ -62,10 +62,10 @@ iterate_debug_scopes(struct weston_compositor *compositor)
 		const char *desc_name;
 
 		scope_name = weston_log_scope_get_name(nscope);
-		test_assert_ptr_not_null(scope_name);
+		assert_ptr_not_null(scope_name);
 
 		desc_name = weston_log_scope_get_description(nscope);
-		test_assert_ptr_not_null(desc_name);
+		assert_ptr_not_null(desc_name);
 
 		weston_log("\tscope name: %s, desc: %s\n", scope_name, desc_name);
 
@@ -74,7 +74,7 @@ iterate_debug_scopes(struct weston_compositor *compositor)
 	}
 	weston_log("\n");
 
-	test_assert_true(found_test_harness_debug_scope);
+	assert_true(found_test_harness_debug_scope);
 }
 
 PLUGIN_TEST(iterate_default_debug_scopes)

@@ -86,43 +86,43 @@ PLUGIN_TEST(color_characteristics_from_weston_ini)
 		}
 	}
 
-	test_assert_ptr_not_null(output);
+	assert_ptr_not_null(output);
 
 	mode = weston_output_get_eotf_mode(output);
-	test_assert_enum(mode, WESTON_EOTF_MODE_ST2084);
+	assert_enum(mode, WESTON_EOTF_MODE_ST2084);
 
 	colorimetry_mode = weston_output_get_colorimetry_mode(output);
-	test_assert_enum(colorimetry_mode, WESTON_COLORIMETRY_MODE_BT2020_RGB);
+	assert_enum(colorimetry_mode, WESTON_COLORIMETRY_MODE_BT2020_RGB);
 
 	cc = weston_output_get_color_characteristics(output);
-	test_assert_enum(cc->group_mask, WESTON_COLOR_CHARACTERISTICS_GROUP_ALL_MASK);
-	test_assert_f32_eq(cc->primary[0].x, 0.9999f);
-	test_assert_f32_eq(cc->primary[0].y, 0.3f);
-	test_assert_f32_eq(cc->primary[1].x, 0.1771f);
-	test_assert_f32_eq(cc->primary[1].y, 0.80001f);
-	test_assert_f32_eq(cc->primary[2].x, 0.1f);
-	test_assert_f32_eq(cc->primary[2].y, 0.11f);
-	test_assert_f32_eq(cc->white.x, 0.313f);
-	test_assert_f32_eq(cc->white.y, 0.323f);
-	test_assert_f32_eq(cc->min_luminance, 0.0001f);
-	test_assert_f32_eq(cc->max_luminance, 65535.0f);
-	test_assert_f32_eq(cc->maxFALL, 1000.0f);
+	assert_enum(cc->group_mask, WESTON_COLOR_CHARACTERISTICS_GROUP_ALL_MASK);
+	assert_f32_eq(cc->primary[0].x, 0.9999f);
+	assert_f32_eq(cc->primary[0].y, 0.3f);
+	assert_f32_eq(cc->primary[1].x, 0.1771f);
+	assert_f32_eq(cc->primary[1].y, 0.80001f);
+	assert_f32_eq(cc->primary[2].x, 0.1f);
+	assert_f32_eq(cc->primary[2].y, 0.11f);
+	assert_f32_eq(cc->white.x, 0.313f);
+	assert_f32_eq(cc->white.y, 0.323f);
+	assert_f32_eq(cc->min_luminance, 0.0001f);
+	assert_f32_eq(cc->max_luminance, 65535.0f);
+	assert_f32_eq(cc->maxFALL, 1000.0f);
 
 	/* The below is color manager policy. */
 	hdr_meta = weston_output_get_hdr_metadata_type1(output);
-	test_assert_enum(hdr_meta->group_mask, WESTON_HDR_METADATA_TYPE1_GROUP_ALL_MASK);
-	test_assert_f32_eq(hdr_meta->primary[0].x, 0.9999f);
-	test_assert_f32_eq(hdr_meta->primary[0].y, 0.3f);
-	test_assert_f32_eq(hdr_meta->primary[1].x, 0.1771f);
-	test_assert_f32_eq(hdr_meta->primary[1].y, 0.80001f);
-	test_assert_f32_eq(hdr_meta->primary[2].x, 0.1f);
-	test_assert_f32_eq(hdr_meta->primary[2].y, 0.11f);
-	test_assert_f32_eq(hdr_meta->white.x, 0.313f);
-	test_assert_f32_eq(hdr_meta->white.y, 0.323f);
-	test_assert_f32_eq(hdr_meta->minDML, 0.0001f);
-	test_assert_f32_eq(hdr_meta->maxDML, 65535.0f);
-	test_assert_f32_eq(hdr_meta->maxCLL, 65535.0f);
-	test_assert_f32_eq(hdr_meta->maxFALL, 1000.0f);
+	assert_enum(hdr_meta->group_mask, WESTON_HDR_METADATA_TYPE1_GROUP_ALL_MASK);
+	assert_f32_eq(hdr_meta->primary[0].x, 0.9999f);
+	assert_f32_eq(hdr_meta->primary[0].y, 0.3f);
+	assert_f32_eq(hdr_meta->primary[1].x, 0.1771f);
+	assert_f32_eq(hdr_meta->primary[1].y, 0.80001f);
+	assert_f32_eq(hdr_meta->primary[2].x, 0.1f);
+	assert_f32_eq(hdr_meta->primary[2].y, 0.11f);
+	assert_f32_eq(hdr_meta->white.x, 0.313f);
+	assert_f32_eq(hdr_meta->white.y, 0.323f);
+	assert_f32_eq(hdr_meta->minDML, 0.0001f);
+	assert_f32_eq(hdr_meta->maxDML, 65535.0f);
+	assert_f32_eq(hdr_meta->maxCLL, 65535.0f);
+	assert_f32_eq(hdr_meta->maxFALL, 1000.0f);
 
 	return RESULT_OK;
 }

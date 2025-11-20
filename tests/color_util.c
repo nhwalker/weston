@@ -71,10 +71,10 @@ ensure_unit_range(float v)
 	const float lim_lo = -tol;
 	const float lim_hi = 1.0f + tol;
 
-	test_assert_f32_ge(v, lim_lo);
+	assert_f32_ge(v, lim_lo);
 	if (v < 0.0f)
 		return 0.0f;
-	test_assert_f32_le(v, lim_hi);
+	assert_f32_le(v, lim_hi);
 	if (v > 1.0f)
 		return 1.0f;
 	return v;
@@ -218,11 +218,11 @@ find_tone_curve_info(enum transfer_fn fn)
 {
 	const struct tone_curve_info *tc;
 
-	test_assert_int_ge(fn, 0);
-	test_assert_int_lt(fn, ARRAY_LENGTH(tone_curves));
+	assert_int_ge(fn, 0);
+	assert_int_lt(fn, ARRAY_LENGTH(tone_curves));
 
 	tc = &tone_curves[fn];
-	test_assert_int_eq(fn, tc->fn);
+	assert_int_eq(fn, tc->fn);
 
 	return tc;
 }
@@ -233,7 +233,7 @@ find_tone_curve_type(enum transfer_fn fn, int *type, double params[5])
 	const struct tone_curve_info *t;
 
 	t = find_tone_curve_info(fn);
-	test_assert_ptr_not_null(t);
+	assert_ptr_not_null(t);
 
 	*type = t->lcms2.type;
 	memcpy(params, t->lcms2.param, sizeof (t->lcms2.param));
@@ -455,7 +455,7 @@ rgb_diff_stat_print(const struct rgb_diff_stat *stat,
 	float scale = exp2f(scaling_bits) - 1.0f;
 	unsigned i;
 
-	test_assert_uint_gt(scaling_bits, 0);
+	assert_uint_gt(scaling_bits, 0);
 
 	testlog("%s error statistics, %u samples, value range 0.0 - %.1f:\n",
 		title, stat->two_norm.count, scale);

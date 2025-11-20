@@ -60,7 +60,7 @@ assert_vertices(const struct clipper_vertex *clipped, int clipped_n,
 	int first, i, j;
 
 	/* Is the number of clipped vertices correct? */
-	test_assert_int_eq(clipped_n, expected_n);
+	assert_int_eq(clipped_n, expected_n);
 
 	for (first = 0; first < clipped_n; first++)
 		if (clipper_float_difference(clipped[first].x, expected[0].x) == 0.0f &&
@@ -68,13 +68,13 @@ assert_vertices(const struct clipper_vertex *clipped, int clipped_n,
 			break;
 
 	/* Have we found the first expected vertex? */
-	test_assert_true(!clipped_n || first != clipped_n);
+	assert_true(!clipped_n || first != clipped_n);
 
 	/* Do the remaining vertices match? */
 	for (i = 1; i < clipped_n; i++) {
 		j = (i + first) % clipped_n;
-		test_assert_f32_eq(clipper_float_difference(clipped[j].x, expected[i].x), 0.0f);
-		test_assert_f32_eq(clipper_float_difference(clipped[j].y, expected[i].y), 0.0f);
+		assert_f32_eq(clipper_float_difference(clipped[j].x, expected[i].x), 0.0f);
+		assert_f32_eq(clipper_float_difference(clipped[j].y, expected[i].y), 0.0f);
 	}
 }
 
@@ -767,14 +767,14 @@ TEST_P(quad_clip_box32_expected, quad_clip_box32_expected_data)
 
 TEST(float_difference_different)
 {
-	test_assert_f32_eq(clipper_float_difference(1.0f, 0.0f), 1.0f);
+	assert_f32_eq(clipper_float_difference(1.0f, 0.0f), 1.0f);
 
 	return RESULT_OK;
 }
 
 TEST(float_difference_same)
 {
-	test_assert_f32_eq(clipper_float_difference(1.0f, 1.0f), 0.0f);
+	assert_f32_eq(clipper_float_difference(1.0f, 1.0f), 0.0f);
 
 	return RESULT_OK;
 }

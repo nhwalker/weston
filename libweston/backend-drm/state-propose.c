@@ -43,7 +43,7 @@
 #include "presentation-time-server-protocol.h"
 #include "linux-dmabuf-unstable-v1-server-protocol.h"
 #include "shared/string-helpers.h"
-#include "shared/weston-assert.h"
+#include <libweston/weston-assert.h>
 
 enum drm_output_propose_state_mode {
 	DRM_OUTPUT_PROPOSE_STATE_MIXED, /**< mix renderer & planes */

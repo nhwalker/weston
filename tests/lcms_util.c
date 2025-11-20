@@ -188,7 +188,7 @@ build_MPE_curve(cmsContext ctx, enum transfer_fn fn)
 	case TRANSFER_FN_SRGB_INVERSE:
 		return build_MPE_curve_sRGB_inv(ctx);
 	default:
-		test_assert_not_reached("unimplemented MPE curve");
+		assert_not_reached("unimplemented MPE curve");
 	}
 
 	return NULL;
@@ -203,7 +203,7 @@ build_MPE_curve_stage(cmsContext context_id, enum transfer_fn fn)
 	c = build_MPE_curve(context_id, fn);
 	stage = cmsStageAllocToneCurves(context_id, 3,
 					(cmsToneCurve *[3]){ c, c, c });
-	test_assert_ptr_not_null(stage);
+	assert_ptr_not_null(stage);
 	cmsFreeToneCurve(c);
 
 	return stage;
@@ -282,7 +282,7 @@ roundtrip_verification(cmsPipeline *DToB, cmsPipeline *BToD, float tolerance)
 	cmsPipelineFree(pip);
 
 	rgb_diff_stat_print(&stat, "DToB->BToD roundtrip", 8);
-	test_assert_f32_lt(stat.two_norm.max, tolerance);
+	assert_f32_lt(stat.two_norm.max, tolerance);
 }
 
 static const struct weston_vec3f PCS_BLACK = WESTON_VEC3F(
@@ -372,7 +372,7 @@ create_cLUT_from_transform(cmsContext context_id, const cmsHTRANSFORM t,
 	struct transform_sampler_context tsc;
 	cmsStage *cLUT_stage;
 
-	test_assert_int_ne(dim_size, 0);
+	assert_int_ne(dim_size, 0);
 
 	tsc.t = t;
 	tsc.dir = dir;
@@ -407,7 +407,7 @@ vcgt_tag_add_to_profile(cmsContext context_id, cmsHPROFILE profile,
 	for (i = 0; i < COLOR_CHAN_NUM; i++)
 		vcgt_tag_curves[i] = cmsBuildGamma(context_id, vcgt_exponents[i]);
 
-	test_assert_true(cmsWriteTag(profile, cmsSigVcgtTag, vcgt_tag_curves));
+	assert_true(cmsWriteTag(profile, cmsSigVcgtTag, vcgt_tag_curves));
 
 	cmsFreeToneCurveTriple(vcgt_tag_curves);
 }
@@ -438,7 +438,7 @@ build_lcms_clut_profile_output(cmsContext context_id,
 	linear_device = cmsCreateRGBProfileTHR(context_id, &wp_d65,
 					       &pipeline->prim_output,
 					       identity_curves);
-	test_assert_true(cmsIsMatrixShaper(linear_device));
+	assert_true(cmsIsMatrixShaper(linear_device));
 	cmsFreeToneCurve(identity_curves[0]);
 
 	pcs = cmsCreateXYZProfileTHR(context_id);
@@ -564,10 +564,10 @@ build_lcms_matrix_shaper_profile_output(cmsContext context_id,
 					    (-1) * type_inverse_tone_curve,
 					    inverse_tone_curve_param);
 
-	test_assert_ptr_not_null(arr_curves[0]);
+	assert_ptr_not_null(arr_curves[0]);
 	hRGB = cmsCreateRGBProfileTHR(context_id, &wp_d65,
 				      &pipeline->prim_output, arr_curves);
-	test_assert_ptr_not_null(hRGB);
+	assert_ptr_not_null(hRGB);
 
 	vcgt_tag_add_to_profile(context_id, hRGB, vcgt_exponents);
 

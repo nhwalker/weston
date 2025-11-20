@@ -201,7 +201,7 @@ TEST(output_damage)
 
 	ret = asprintf(&refname, "output-damage_%d-%s",
 		       oargs->scale, oargs->transform_name);
-	test_assert_int_ne(ret, 0);
+	assert_int_ne(ret, 0);
 
 	testlog("%s: %s\n", get_test_name(), refname);
 
@@ -228,7 +228,7 @@ TEST(output_damage)
 		}
 	}
 
-	test_assert_true(match);
+	assert_true(match);
 
 	for (i = 0; i < COUNT_BUFS; i++)
 		buffer_destroy(buf[i]);

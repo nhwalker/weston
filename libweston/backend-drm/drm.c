@@ -56,7 +56,7 @@
 #include "shared/helpers.h"
 #include "shared/timespec-util.h"
 #include "shared/string-helpers.h"
-#include "shared/weston-assert.h"
+#include <libweston/weston-assert.h>
 #include "shared/weston-drm-fourcc.h"
 #include "shared/xalloc.h"
 #include "output-capture.h"

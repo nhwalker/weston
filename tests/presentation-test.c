@@ -63,18 +63,18 @@ get_presentation(struct client *client)
 			continue;
 
 		if (global_pres)
-			test_assert_not_reached("multiple presentation objects");
+			assert_not_reached("multiple presentation objects");
 
 		global_pres = g;
 	}
 
-	test_assert_ptr_not_null(global_pres);
+	assert_ptr_not_null(global_pres);
 
-	test_assert_u32_eq(global_pres->version, 1);
+	assert_u32_eq(global_pres->version, 1);
 
 	pres = wl_registry_bind(client->wl_registry, global_pres->name,
 				&wp_presentation_interface, 1);
-	test_assert_ptr_not_null(pres);
+	assert_ptr_not_null(pres);
 
 	return pres;
 }
@@ -103,7 +103,7 @@ feedback_sync_output(void *data,
 {
 	struct feedback *fb = data;
 
-	test_assert_enum(fb->result, FB_PENDING);
+	assert_enum(fb->result, FB_PENDING);
 
 	if (output)
 		fb->sync_output = output;
@@ -122,7 +122,7 @@ feedback_presented(void *data,
 {
 	struct feedback *fb = data;
 
-	test_assert_enum(fb->result, FB_PENDING);
+	assert_enum(fb->result, FB_PENDING);
 	fb->result = FB_PRESENTED;
 	fb->seq = u64_from_u32s(seq_hi, seq_lo);
 	timespec_from_proto(&fb->time, tv_sec_hi, tv_sec_lo, tv_nsec);
@@ -136,7 +136,7 @@ feedback_discarded(void *data,
 {
 	struct feedback *fb = data;
 
-	test_assert_enum(fb->result, FB_PENDING);
+	assert_enum(fb->result, FB_PENDING);
 	fb->result = FB_DISCARDED;
 }
 
@@ -165,7 +165,7 @@ static void
 feedback_wait(struct feedback *fb)
 {
 	while (fb->result == FB_PENDING) {
-		test_assert_int_ge(wl_display_dispatch(fb->client->wl_display), 0);
+		assert_int_ge(wl_display_dispatch(fb->client->wl_display), 0);
 	}
 }
 
@@ -230,7 +230,7 @@ TEST(test_presentation_feedback_simple)
 	struct wp_presentation *pres;
 
 	client = create_client_and_test_surface(100, 50, 123, 77);
-	test_assert_ptr_not_null(client);
+	assert_ptr_not_null(client);
 	pres = get_presentation(client);
 
 	wl_surface_attach(client->surface->wl_surface,

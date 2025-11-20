@@ -117,9 +117,9 @@ create_xdg_surface(struct xdg_client *xdg_client)
 {
 	struct xdg_surface_data *xdg_surface = xzalloc(sizeof(*xdg_surface));
 
-	test_assert_ptr_not_null(xdg_surface);
+	assert_ptr_not_null(xdg_surface);
 	xdg_surface->surface = create_test_surface(xdg_client->client);
-	test_assert_ptr_not_null(xdg_surface->surface);
+	assert_ptr_not_null(xdg_surface->surface);
 
 	xdg_surface->xdg_surface =
 		xdg_wm_base_get_xdg_surface(xdg_client->xdg_wm_base,
@@ -146,7 +146,7 @@ xdg_surface_make_toplevel(struct xdg_surface_data *xdg_surface,
 {
 	xdg_surface->xdg_toplevel =
 		xdg_surface_get_toplevel(xdg_surface->xdg_surface);
-	test_assert_ptr_not_null(xdg_surface->xdg_toplevel);
+	assert_ptr_not_null(xdg_surface->xdg_toplevel);
 	xdg_toplevel_add_listener(xdg_surface->xdg_toplevel,
 				  &xdg_toplevel_listener, xdg_surface);
 	xdg_toplevel_set_app_id(xdg_surface->xdg_toplevel, app_id);
@@ -158,7 +158,7 @@ xdg_surface_wait_configure(struct xdg_surface_data *xdg_surface)
 {
 	wl_surface_commit(xdg_surface->surface->wl_surface);
 	wl_display_roundtrip(xdg_surface->surface->client->wl_display);
-	test_assert_u32_gt(xdg_surface->configure.serial, 0);
+	assert_u32_gt(xdg_surface->configure.serial, 0);
 }
 
 void
@@ -193,7 +193,7 @@ xdg_surface_commit_solid(struct xdg_surface_data *xdg_surface,
 	color_rgb888(&color, r, g, b);
 	buf = create_shm_buffer_solid(xdg_surface->surface->client,
 				      width, height, &color);
-	test_assert_ptr_not_null(buf);
+	assert_ptr_not_null(buf);
 	xdg_surface->surface->buffer = buf;
 
 	wl_surface_attach(xdg_surface->surface->wl_surface, buf->proxy, 0, 0);
@@ -213,14 +213,14 @@ create_xdg_client(void)
 {
 	struct xdg_client *xdg_client = xzalloc(sizeof(*xdg_client));
 
-	test_assert_ptr_not_null(xdg_client);
+	assert_ptr_not_null(xdg_client);
 	xdg_client->client = create_client();
-	test_assert_ptr_not_null(xdg_client->client);
+	assert_ptr_not_null(xdg_client->client);
 
 	xdg_client->xdg_wm_base = bind_to_singleton_global(xdg_client->client,
 							   &xdg_wm_base_interface,
 							   5);
-	test_assert_ptr_not_null(xdg_client->xdg_wm_base);
+	assert_ptr_not_null(xdg_client->xdg_wm_base);
 	xdg_wm_base_add_listener(xdg_client->xdg_wm_base, &xdg_wm_base_listener,
 				 xdg_client);
 

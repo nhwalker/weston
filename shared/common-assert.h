@@ -1,5 +1,5 @@
 /*
- * Copyright 2025 Collabora, Ltd.
+ * Copyright © 2025 Collabora, Ltd.
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -23,33 +23,29 @@
  * SOFTWARE.
  */
 
-#include "config.h"
+#pragma once
 
-#include "id-number-allocator.h"
-#include "weston-test-client-helper.h"
-#include "weston-test-assert.h"
+#define custom_assert_fail_ assert_fail
 
-/*
- * Allocating IDs without ever releasing any in between must produce a
- * consecutive sequence starting from 1. 0 is not a valid id.
- * Tests reallocation of the bucket array.
+#include "assert-implementation.h"
+
+/**
+ * This is a set of assert macros intended for code that do *not* have a
+ * compositor context, such as tests, clients, etc. These macros differ from the
+ * ones from weston-assert.h, which requires a compositor context parameter and
+ * is meant to be used inside libweston or by users that can supply that
+ * context.
+ *
+ * DO NOT USE WITHIN LIBWESTON!
  */
-TEST(test_sequential_ids)
+
+__attribute__((format(printf, 1, 2)))
+static inline void
+assert_fail(const char *fmt, ...)
 {
-	struct weston_idalloc *ida;
-	unsigned i;
+	va_list ap;
 
-	ida = weston_idalloc_create(NULL);
-
-	for (i = 1; i < 10000; i++)
-		assert_u32_eq(weston_idalloc_get_id(ida), i);
-
-	/* Additional testing of lowest_free_bucket manipulation. */
-	weston_idalloc_put_id(ida, 99);
-	assert_u32_eq(weston_idalloc_get_id(ida), 99);
-	assert_u32_eq(weston_idalloc_get_id(ida), 10000);
-
-	weston_idalloc_destroy(ida);
-
-	return RESULT_OK;
+	va_start(ap, fmt);
+	vfprintf(stderr, fmt, ap);
+	va_end(ap);
 }

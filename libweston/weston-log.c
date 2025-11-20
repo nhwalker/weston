@@ -26,6 +26,7 @@
 
 #include "config.h"
 
+#include <libweston/weston-log-assert.h>
 #include <libweston/weston-log.h>
 #include "shared/helpers.h"
 #include <libweston/libweston.h>
@@ -68,6 +69,13 @@
 struct weston_log_context {
 	struct wl_global *global;
 	struct wl_listener compositor_destroy_listener;
+
+	/**
+	 * Default scope 'log', used by weston_log(). Matches lifetime of the
+	 * ctx that owns it.
+	 */
+	struct weston_log_scope *default_scope;
+
 	struct wl_list scope_list; /**< weston_log_scope::compositor_link */
 	struct wl_list pending_subscription_list; /**< weston_log_subscription::source_link */
 	struct wl_list advertised_debug_list; /** weston_debug_scope_advertised::link */
@@ -82,6 +90,7 @@ struct weston_log_context {
  * @ingroup log
  */
 struct weston_log_scope {
+	struct weston_log_context *owner;
 	char *name;
 	char *desc;
 	weston_log_scope_cb new_subscription;
@@ -428,8 +437,15 @@ weston_log_ctx_create(void)
 	wl_list_init(&log_ctx->compositor_destroy_listener.link);
 	wl_list_init(&log_ctx->advertised_debug_list);
 
+	log_ctx->default_scope = weston_log_ctx_add_log_scope(log_ctx, "log",
+							      "Weston and Wayland log\n",
+							      NULL, NULL, NULL);
+
 	return log_ctx;
 }
+
+static void
+scope_destroy(struct weston_log_scope *scope);
 
 /** Destroy weston_log_context structure
  *
@@ -450,6 +466,7 @@ weston_log_ctx_destroy(struct weston_log_context *log_ctx)
 
 	weston_log_ctx_disable_debug_protocol(log_ctx);
 
+	scope_destroy(log_ctx->default_scope);
 	wl_list_for_each(scope, &log_ctx->scope_list, compositor_link)
 		fprintf(stderr, "Internal warning: debug scope '%s' has not been destroyed.\n",
 			   scope->name);
@@ -554,6 +571,27 @@ weston_log_scope_to_be_advertised(struct weston_log_context *ctx, const char *na
 	return false;
 }
 
+/**
+ * Get the default log scope of a context, named \c 'log'.
+ *
+ * This scope is created automatically when a \c log_ctx is initialized. Its
+ * lifetime is tied to that of the context that owns it. Users should not
+ * destroy it, it gets destroyed automatically with the \c log_ctx.
+ *
+ * This scope is used by weston_log() for generic logging.
+ *
+ * \param log_ctx The log context that owns the scope.
+ * \return The default log scope of the log context.
+ *
+ * @memberof weston_log_scope
+ * @sa weston_log_scope_cb, weston_log_subscribe
+ */
+WL_EXPORT struct weston_log_scope *
+weston_log_ctx_get_default_log_scope(struct weston_log_context *log_ctx)
+{
+	return log_ctx->default_scope;
+}
+
 /** Register a new stream name, creating a log scope.
  *
  * @param log_ctx The weston_log_context where to add.
@@ -623,6 +661,9 @@ weston_log_ctx_add_log_scope(struct weston_log_context *log_ctx,
 		return NULL;
 	}
 
+	if (strcmp(name, "log") == 0 && log_ctx->default_scope)
+		return log_ctx->default_scope;
+
 	if (weston_log_get_scope(log_ctx, name)){
 		fprintf(stderr, "Error: debug scope named '%s' is already registered.\n",
 			   name);
@@ -636,6 +677,7 @@ weston_log_ctx_add_log_scope(struct weston_log_context *log_ctx,
 		return NULL;
 	}
 
+	scope->owner = log_ctx;
 	scope->name = strdup(name);
 	scope->desc = strdup(description);
 	scope->new_subscription = new_subscription;
@@ -729,6 +771,20 @@ weston_destroy_scopes_from_advertised_list(struct weston_log_context *ctx)
 
 }
 
+static void
+scope_destroy(struct weston_log_scope *scope)
+{
+	struct weston_log_subscription *sub, *sub_tmp;
+
+	wl_list_for_each_safe(sub, sub_tmp, &scope->subscription_list, source_link)
+		weston_log_subscription_destroy(sub);
+
+	wl_list_remove(&scope->compositor_link);
+	free(scope->name);
+	free(scope->desc);
+	free(scope);
+}
+
 /** Destroy a log scope
  *
  * @param scope The log scope to destroy; may be NULL.
@@ -741,18 +797,14 @@ weston_destroy_scopes_from_advertised_list(struct weston_log_context *ctx)
 WL_EXPORT void
 weston_log_scope_destroy(struct weston_log_scope *scope)
 {
-	struct weston_log_subscription *sub, *sub_tmp;
-
 	if (!scope)
 		return;
 
-	wl_list_for_each_safe(sub, sub_tmp, &scope->subscription_list, source_link)
-		weston_log_subscription_destroy(sub);
+	/* Don't destroy default scope; lifetime matches its log_ctx owner. */
+	if (scope == scope->owner->default_scope)
+		return;
 
-	wl_list_remove(&scope->compositor_link);
-	free(scope->name);
-	free(scope->desc);
-	free(scope);
+	scope_destroy(scope);
 }
 
 /** Are there any active subscriptions to the scope?

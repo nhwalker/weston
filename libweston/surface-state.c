@@ -30,11 +30,11 @@
 
 #include <libweston/libweston.h>
 #include "libweston-internal.h"
+#include <libweston/weston-assert.h>
 
 #include "backend.h"
 #include "pixel-formats.h"
 #include "shared/fd-util.h"
-#include "shared/weston-assert.h"
 #include "timeline.h"
 #include "weston-trace.h"
 
