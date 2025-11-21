@@ -3000,8 +3000,9 @@ weston_buffer_release_move(struct weston_buffer_release_reference *dest,
 }
 
 WL_EXPORT struct weston_buffer_reference *
-weston_buffer_create_solid_rgba(struct weston_compositor *compositor,
-				float r, float g, float b, float a)
+weston_buffer_create_solid_image(struct weston_compositor *compositor,
+				 struct weston_image *image,
+				 float r, float g, float b, float a)
 {
 	struct weston_buffer_reference *ret = zalloc(sizeof(*ret));
 	struct weston_buffer *buffer;
@@ -3024,6 +3025,7 @@ weston_buffer_create_solid_rgba(struct weston_compositor *compositor,
 	buffer->solid.g = g;
 	buffer->solid.b = b;
 	buffer->solid.a = a;
+	buffer->solid.image = image;
 
 	if (a == 1.0) {
 		buffer->pixel_format =
@@ -3037,6 +3039,13 @@ weston_buffer_create_solid_rgba(struct weston_compositor *compositor,
 	weston_buffer_reference(ret, buffer, BUFFER_MAY_BE_ACCESSED);
 
 	return ret;
+}
+
+WL_EXPORT struct weston_buffer_reference *
+weston_buffer_create_solid_rgba(struct weston_compositor *compositor,
+				float r, float g, float b, float a)
+{
+	return weston_buffer_create_solid_image(compositor, NULL, r, g, b, a);
 }
 
 WL_EXPORT void

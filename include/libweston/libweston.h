@@ -1511,6 +1511,7 @@ struct weston_compositor {
 
 struct weston_solid_buffer_values {
 	float r, g, b, a;
+	struct weston_image *image;
 };
 
 struct weston_buffer {
@@ -2234,6 +2235,11 @@ weston_surface_set_color_profile(struct weston_surface *surface,
 
 struct weston_view *
 weston_view_create(struct weston_surface *surface);
+
+struct weston_buffer_reference *
+weston_buffer_create_solid_image(struct weston_compositor *compositor,
+				 struct weston_image *image,
+				 float r, float g, float b, float a);
 
 struct weston_buffer_reference *
 weston_buffer_create_solid_rgba(struct weston_compositor *compositor,
