@@ -34,6 +34,7 @@
 #include "frontend/weston.h"
 #include "libweston/libweston.h"
 #include "shared/helpers.h"
+#include "shared/image-loader.h"
 #include <libweston/shell-utils.h>
 
 #include <libweston/xwayland-api.h>
@@ -687,24 +688,37 @@ kiosk_shell_output_recreate_background(struct kiosk_shell_output *shoutput)
 	struct weston_output *output = shoutput->output;
 	struct weston_config_section *shell_section = NULL;
 	uint32_t bg_color = 0x0;
+	char *bg_image = NULL;
 	struct weston_curtain_params curtain_params = {};
 
 	if (shoutput->curtain)
 		weston_shell_utils_curtain_destroy(shoutput->curtain);
+
+	if (shoutput->background)
+		weston_image_destroy(shoutput->background);
+
+	shoutput->background = NULL;
 
 	if (!output)
 		return;
 
 	if (shell->config)
 		shell_section = weston_config_get_section(shell->config, "shell", NULL, NULL);
-	if (shell_section)
+	if (shell_section) {
 		weston_config_section_get_color(shell_section, "background-color",
 						&bg_color, 0x00000000);
+		weston_config_section_get_string(shell_section, "background-image",
+						 &bg_image, NULL);
+	}
 
 	curtain_params.r = ((bg_color >> 16) & 0xff) / 255.0;
 	curtain_params.g = ((bg_color >> 8) & 0xff) / 255.0;
 	curtain_params.b = ((bg_color >> 0) & 0xff) / 255.0;
 	curtain_params.a = 1.0;
+
+	shoutput->background = weston_image_load(bg_image, WESTON_IMAGE_LOAD_IMAGE);
+	curtain_params.image = shoutput->background;
+	free(bg_image);
 
 	curtain_params.pos = output->pos;
 	curtain_params.width = output->width;
@@ -736,6 +750,9 @@ kiosk_shell_output_destroy(struct kiosk_shell_output *shoutput)
 
 	if (shoutput->curtain)
 		weston_shell_utils_curtain_destroy(shoutput->curtain);
+
+	if (shoutput->background)
+		weston_image_destroy(shoutput->background);
 
 	wl_list_remove(&shoutput->output_destroy_listener.link);
 	wl_list_remove(&shoutput->link);
