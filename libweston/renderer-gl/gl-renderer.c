@@ -60,6 +60,7 @@
 
 #include "shared/fd-util.h"
 #include "shared/helpers.h"
+#include "shared/image-loader.h"
 #include "shared/platform.h"
 #include "shared/string-helpers.h"
 #include "shared/timespec-util.h"
@@ -2058,6 +2059,97 @@ clear_region(struct gl_renderer *gr, struct weston_paint_node *pnode,
 }
 
 static void
+repaint_solid_image(struct weston_paint_node *pnode,
+		    struct gl_shader_config *sconf,
+		    pixman_region32_t *damage)
+{
+	struct gl_renderer *gr = get_renderer(pnode->surface->compositor);
+	struct gl_surface_state *gs = get_surface_state(pnode->surface);
+	struct weston_image *image = gs->buffer_ref.buffer->solid.image;
+	struct gl_shader_config alt = *sconf;
+	pixman_region32_t image_damage;
+	GLfloat x, y, width, height;
+	GLuint texture;
+
+	if (!image)
+		return;
+
+	if (gs->buffer->shader_variant != SHADER_VARIANT_SOLID)
+		return;
+
+	width = pixman_image_get_width(image->pixman_image);
+	height = pixman_image_get_height(image->pixman_image);
+	x = (pnode->surface->width - width) / 2.0f;
+	y = (pnode->surface->height - height) / 2.0f;
+
+	pixman_region32_init(&image_damage);
+	pixman_region32_intersect_rect(&image_damage, damage, x, y, width, height);
+	if (!pixman_region32_not_empty(&image_damage)) {
+		pixman_region32_fini(&image_damage);
+		return;
+	}
+
+	glGenTextures(1, &texture);
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, texture);
+
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0,
+		     GL_BGRA_EXT, GL_UNSIGNED_BYTE,
+		     pixman_image_get_data(image->pixman_image));
+
+	alt.req = (struct gl_shader_requirements) {
+		.variant = SHADER_VARIANT_RGBA,
+		.input_is_premult = true,
+		.texcoord_input = SHADER_TEXCOORD_INPUT_ATTRIB,
+	},
+	alt.input_tex[0] = texture;
+
+	if (gl_renderer_use_program(gr, &alt)) {
+		GLfloat *position, *texcoord;
+		pixman_box32_t *rects;
+		int n_rects, i;
+
+		glEnableVertexAttribArray(SHADER_ATTRIB_LOC_TEXCOORD);
+
+		position = (GLfloat[8]) {
+			x, y,
+			x + width, y,
+			x + width, y + height,
+			x, y + height,
+		};
+		glVertexAttribPointer(SHADER_ATTRIB_LOC_POSITION, 2, GL_FLOAT,
+				      GL_FALSE, 0, position);
+
+		texcoord = (GLfloat[8]) {
+			0.0f, 0.0f,
+			1.0f, 0.0f,
+			1.0f, 1.0f,
+			0.0f, 1.0f,
+		};
+		glVertexAttribPointer(SHADER_ATTRIB_LOC_TEXCOORD, 2, GL_FLOAT,
+				      GL_FALSE, 0, texcoord);
+
+		glEnable(GL_SCISSOR_TEST);
+		rects = pixman_region32_rectangles(&image_damage, &n_rects);
+		for (i = 0; i < n_rects; i++) {
+			int32_t scissor_x = rects[i].x1;
+			int32_t scissor_y = pnode->output->height - rects[i].y2;
+			int32_t scissor_width = rects[i].x2 - rects[i].x1;
+			int32_t scissor_height = rects[i].y2 - rects[i].y1;
+
+			glScissor(scissor_x, scissor_y, scissor_width, scissor_height);
+			glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+		}
+		glDisable(GL_SCISSOR_TEST);
+
+		glDisableVertexAttribArray(SHADER_ATTRIB_LOC_TEXCOORD);
+	}
+
+	glDeleteTextures(1, &texture);
+	pixman_region32_fini(&image_damage);
+}
+
+static void
 draw_paint_node(struct weston_paint_node *pnode,
 		pixman_region32_t *damage /* in global coordinates */)
 {
@@ -2134,6 +2226,8 @@ draw_paint_node(struct weston_paint_node *pnode,
 			       false);
 		gs->used_in_output_repaint = true;
 	}
+
+	repaint_solid_image(pnode, &sconf, &repaint);
 
 	if (quads)
 		free(quads);
