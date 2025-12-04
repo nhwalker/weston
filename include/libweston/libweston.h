@@ -1794,6 +1794,8 @@ struct weston_view {
 
 	bool is_mapped;
 	struct weston_log_pacer subsurface_parent_log_pacer;
+
+	struct weston_cached_string scene_graph_record;
 };
 
 enum weston_surface_status {

@@ -104,6 +104,9 @@
 
 #define DEFAULT_REPAINT_WINDOW 7 /* milliseconds */
 
+static struct weston_layer *
+get_view_layer(struct weston_view *view);
+
 static void
 weston_output_transform_scale_init(struct weston_output *output,
 				   uint32_t transform, uint32_t scale);
@@ -740,6 +743,39 @@ weston_output_mode_switch_to_temporary(struct weston_output *output,
 	return 0;
 }
 
+static void
+weston_view_debug_string_regenerate(FILE *fp, void *data)
+{
+	struct weston_view *ev = data;
+	pixman_box32_t *box;
+
+	if (!weston_view_is_mapped(ev))
+		fprintf(fp, "\t[view is not mapped!]\n");
+	if (wl_list_empty(&ev->layer_link.link)) {
+		if (!get_view_layer(ev))
+			fprintf(fp, "\t[view is not part of any layer]\n");
+		else
+			fprintf(fp, "\t[view is under parent view layer]\n");
+	}
+
+	box = pixman_region32_extents(&ev->transform.boundingbox);
+	fprintf(fp, "\t\tposition: (%d, %d) -> (%d, %d)\n",
+		box->x1, box->y1, box->x2, box->y2);
+	box = pixman_region32_extents(&ev->transform.opaque);
+
+	if (weston_view_is_opaque(ev, &ev->transform.boundingbox)) {
+		fprintf(fp, "\t\t[fully opaque]\n");
+	} else if (!pixman_region32_not_empty(&ev->transform.opaque)) {
+		fprintf(fp, "\t\t[not opaque]\n");
+	} else {
+		fprintf(fp, "\t\t[opaque: (%d, %d) -> (%d, %d)]\n",
+			box->x1, box->y1, box->x2, box->y2);
+	}
+
+	if (ev->alpha < 1.0)
+		fprintf(fp, "\t\talpha: %f\n", ev->alpha);
+}
+
 static struct weston_view *
 weston_view_create_internal(struct weston_surface *surface)
 {
@@ -776,6 +812,9 @@ weston_view_create_internal(struct weston_surface *surface)
 	pixman_region32_init(&view->geometry.scissor);
 	pixman_region32_init(&view->transform.boundingbox);
 	view->transform.dirty = 1;
+
+	view->scene_graph_record.regen =
+		weston_view_debug_string_regenerate;
 	weston_view_update_transform(view);
 
 	return view;
@@ -2015,6 +2054,8 @@ weston_view_update_transform_internal(struct weston_view *view)
 			 geometry.parent_link) {
 		weston_view_update_transform(child);
 	}
+
+	weston_cached_str_invalidate(&view->scene_graph_record);
 }
 
 WL_EXPORT void
@@ -2651,6 +2692,7 @@ weston_view_unmap(struct weston_view *view)
 	}
 
 	weston_view_destroy_paint_nodes(view);
+	weston_cached_str_invalidate(&view->scene_graph_record);
 
 	wl_signal_emit_mutable(&view->unmap_signal, view);
 	view->surface->compositor->view_list_needs_rebuild = true;
@@ -2723,6 +2765,7 @@ weston_view_destroy(struct weston_view *view)
 	wl_list_remove(&view->surface_link);
 
 	free(view->internal_name);
+	free(view->scene_graph_record.cached_str);
 	free(view);
 }
 
@@ -9683,36 +9726,11 @@ debug_scene_view_print(FILE *fp, struct weston_view *view)
 {
 	struct weston_compositor *ec = view->surface->compositor;
 	struct weston_output *output;
-	pixman_box32_t *box;
 
 	fprintf(fp, "\tView %s %s\n", view->internal_name,
 		weston_cached_str_get(&view->surface->scene_graph_record, view->surface));
 
-	if (!weston_view_is_mapped(view))
-		fprintf(fp, "\t[view is not mapped!]\n");
-	if (wl_list_empty(&view->layer_link.link)) {
-		if (!get_view_layer(view))
-			fprintf(fp, "\t[view is not part of any layer]\n");
-		else
-			fprintf(fp, "\t[view is under parent view layer]\n");
-	}
-
-	box = pixman_region32_extents(&view->transform.boundingbox);
-	fprintf(fp, "\t\tposition: (%d, %d) -> (%d, %d)\n",
-		box->x1, box->y1, box->x2, box->y2);
-	box = pixman_region32_extents(&view->transform.opaque);
-
-	if (weston_view_is_opaque(view, &view->transform.boundingbox)) {
-		fprintf(fp, "\t\t[fully opaque]\n");
-	} else if (!pixman_region32_not_empty(&view->transform.opaque)) {
-		fprintf(fp, "\t\t[not opaque]\n");
-	} else {
-		fprintf(fp, "\t\t[opaque: (%d, %d) -> (%d, %d)]\n",
-			box->x1, box->y1, box->x2, box->y2);
-	}
-
-	if (view->alpha < 1.0)
-		fprintf(fp, "\t\talpha: %f\n", view->alpha);
+	fputs(weston_cached_str_get(&view->scene_graph_record, view), fp);
 
 	if (view->output_mask != 0) {
 		fprintf(fp, "\t\tpaint nodes:\n");
