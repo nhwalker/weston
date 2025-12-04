@@ -992,7 +992,7 @@ weston_surface_debug_string_regenerate(FILE *fp, void *data)
 	}
 
 	fprintf(fp, "(role %s, PID %d, '%s'):",
-		 surface->role_name ?: "none", pid, desc);
+		 weston_surface_get_role(surface), pid, desc);
 
 	if (!weston_surface_is_mapped(surface))
 		fprintf(fp, "\t[surface is not mapped!]\n");
@@ -5468,7 +5468,7 @@ weston_surface_set_role(struct weston_surface *surface,
 WL_EXPORT const char *
 weston_surface_get_role(struct weston_surface *surface)
 {
-	return surface->role_name;
+	return surface->role_name ?: "none";
 }
 
 WL_EXPORT void
