@@ -973,6 +973,29 @@ weston_surface_update_preferred_color_profile(struct weston_surface *surface)
 	weston_surface_send_preferred_image_description_changed(surface);
 }
 
+static void
+weston_surface_debug_string_regenerate(FILE *fp, void *data)
+{
+	struct weston_surface *surface = data;
+	pid_t pid = 0;
+	char desc[512];
+
+	if (surface->resource) {
+		struct wl_resource *resource = surface->resource;
+		wl_client_get_credentials(wl_resource_get_client(resource),
+					  &pid, NULL, NULL);
+	}
+
+	if (!surface->get_label ||
+	    surface->get_label(surface, desc, sizeof(desc)) < 0) {
+		strcpy(desc, "[no description available]");
+	}
+
+	fprintf(fp, "(role %s, PID %d, '%s'):",
+		 surface->role_name ?: "none", pid, desc);
+
+}
+
 WL_EXPORT struct weston_surface *
 weston_surface_create(struct weston_compositor *compositor,
 		      struct weston_client *client)
@@ -1044,6 +1067,9 @@ weston_surface_create(struct weston_compositor *compositor,
 	weston_reset_color_representation(&surface->color_representation);
 
 	wl_list_init(&surface->fifo_barrier_link);
+
+	surface->scene_graph_record.regen =
+		weston_surface_debug_string_regenerate;
 
 	return surface;
 }
@@ -2779,6 +2805,7 @@ weston_surface_unref(struct weston_surface *surface)
 	wl_list_remove(&surface->fifo_barrier_link);
 
 	free(surface->internal_name);
+	free(surface->scene_graph_record.cached_str);
 	free(surface);
 }
 
@@ -5446,6 +5473,8 @@ weston_surface_set_label_func(struct weston_surface *surface,
 	surface->get_label = desc;
 	weston_timeline_refresh_subscription_objects(surface->compositor,
 						     surface);
+
+	weston_cached_str_invalidate(&surface->scene_graph_record);
 }
 
 /** Get the size of surface contents
@@ -9648,24 +9677,10 @@ debug_scene_view_print(FILE *fp, struct weston_view *view)
 {
 	struct weston_compositor *ec = view->surface->compositor;
 	struct weston_output *output;
-	char desc[512];
 	pixman_box32_t *box;
-	pid_t pid = 0;
 
-	if (view->surface->resource) {
-		struct wl_resource *resource = view->surface->resource;
-		wl_client_get_credentials(wl_resource_get_client(resource),
-					  &pid, NULL, NULL);
-	}
-
-	if (!view->surface->get_label ||
-	    view->surface->get_label(view->surface, desc, sizeof(desc)) < 0) {
-		strcpy(desc, "[no description available]");
-	}
-	fprintf(fp, "\tView %s (role %s, PID %d, '%s'):\n",
-		view->internal_name,
-		view->surface->role_name ?: "none",
-		pid, desc);
+	fprintf(fp, "\tView %s %s\n", view->internal_name,
+		weston_cached_str_get(&view->surface->scene_graph_record, view->surface));
 
 	if (!weston_view_is_mapped(view))
 		fprintf(fp, "\t[view is not mapped!]\n");
@@ -11146,4 +11161,57 @@ weston_backend_clear_deferred(struct weston_backend *backend,
 		output->repaint_status = REPAINT_NOT_SCHEDULED;
 		weston_output_schedule_repaint(output);
 	}
+}
+
+/**
+ * Returns a cached string value held up by a pointer to a struct
+ * weston_cached_string or regenerates the string in case the cached value has
+ * been invalidated. This is useful for caching object's properties as a string
+ * value. Users should use weston_cached_str_invalidate in combination with
+ * this function to denote when it is time to regenerate the string cached
+ * value.
+ *
+ * Note that over-invalidation would actually hurt performance so this is ideal
+ * for (object) properties that do *not* change each frame.
+ *
+ * \param s a pointer to struct weston_cached_string
+ * \param data generic pointer to be passed to the regen function
+ * \sa weston_cached_str_invalidate
+ *
+ */
+WL_EXPORT const char *
+weston_cached_str_get(struct weston_cached_string *s, void *data)
+{
+	if (!s->is_up_to_date) {
+		char *str = NULL;
+		size_t size = 0;
+		FILE *fp;
+
+		free(s->cached_str);
+
+		fp = open_memstream(&str, &size);
+		abort_oom_if_null(fp);
+		s->regen(fp, data);
+		if (fclose(fp) == 0) {
+			s->cached_str = str;
+		} else {
+			free(str);
+			s->cached_str = xstrdup("[error]");
+		}
+		s->is_up_to_date = true;
+	}
+
+	return s->cached_str;
+}
+
+/** Invalidates the cached string value and forces weston_cached_str_get() to
+ * call the regen callback associated with that particular weston_cached_string
+ *
+ * \param s a pointer to struct weston_cached_string
+ *
+ */
+WL_EXPORT void
+weston_cached_str_invalidate(struct weston_cached_string *s)
+{
+	s->is_up_to_date = false;
 }

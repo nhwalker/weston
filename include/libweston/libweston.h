@@ -81,6 +81,15 @@ struct weston_commit_timing_target {
 };
 
 struct weston_client;
+
+struct weston_cached_string {
+       bool is_up_to_date;
+       char *cached_str;
+
+       /* assumes FP opened, use it to (re-)compose the string */
+       void (*regen)(FILE *fp, void *data);
+};
+
 struct weston_compositor;
 struct weston_surface;
 struct weston_buffer;
@@ -2062,6 +2071,7 @@ struct weston_surface {
 
 	/** commit_timing_v1 */
 	struct weston_commit_timer *commit_timer;
+	struct weston_cached_string scene_graph_record;
 };
 
 struct weston_subsurface {
@@ -2861,6 +2871,11 @@ weston_client_set_internal_name(struct weston_client *client,
 uint64_t
 weston_client_new_internal_id(struct weston_compositor *compositor,
 			      struct weston_client *client);
+const char *
+weston_cached_str_get(struct weston_cached_string *s, void *data);
+
+void
+weston_cached_str_invalidate(struct weston_cached_string *s);
 
 #ifdef  __cplusplus
 }
