@@ -768,6 +768,8 @@ struct weston_paint_node {
 	 */
 	bool need_hole;
 	uint32_t psf_flags; /* presentation-feedback flags */
+
+	struct weston_cached_string scene_graph_record;
 };
 
 struct weston_paint_node *

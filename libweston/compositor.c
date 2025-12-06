@@ -383,6 +383,29 @@ paint_node_update_late(struct weston_paint_node *pnode)
 	paint_node_validate_ready(pnode);
 }
 
+static void
+weston_paint_node_debug_string_regenerate(FILE *fp, void *data)
+{
+	struct weston_paint_node *pnode = data;
+	struct weston_view *view = NULL;
+	struct weston_output *output = NULL;
+
+	if (!pnode) {
+		fprintf(fp, "\t\t\tpaint node [pending repaint]:\n");
+		return;
+	}
+
+	fprintf(fp, "\t\t\tpaint node %p:\n", pnode);
+
+	view = pnode->view;
+	output = pnode->output;
+
+	fprintf(fp, "\t\t\t\toutput: %d (%s)%s\n",
+		output->id, output->name,
+		(view->output == output) ? " (primary)" : "");
+
+}
+
 static struct weston_paint_node *
 weston_paint_node_create(struct weston_surface *surface,
 			 struct weston_view *view,
@@ -438,6 +461,9 @@ weston_paint_node_create(struct weston_surface *surface,
 	pnode->status =
 		WESTON_PAINT_NODE_ALL_DIRTY & ~WESTON_PAINT_NODE_PLANE_DIRTY;
 
+	pnode->scene_graph_record.regen =
+		weston_paint_node_debug_string_regenerate;
+
 	return pnode;
 }
 
@@ -490,6 +516,7 @@ weston_paint_node_destroy(struct weston_paint_node *pnode)
 	pixman_region32_fini(&pnode->visible_previous);
 	pixman_region32_fini(&pnode->clipped_view);
 	free(pnode->internal_name);
+	free(pnode->scene_graph_record.cached_str);
 	free(pnode);
 }
 
@@ -9709,21 +9736,14 @@ debug_scene_view_print_paint_node(FILE *fp,
 
 	pnode = weston_view_find_paint_node(view, output);
 	if (!pnode)
-		fprintf(fp, "\t\t\tpaint node [pending repaint]:\n");
-	else
-		fprintf(fp, "\t\t\tpaint node %s:\n", pnode->internal_name);
-
-	fprintf(fp, "\t\t\t\toutput: %d (%s)%s\n",
-		output->id, output->name,
-		(view->output == output) ? " (primary)" : "");
-
-	if (!pnode)
 		return;
 
+	fputs(weston_cached_str_get(&pnode->scene_graph_record, pnode), fp);
+
 	fprintf(fp, "\t\t\t\tBuffer to output transform: ");
-	if (!pnode->valid_transform)
+	if (!pnode->valid_transform) {
 		fprintf(fp, "Free form\n");
-	else {
+	} else {
 		const char *tform;
 
 		tform = weston_transform_to_string(pnode->transform);
