@@ -994,6 +994,8 @@ weston_surface_debug_string_regenerate(FILE *fp, void *data)
 	fprintf(fp, "(role %s, PID %d, '%s'):",
 		 surface->role_name ?: "none", pid, desc);
 
+	if (!weston_surface_is_mapped(surface))
+		fprintf(fp, "\t[surface is not mapped!]\n");
 }
 
 WL_EXPORT struct weston_surface *
@@ -2661,6 +2663,8 @@ static void weston_surface_start_mapping(struct weston_surface *surface)
 	surface->is_mapping = true;
 	surface->is_mapped = true;
 	surface->compositor->view_list_needs_rebuild = true;
+
+	weston_cached_str_invalidate(&surface->scene_graph_record);
 	wl_signal_emit_mutable(&surface->map_signal, surface);
 }
 
@@ -2684,6 +2688,8 @@ weston_surface_unmap(struct weston_surface *surface)
 	wl_list_for_each(view, &surface->views, surface_link)
 		weston_view_unmap(view);
 	surface->output = NULL;
+
+	weston_cached_str_invalidate(&surface->scene_graph_record);
 	wl_signal_emit_mutable(&surface->unmap_signal, surface);
 }
 
@@ -9684,8 +9690,6 @@ debug_scene_view_print(FILE *fp, struct weston_view *view)
 
 	if (!weston_view_is_mapped(view))
 		fprintf(fp, "\t[view is not mapped!]\n");
-	if (!weston_surface_is_mapped(view->surface))
-		fprintf(fp, "\t[surface is not mapped!]\n");
 	if (wl_list_empty(&view->layer_link.link)) {
 		if (!get_view_layer(view))
 			fprintf(fp, "\t[view is not part of any layer]\n");
