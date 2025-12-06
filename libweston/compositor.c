@@ -2916,8 +2916,59 @@ weston_buffer_destroy_handler(struct wl_listener *listener, void *data)
 		return;
 
 	wl_signal_emit_mutable(&buffer->destroy_signal, buffer);
+	free(buffer->scene_graph_record.cached_str);
 	free(buffer);
 }
+
+static void
+weston_buffer_debug_string_regenerate(FILE *fp, void *data)
+{
+	struct weston_buffer *buffer = data;
+	char *modifier_name;
+
+	switch (buffer->type) {
+	case WESTON_BUFFER_SHM:
+		fprintf(fp, "\t\tSHM buffer\n");
+		break;
+	case WESTON_BUFFER_DMABUF:
+		fprintf(fp, "\t\tdmabuf buffer\n");
+		break;
+	case WESTON_BUFFER_SOLID:
+		fprintf(fp, "\t\tsolid-colour buffer\n");
+		fprintf(fp, "\t\t\t[R %f, G %f, B %f, A %f]\n",
+			buffer->solid.r, buffer->solid.g, buffer->solid.b,
+			buffer->solid.a);
+		break;
+	case WESTON_BUFFER_RENDERER_OPAQUE:
+		fprintf(fp, "\t\tEGL buffer:\n");
+		fprintf(fp, "\t\t\t[format may be inaccurate]\n");
+		break;
+	}
+
+
+	if (buffer->pixel_format) {
+		fprintf(fp, "\t\t\tformat: 0x%lx %s\n",
+			(unsigned long) buffer->pixel_format->format,
+			buffer->pixel_format->drm_format_name);
+	} else {
+		fprintf(fp, "\t\t\t[unknown format]\n");
+	}
+
+	modifier_name = pixel_format_get_modifier(buffer->format_modifier);
+	fprintf(fp, "\t\t\tmodifier: %s\n",
+		modifier_name ?
+			modifier_name : "Failed to convert to a modifier name");
+	free(modifier_name);
+
+	fprintf(fp, "\t\t\twidth: %d, height: %d\n",
+		buffer->width, buffer->height);
+	if (buffer->buffer_origin == ORIGIN_BOTTOM_LEFT)
+		fprintf(fp, "\t\t\tbottom-left origin\n");
+
+	if (buffer->direct_display)
+		fprintf(fp, "\t\t\tdirect-display buffer (no renderer access)\n");
+}
+
 
 WL_EXPORT struct weston_buffer *
 weston_buffer_from_resource(struct weston_compositor *ec,
@@ -2941,6 +2992,8 @@ weston_buffer_from_resource(struct weston_compositor *ec,
 		return NULL;
 
 	buffer->resource = resource;
+	buffer->scene_graph_record.regen =
+		weston_buffer_debug_string_regenerate;
 	wl_signal_init(&buffer->destroy_signal);
 	buffer->destroy_listener.notify = weston_buffer_destroy_handler;
 	wl_resource_add_destroy_listener(resource, &buffer->destroy_listener);
@@ -3009,6 +3062,7 @@ weston_buffer_from_resource(struct weston_compositor *ec,
 
 fail:
 	wl_list_remove(&buffer->destroy_listener.link);
+	free(buffer->scene_graph_record.cached_str);
 	free(buffer);
 	return NULL;
 }
@@ -3066,6 +3120,7 @@ weston_buffer_reference(struct weston_buffer_reference *ref,
 	    !old_ref.buffer->resource) {
 		wl_signal_emit_mutable(&old_ref.buffer->destroy_signal,
 					   old_ref.buffer);
+		free(old_ref.buffer->scene_graph_record.cached_str);
 		free(old_ref.buffer);
 	}
 }
@@ -3157,6 +3212,8 @@ weston_buffer_create_solid_rgba(struct weston_compositor *compositor,
 	buffer->solid.g = g;
 	buffer->solid.b = b;
 	buffer->solid.a = a;
+	buffer->scene_graph_record.regen =
+		weston_buffer_debug_string_regenerate;
 
 	if (a == 1.0) {
 		buffer->pixel_format =
@@ -9560,31 +9617,13 @@ static void
 debug_scene_view_print_buffer(FILE *fp, struct weston_view *view)
 {
 	struct weston_buffer *buffer = view->surface->buffer_ref.buffer;
-	char *modifier_name;
 
 	if (!buffer) {
 		fprintf(fp, "\t\t[buffer not available]\n");
 		return;
 	}
 
-	switch (buffer->type) {
-	case WESTON_BUFFER_SHM:
-		fprintf(fp, "\t\tSHM buffer\n");
-		break;
-	case WESTON_BUFFER_DMABUF:
-		fprintf(fp, "\t\tdmabuf buffer\n");
-		break;
-	case WESTON_BUFFER_SOLID:
-		fprintf(fp, "\t\tsolid-colour buffer\n");
-		fprintf(fp, "\t\t\t[R %f, G %f, B %f, A %f]\n",
-			buffer->solid.r, buffer->solid.g, buffer->solid.b,
-			buffer->solid.a);
-		break;
-	case WESTON_BUFFER_RENDERER_OPAQUE:
-		fprintf(fp, "\t\tEGL buffer:\n");
-		fprintf(fp, "\t\t\t[format may be inaccurate]\n");
-		break;
-	}
+	fputs(weston_cached_str_get(&buffer->scene_graph_record, buffer), fp);
 
 	if (buffer->busy_count > 0) {
 		fprintf(fp, "\t\t\t[%d references may use buffer content]\n",
@@ -9593,27 +9632,6 @@ debug_scene_view_print_buffer(FILE *fp, struct weston_view *view)
 		fprintf(fp, "\t\t\t[buffer has been released to client]\n");
 	}
 
-	if (buffer->pixel_format) {
-		fprintf(fp, "\t\t\tformat: 0x%lx %s\n",
-			(unsigned long) buffer->pixel_format->format,
-			buffer->pixel_format->drm_format_name);
-	} else {
-		fprintf(fp, "\t\t\t[unknown format]\n");
-	}
-
-	modifier_name = pixel_format_get_modifier(buffer->format_modifier);
-	fprintf(fp, "\t\t\tmodifier: %s\n",
-		modifier_name ?
-			modifier_name : "Failed to convert to a modifier name");
-	free(modifier_name);
-
-	fprintf(fp, "\t\t\twidth: %d, height: %d\n",
-		buffer->width, buffer->height);
-	if (buffer->buffer_origin == ORIGIN_BOTTOM_LEFT)
-		fprintf(fp, "\t\t\tbottom-left origin\n");
-
-	if (buffer->direct_display)
-		fprintf(fp, "\t\t\tdirect-display buffer (no renderer access)\n");
 }
 
 static const struct weston_enum_map transforms[] = {

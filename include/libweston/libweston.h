@@ -1606,6 +1606,8 @@ struct weston_buffer {
 
 	const struct pixel_format_info *pixel_format;
 	uint64_t format_modifier;
+
+	struct weston_cached_string scene_graph_record;
 };
 
 enum weston_buffer_reference_type {

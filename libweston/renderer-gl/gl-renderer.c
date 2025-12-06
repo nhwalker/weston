@@ -3398,6 +3398,7 @@ gl_renderer_fill_buffer_info(struct weston_compositor *ec,
 
 	buffer->renderer_private = gb;
 	gb->destroy_listener.notify = handle_buffer_destroy;
+	weston_cached_str_invalidate(&buffer->scene_graph_record);
 	wl_signal_add(&buffer->destroy_signal, &gb->destroy_listener);
 	return true;
 
