@@ -28,6 +28,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <pixman-1/pixman.h>
 
 struct pixel_format_info;
 struct wl_buffer;
@@ -45,15 +46,20 @@ enum client_buffer_type {
 struct client_buffer {
 	const struct pixel_format_info *fmt;
 	enum client_buffer_type type;
-	struct wl_buffer *wl_buffer;
-	void *data;
+	void *data_donotuse;
 	size_t bytes;
-	int dmabuf_fd;
+	int fd;
 	int width;
 	int height;
 	size_t bytes_per_line[MAX_DMABUF_PLANES];
 	size_t strides[MAX_DMABUF_PLANES];
 	size_t offsets[MAX_DMABUF_PLANES];
+};
+
+struct client_buffer_cpu_access {
+	struct client_buffer *buf;
+	void *data;
+	pixman_image_t *image;
 };
 
 bool
@@ -63,20 +69,26 @@ void
 client_buffer_util_destroy_buffer(struct client_buffer *buf);
 
 struct client_buffer *
-client_buffer_util_create_shm_buffer(struct wl_shm *shm,
-				     const struct pixel_format_info *fmt,
-				     int width,
-				     int height);
+client_buffer_util_allocate_shm_buffer(const struct pixel_format_info *fmt,
+				       int width,
+				       int height);
+
+struct wl_buffer *
+client_buffer_util_get_proxy_shm(struct client_buffer *buf,
+				 struct wl_shm *shm);
 
 struct client_buffer *
-client_buffer_util_create_dmabuf_buffer(struct wl_display *display,
-					struct zwp_linux_dmabuf_v1 *dmabuf,
-					const struct pixel_format_info *fmt,
-					int width,
-					int height);
+client_buffer_util_allocate_dmabuf_buffer(const struct pixel_format_info *fmt,
+					  int width,
+					  int height);
+
+struct wl_buffer *
+client_buffer_util_get_proxy_dmabuf(struct client_buffer *buf,
+				    struct wl_display *display,
+				    struct zwp_linux_dmabuf_v1 *dmabuf);
+
+struct client_buffer_cpu_access *
+client_buffer_util_begin_cpu_access(struct client_buffer *buf);
 
 void
-client_buffer_util_maybe_sync_dmabuf_start(struct client_buffer *buf);
-
-void
-client_buffer_util_maybe_sync_dmabuf_end(struct client_buffer *buf);
+client_buffer_util_end_cpu_access(struct client_buffer_cpu_access *cpu);

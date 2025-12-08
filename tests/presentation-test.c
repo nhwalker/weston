@@ -207,7 +207,7 @@ TEST(test_presentation_feedback_simple)
 	pres = client_get_presentation(client);
 
 	wl_surface_attach(client->surface->wl_surface,
-			  client->surface->buffer->proxy, 0, 0);
+			  client->surface->wl_buffer, 0, 0);
 	fb = feedback_create(client, client->surface->wl_surface, pres);
 	wl_surface_damage(client->surface->wl_surface, 0, 0, 100, 100);
 	wl_surface_commit(client->surface->wl_surface);

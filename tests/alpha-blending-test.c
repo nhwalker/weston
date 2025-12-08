@@ -33,6 +33,7 @@
 #include "weston-test-fixture-compositor.h"
 #include "weston-test-assert.h"
 #include "image-iter.h"
+#include "pixel-formats.h"
 #include "color_util.h"
 
 struct setup_args {
@@ -106,15 +107,20 @@ premult_color(uint32_t a, uint32_t r, uint32_t g, uint32_t b)
 }
 
 static void
-fill_alpha_pattern(struct buffer *buf)
+fill_alpha_pattern(struct client_buffer *buf)
 {
-	struct image_header ih = image_header_from(buf->image);
+	struct image_header ih;
+	struct client_buffer_cpu_access *cpu =
+		client_buffer_util_begin_cpu_access(buf);
 	int y;
 
-	test_assert_enum(ih.pixman_format, PIXMAN_a8r8g8b8);
-	test_assert_int_eq(ih.width, BLOCK_WIDTH * ALPHA_STEPS);
+	test_assert_ptr_not_null(cpu);
+	ih = image_header_from(cpu->image);
 
-	for (y = 0; y < ih.height; y++) {
+	test_assert_enum(buf->fmt->pixman_format, PIXMAN_a8r8g8b8);
+	test_assert_int_eq(buf->width, BLOCK_WIDTH * ALPHA_STEPS);
+
+	for (y = 0; y < buf->height; y++) {
 		uint32_t *row = image_header_get_row_u32(&ih, y);
 		uint32_t step;
 
@@ -128,6 +134,8 @@ fill_alpha_pattern(struct buffer *buf)
 				*row++ = color;
 		}
 	}
+
+	client_buffer_util_end_cpu_access(cpu);
 }
 
 enum blend_space {
@@ -206,8 +214,8 @@ get_middle_row(pixman_image_t *image)
 }
 
 static bool
-check_blend_pattern(struct buffer *bg, struct buffer *fg, struct buffer *shot,
-		    enum blend_space space)
+check_blend_pattern(struct client_buffer *bg, struct client_buffer *fg,
+		    struct client_buffer *shot, enum blend_space space)
 {
 	FILE *dump = NULL;
 #if 0
@@ -230,12 +238,26 @@ check_blend_pattern(struct buffer *bg, struct buffer *fg, struct buffer *shot,
 	 */
 	const float tolerance = 1.72f / 255.f;
 
-	uint32_t *bg_row = get_middle_row(bg->image);
-	uint32_t *fg_row = get_middle_row(fg->image);
-	uint32_t *shot_row = get_middle_row(shot->image);
+	struct client_buffer_cpu_access *bg_cpu =
+		client_buffer_util_begin_cpu_access(bg);
+	struct client_buffer_cpu_access *fg_cpu =
+		client_buffer_util_begin_cpu_access(fg);
+	struct client_buffer_cpu_access *shot_cpu =
+		client_buffer_util_begin_cpu_access(shot);
+	uint32_t *bg_row;
+	uint32_t *fg_row;
+	uint32_t *shot_row;
 	struct rgb_diff_stat diffstat = { .dump = dump, };
 	bool ret = true;
 	int x;
+
+	test_assert_ptr_not_null(bg_cpu);
+	test_assert_ptr_not_null(fg_cpu);
+	test_assert_ptr_not_null(shot_cpu);
+
+	bg_row = get_middle_row(bg_cpu->image);
+	fg_row = get_middle_row(fg_cpu->image);
+	shot_row = get_middle_row(shot_cpu->image);
 
 	for (x = 0; x < BLOCK_WIDTH * ALPHA_STEPS - 1; x++) {
 		if (!pixels_monotonic(shot_row, x))
@@ -252,6 +274,10 @@ check_blend_pattern(struct buffer *bg, struct buffer *fg, struct buffer *shot,
 
 	if (dump)
 		fclose(dump);
+
+	client_buffer_util_end_cpu_access(bg_cpu);
+	client_buffer_util_end_cpu_access(fg_cpu);
+	client_buffer_util_end_cpu_access(shot_cpu);
 
 	return ret;
 }
@@ -304,12 +330,15 @@ TEST(alpha_blend)
 	};
 	const struct setup_args *args;
 	struct client *client;
-	struct buffer *bg;
-	struct buffer *fg;
+	struct client_buffer *bg;
+	struct client_buffer *fg;
+	struct wl_buffer *fg_proxy;
 	struct wl_subcompositor *subco;
 	struct wl_surface *surf;
 	struct wl_subsurface *sub;
-	struct buffer *shot;
+	struct client_buffer *shot;
+	char *ref_fname;
+	pixman_image_t *ref;
 	bool match;
 	int seq_no;
 	enum blend_space space;
@@ -327,25 +356,23 @@ TEST(alpha_blend)
 	subco = bind_to_singleton_global(client, &wl_subcompositor_interface, 1);
 
 	/* background window content */
-	bg = create_shm_buffer_solid(client, width, height, &background_color);
+	bg = create_shm_buffer_solid( width, height, &background_color);
 
 	/* background window, main surface */
-	client->surface = create_test_surface(client);
-	client->surface->width = width;
-	client->surface->height = height;
-	client->surface->buffer = bg; /* pass ownership */
+	client->surface = create_test_surface_with_buffer(client, bg);
 	surface_set_opaque_rect(client->surface,
 				&(struct rectangle){ 0, 0, width, height });
 
 	/* foreground blended content */
-	fg = create_shm_buffer_a8r8g8b8(client, width, height);
+	fg = create_shm_buffer_a8r8g8b8(width, height);
+	fg_proxy = client_buffer_util_get_proxy_shm(fg, client->wl_shm);
 	fill_alpha_pattern(fg);
 
 	/* foreground window, sub-surface */
 	surf = wl_compositor_create_surface(client->wl_compositor);
 	sub = wl_subcompositor_get_subsurface(subco, surf, client->surface->wl_surface);
 	/* sub-surface defaults to position 0, 0, top-most, synchronized */
-	wl_surface_attach(surf, fg->proxy, 0, 0);
+	wl_surface_attach(surf, fg_proxy, 0, 0);
 	wl_surface_damage(surf, 0, 0, width, height);
 	wl_surface_commit(surf);
 
@@ -354,17 +381,23 @@ TEST(alpha_blend)
 
 	shot = capture_screenshot_of_output(client, NULL, NO_DECORATIONS);
 	test_assert_ptr_not_null(shot);
-	match = verify_image(shot->image, "alpha_blend", seq_no, NULL, seq_no);
+	ref_fname = screenshot_reference_filename("alpha_blend", seq_no);
+	ref = load_image_from_png(ref_fname);
+	match = verify_image(shot, ref, ref_fname, NULL, seq_no);
+	pixman_image_unref(ref);
+	free(ref_fname);
 	test_assert_true(check_blend_pattern(bg, fg, shot, space));
 	test_assert_true(match);
 
-	buffer_destroy(shot);
+	client_buffer_util_destroy_buffer(shot);
 
 	wl_subsurface_destroy(sub);
 	wl_surface_destroy(surf);
-	buffer_destroy(fg);
+	wl_buffer_destroy(fg_proxy);
+	client_buffer_util_destroy_buffer(fg);
+	client_buffer_util_destroy_buffer(bg);
 	wl_subcompositor_destroy(subco);
-	client_destroy(client); /* destroys bg */
+	client_destroy(client);
 
 	return RESULT_OK;
 }

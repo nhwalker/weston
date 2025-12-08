@@ -32,6 +32,7 @@
 #include "weston-test-client-helper.h"
 #include "weston-test-assert.h"
 #include "image-iter.h"
+#include "pixel-formats.h"
 #include "lcms_util.h"
 
 static const int WINDOW_WIDTH  = 256;
@@ -343,7 +344,7 @@ fixture_setup(struct weston_test_harness *harness, const struct setup_args *arg)
 DECLARE_FIXTURE_SETUP_WITH_ARG(fixture_setup, my_setup_args, meta);
 
 static void
-gen_ramp_rgb(pixman_image_t *image, int bitwidth, int width_bar)
+gen_ramp_rgb(struct client_buffer *buf, int bitwidth, int width_bar)
 {
 	static const int hue[][COLOR_CHAN_NUM] = {
 		{ 1, 1, 1 },	/* White	*/
@@ -356,7 +357,9 @@ gen_ramp_rgb(pixman_image_t *image, int bitwidth, int width_bar)
 	};
 	const int num_hues = ARRAY_LENGTH(hue);
 
-	struct image_header ih = image_header_from(image);
+	struct client_buffer_cpu_access *cpu =
+		client_buffer_util_begin_cpu_access(buf);
+	struct image_header ih = image_header_from(cpu->image);
 	float val_max;
 	int x, y;
 	int hue_index;
@@ -369,7 +372,7 @@ gen_ramp_rgb(pixman_image_t *image, int bitwidth, int width_bar)
 
 	val_max = (1 << bitwidth) - 1;
 
-	for (y = 0; y < ih.height; y++) {
+	for (y = 0; y < buf->height; y++) {
 		hue_index = (y * num_hues) / (ih.height - 1);
 		hue_index = MIN(hue_index, num_hues - 1);
 
@@ -396,13 +399,19 @@ gen_ramp_rgb(pixman_image_t *image, int bitwidth, int width_bar)
 			*pixel = (255U << 24) | (r << 16) | (g << 8) | b;
 		}
 	}
+
+	client_buffer_util_end_cpu_access(cpu);
 }
 
 static bool
-process_pipeline_comparison(const struct buffer *src_buf,
-			    const struct buffer *shot_buf,
+process_pipeline_comparison(struct client_buffer *src_buf,
+			    struct client_buffer *shot_buf,
 			    const struct setup_args * arg)
 {
+	struct client_buffer_cpu_access *src_cpu =
+		client_buffer_util_begin_cpu_access(src_buf);
+	struct client_buffer_cpu_access *shot_cpu =
+		client_buffer_util_begin_cpu_access(shot_buf);
 	FILE *dump = NULL;
 #if 0
 	/*
@@ -414,8 +423,11 @@ process_pipeline_comparison(const struct buffer *src_buf,
 	dump = fopen_dump_file(arg->meta.name);
 #endif
 
-	struct image_header ih_src = image_header_from(src_buf->image);
-	struct image_header ih_shot = image_header_from(shot_buf->image);
+	test_assert_ptr_not_null(src_cpu);
+	test_assert_ptr_not_null(shot_cpu);
+
+	struct image_header ih_src = image_header_from(src_cpu->image);
+	struct image_header ih_shot = image_header_from(shot_cpu->image);
 	int y, x;
 	struct color_float pix_src;
 	struct color_float pix_src_pipeline;
@@ -426,14 +438,14 @@ process_pipeline_comparison(const struct buffer *src_buf,
 	bool ok;
 
 	/* no point to compare different images */
-	test_assert_int_eq(ih_src.width, ih_shot.width);
-	test_assert_int_eq(ih_src.height, ih_shot.height);
+	test_assert_int_eq(src_buf->width, shot_buf->width);
+	test_assert_int_eq(src_buf->height, shot_buf->height);
 
-	for (y = 0; y < ih_src.height; y++) {
+	for (y = 0; y < src_buf->height; y++) {
 		uint32_t *row_ptr = image_header_get_row_u32(&ih_src, y);
 		uint32_t *row_ptr_shot = image_header_get_row_u32(&ih_shot, y);
 
-		for (x = 0; x < ih_src.width; x++) {
+		for (x = 0; x < src_buf->width; x++) {
 			pix_src = a8r8g8b8_to_float(row_ptr[x]);
 			pix_shot = a8r8g8b8_to_float(row_ptr_shot[x]);
 
@@ -462,6 +474,9 @@ process_pipeline_comparison(const struct buffer *src_buf,
 	if (dump)
 		fclose(dump);
 
+	client_buffer_util_end_cpu_access(src_cpu);
+	client_buffer_util_end_cpu_access(shot_cpu);
+
 	return ok;
 }
 
@@ -486,31 +501,40 @@ TEST(opaque_pixel_conversion)
 	const int width_bar = 32;
 
 	struct client *client;
-	struct buffer *buf;
-	struct buffer *shot;
+	struct client_buffer *buf;
+	struct wl_buffer *wl_buffer;
+	struct client_buffer *shot;
 	struct wl_surface *surface;
+	char *ref_fname;
+	pixman_image_t *ref;
 	bool match;
 
 	client = create_client_and_test_surface(0, 0, width, height);
 	test_assert_ptr_not_null(client);
 	surface = client->surface->wl_surface;
 
-	buf = create_shm_buffer_a8r8g8b8(client, width, height);
-	gen_ramp_rgb(buf->image, bitwidth, width_bar);
+	buf = create_shm_buffer_a8r8g8b8(width, height);
+	wl_buffer = client_buffer_util_get_proxy_shm(buf, client->wl_shm);
+	gen_ramp_rgb(buf, bitwidth, width_bar);
 
-	wl_surface_attach(surface, buf->proxy, 0, 0);
+	wl_surface_attach(surface, wl_buffer, 0, 0);
 	wl_surface_damage(surface, 0, 0, width, height);
 	wl_surface_commit(surface);
 
 	shot = capture_screenshot_of_output(client, NULL, NO_DECORATIONS);
 	test_assert_ptr_not_null(shot);
 
-	match = verify_image(shot->image, "shaper_matrix", arg->ref_image_index,
-			     NULL, seq_no);
+	ref_fname = screenshot_reference_filename("shaper_matrix",
+						  arg->ref_image_index);
+	ref = load_image_from_png(ref_fname);
+	match = verify_image(shot, ref, ref_fname, NULL, seq_no);
+	pixman_image_unref(ref);
+	free(ref_fname);
 	test_assert_true(process_pipeline_comparison(buf, shot, arg));
 	test_assert_true(match);
-	buffer_destroy(shot);
-	buffer_destroy(buf);
+	client_buffer_util_destroy_buffer(shot);
+	wl_buffer_destroy(wl_buffer);
+	client_buffer_util_destroy_buffer(buf);
 	client_destroy(client);
 
 	return RESULT_OK;
@@ -575,11 +599,17 @@ get_middle_row(pixman_image_t *image)
 }
 
 static bool
-check_blend_pattern(struct buffer *bg_buf,
-		    struct buffer *fg_buf,
-		    struct buffer *shot_buf,
+check_blend_pattern(struct client_buffer *bg_buf,
+		    struct client_buffer *fg_buf,
+		    struct client_buffer *shot_buf,
 		    const struct setup_args *arg)
 {
+	struct client_buffer_cpu_access *bg_cpu =
+		client_buffer_util_begin_cpu_access(bg_buf);
+	struct client_buffer_cpu_access *fg_cpu =
+		client_buffer_util_begin_cpu_access(fg_buf);
+	struct client_buffer_cpu_access *shot_cpu =
+		client_buffer_util_begin_cpu_access(shot_buf);
 	FILE *dump = NULL;
 #if 0
 	/*
@@ -591,9 +621,13 @@ check_blend_pattern(struct buffer *bg_buf,
 	dump = fopen_dump_file(arg->meta.name);
 #endif
 
-	uint32_t *bg_row = get_middle_row(bg_buf->image);
-	uint32_t *fg_row = get_middle_row(fg_buf->image);
-	uint32_t *shot_row = get_middle_row(shot_buf->image);
+	test_assert_ptr_not_null(bg_cpu);
+	test_assert_ptr_not_null(fg_cpu);
+	test_assert_ptr_not_null(shot_cpu);
+
+	uint32_t *bg_row = get_middle_row(bg_cpu->image);
+	uint32_t *fg_row = get_middle_row(fg_cpu->image);
+	uint32_t *shot_row = get_middle_row(shot_cpu->image);
 	struct rgb_diff_stat diffstat = { .dump = dump };
 	int x;
 
@@ -609,6 +643,10 @@ check_blend_pattern(struct buffer *bg_buf,
 
 	if (dump)
 		fclose(dump);
+
+	client_buffer_util_end_cpu_access(bg_cpu);
+	client_buffer_util_end_cpu_access(fg_cpu);
+	client_buffer_util_end_cpu_access(shot_cpu);
 
 	/* Test success condition: */
 	return diffstat.two_norm.max < 1.72f / 255.0f;
@@ -628,15 +666,20 @@ premult_color(uint32_t a, uint32_t r, uint32_t g, uint32_t b)
 }
 
 static void
-fill_alpha_pattern(struct buffer *buf)
+fill_alpha_pattern(struct client_buffer *buf)
 {
-	struct image_header ih = image_header_from(buf->image);
+	struct client_buffer_cpu_access *cpu =
+		client_buffer_util_begin_cpu_access(buf);
+	struct image_header ih;
 	int y;
 
-	test_assert_enum(ih.pixman_format, PIXMAN_a8r8g8b8);
-	test_assert_int_eq(ih.width, BLOCK_WIDTH * ALPHA_STEPS);
+	test_assert_ptr_not_null(cpu);
+	ih = image_header_from(cpu->image);
 
-	for (y = 0; y < ih.height; y++) {
+	test_assert_enum(buf->fmt->pixman_format, PIXMAN_a8r8g8b8);
+	test_assert_int_eq(buf->width, BLOCK_WIDTH * ALPHA_STEPS);
+
+	for (y = 0; y < buf->height; y++) {
 		uint32_t *row = image_header_get_row_u32(&ih, y);
 		uint32_t step;
 
@@ -650,6 +693,8 @@ fill_alpha_pattern(struct buffer *buf)
 				*row++ = color;
 		}
 	}
+
+	client_buffer_util_end_cpu_access(cpu);
 }
 
 /*
@@ -687,37 +732,38 @@ TEST(output_icc_alpha_blend)
 	int seq_no = get_test_fixture_index();
 	const struct setup_args *arg = &my_setup_args[seq_no];
 	struct client *client;
-	struct buffer *bg;
-	struct buffer *fg;
+	struct client_buffer *bg;
+	struct client_buffer *fg;
+	struct wl_buffer *fg_proxy;
 	struct wl_subcompositor *subco;
 	struct wl_surface *surf;
 	struct wl_subsurface *sub;
-	struct buffer *shot;
+	struct client_buffer *shot;
+	pixman_image_t *ref;
+	char *ref_fname;
 	bool match;
 
 	client = create_client();
 	subco = bind_to_singleton_global(client, &wl_subcompositor_interface, 1);
 
 	/* background window content */
-	bg = create_shm_buffer_solid(client, width, height, &background_color);
+	bg = create_shm_buffer_solid( width, height, &background_color);
 
 	/* background window, main surface */
-	client->surface = create_test_surface(client);
-	client->surface->width = width;
-	client->surface->height = height;
-	client->surface->buffer = bg; /* pass ownership */
+	client->surface = create_test_surface_with_buffer(client, bg);
 	surface_set_opaque_rect(client->surface,
 				&(struct rectangle){ 0, 0, width, height });
 
 	/* foreground blended content */
-	fg = create_shm_buffer_a8r8g8b8(client, width, height);
+	fg = create_shm_buffer_a8r8g8b8(width, height);
+	fg_proxy = client_buffer_util_get_proxy_shm(fg, client->wl_shm);
 	fill_alpha_pattern(fg);
 
 	/* foreground window, sub-surface */
 	surf = wl_compositor_create_surface(client->wl_compositor);
 	sub = wl_subcompositor_get_subsurface(subco, surf, client->surface->wl_surface);
 	/* sub-surface defaults to position 0, 0, top-most, synchronized */
-	wl_surface_attach(surf, fg->proxy, 0, 0);
+	wl_surface_attach(surf, fg_proxy, 0, 0);
 	wl_surface_damage(surf, 0, 0, width, height);
 	wl_surface_commit(surf);
 
@@ -726,18 +772,24 @@ TEST(output_icc_alpha_blend)
 
 	shot = capture_screenshot_of_output(client, NULL, NO_DECORATIONS);
 	test_assert_ptr_not_null(shot);
-	match = verify_image(shot->image, "output_icc_alpha_blend", arg->ref_image_index,
-			     NULL, seq_no);
+	ref_fname = screenshot_reference_filename("output_icc_alpha_blend",
+						  arg->ref_image_index);
+	ref = load_image_from_png(ref_fname);
+	match = verify_image(shot, ref, ref_fname, NULL, seq_no);
+	pixman_image_unref(ref);
+	free(ref_fname);
 	test_assert_true(check_blend_pattern(bg, fg, shot, arg));
 	test_assert_true(match);
 
-	buffer_destroy(shot);
+	client_buffer_util_destroy_buffer(shot);
 
 	wl_subsurface_destroy(sub);
 	wl_surface_destroy(surf);
-	buffer_destroy(fg);
+	wl_buffer_destroy(fg_proxy);
+	client_buffer_util_destroy_buffer(fg);
+	client_buffer_util_destroy_buffer(bg);
 	wl_subcompositor_destroy(subco);
-	client_destroy(client); /* destroys bg */
+	client_destroy(client);
 
 	return RESULT_OK;
 }

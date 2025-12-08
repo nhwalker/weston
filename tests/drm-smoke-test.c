@@ -46,28 +46,23 @@ DECLARE_FIXTURE_SETUP(fixture_setup);
 
 TEST(drm_smoke) {
 	struct client *client;
-	struct buffer *buffer;
 	struct wl_surface *surface;
-	pixman_color_t red;
 	int i, frame;
-
-	color_rgb888(&red, 255, 0, 0);
 
 	client = create_client_and_test_surface(0, 0, 200, 200);
 	test_assert_ptr_not_null(client);
 
 	surface = client->surface->wl_surface;
-	buffer = create_shm_buffer_solid(client, 200, 200, &red);
 
 	for (i = 0; i < 5; i++) {
-		wl_surface_attach(surface, buffer->proxy, 0, 0);
+		wl_surface_attach(surface, client->surface->wl_buffer,
+				  0, 0);
 		wl_surface_damage(surface, 0, 0, 200, 200);
 		frame_callback_set(surface, &frame);
 		wl_surface_commit(surface);
 		frame_callback_wait(client, &frame);
 	}
 
-	buffer_destroy(buffer);
 	client_destroy(client);
 
 	return RESULT_OK;

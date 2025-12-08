@@ -119,7 +119,7 @@ move_client_internal(struct client *client, int x, int y)
 	/* The attach here is necessary because commit() will call configure
 	 * only on surfaces newly attached, and the one that sets the surface
 	 * position is the configure. */
-	wl_surface_attach(surface->wl_surface, surface->buffer->proxy, 0, 0);
+	wl_surface_attach(surface->wl_surface, surface->wl_buffer, 0, 0);
 	wl_surface_damage(surface->wl_surface, 0, 0, surface->width,
 			  surface->height);
 
@@ -491,12 +491,12 @@ support_shm_format(struct client *client, uint32_t shm_format)
 	return false;
 }
 
-struct buffer *
-create_buffer(struct client *client, int width, int height, uint32_t drm_format,
+struct client_buffer *
+create_buffer(int width, int height, uint32_t drm_format,
 	      enum client_buffer_type buffer_type)
 {
 	const struct pixel_format_info *pfmt;
-	struct buffer *buf;
+	struct client_buffer *buf;
 
 	test_assert_int_gt(width, 0);
 	test_assert_int_gt(height, 0);
@@ -504,84 +504,62 @@ create_buffer(struct client *client, int width, int height, uint32_t drm_format,
 	pfmt = pixel_format_get_info(drm_format);
 	test_assert_ptr_not_null(pfmt);
 
-	buf = xzalloc(sizeof *buf);
-
 	if (buffer_type == CLIENT_BUFFER_TYPE_SHM) {
-		uint32_t shm_format;
-
-		shm_format = pixel_format_get_shm_format(pfmt);
-
-		if (!support_shm_format(client, shm_format))
-		    return NULL;
-
-		buf->buf = client_buffer_util_create_shm_buffer(client->wl_shm,
-								pfmt,
-								width,
-								height);
+		buf= client_buffer_util_allocate_shm_buffer(pfmt, width, height);
 	} else {
 		test_assert_true(buffer_type == CLIENT_BUFFER_TYPE_DMABUF);
 
-		if (!support_drm_format(client, drm_format, DRM_FORMAT_MOD_LINEAR))
-		    return NULL;
-
-		buf->buf = client_buffer_util_create_dmabuf_buffer(client->wl_display,
-								   client->dmabuf,
-								   pfmt,
-								   width,
-								   height);
+		buf= client_buffer_util_allocate_dmabuf_buffer(pfmt, width,
+							       height);
 	}
-	test_assert_ptr_not_null(buf->buf);
-	buf->proxy = buf->buf->wl_buffer;
 
-	buf->image = pixman_image_create_bits(pfmt->pixman_format,
-					      width, height,
-					      buf->buf->data,
-					      buf->buf->strides[0]);
-
-	test_assert_ptr_not_null(buf->proxy);
-	test_assert_ptr_not_null(buf->image);
-
+	test_assert_ptr_not_null(buf);
 	return buf;
 }
 
-struct buffer *
-create_shm_buffer(struct client *client, int width, int height,
-		  uint32_t drm_format)
+struct client_buffer *
+create_shm_buffer(int width, int height, uint32_t drm_format)
 {
-	return create_buffer(client, width, height, drm_format,
+	return create_buffer(width, height, drm_format,
 			     CLIENT_BUFFER_TYPE_SHM);
 }
 
-struct buffer *
-create_shm_buffer_a8r8g8b8(struct client *client, int width, int height)
+struct client_buffer *
+create_shm_buffer_a8r8g8b8(int width, int height)
 {
-	return create_shm_buffer(client, width, height, DRM_FORMAT_ARGB8888);
-}
+	const struct pixel_format_info *fmt =
+		pixel_format_get_info(DRM_FORMAT_ARGB8888);
 
-static struct buffer *
-create_pixman_buffer(int width, int height, pixman_format_code_t pixman_format)
-{
-	struct buffer *buf;
-
-	test_assert_int_gt(width, 0);
-	test_assert_int_gt(height, 0);
-
-	buf = xzalloc(sizeof *buf);
-	buf->image = pixman_image_create_bits(pixman_format,
-					      width, height, NULL, 0);
-	test_assert_ptr_not_null(buf->image);
-
-	return buf;
+	return client_buffer_util_allocate_shm_buffer(fmt, width, height);
 }
 
 void
-buffer_destroy(struct buffer *buf)
+test_surface_attach_buffer(struct surface *surface, struct client_buffer *buf)
 {
-	test_assert_true(pixman_image_unref(buf->image));
+	if (surface->wl_buffer) {
+		wl_buffer_destroy(surface->wl_buffer);
+		surface->wl_buffer = NULL;
+	}
 
-	if (buf->buf)
-		client_buffer_util_destroy_buffer(buf->buf);
-	free(buf);
+	if (!buf)
+		return;
+
+	surface->width = buf->width;
+	surface->height = buf->height;
+
+	if (buf->type == CLIENT_BUFFER_TYPE_SHM) {
+		surface->wl_buffer =
+			client_buffer_util_get_proxy_shm(buf,
+							 surface->client->wl_shm);
+	} else if (buf->type == CLIENT_BUFFER_TYPE_DMABUF) {
+		surface->wl_buffer =
+			client_buffer_util_get_proxy_dmabuf(buf,
+							    surface->client->wl_display,
+							    surface->client->dmabuf);
+	}
+	test_assert_ptr_not_null(surface->wl_buffer);
+
+	wl_surface_attach(surface->wl_surface, surface->wl_buffer, 0, 0);
 }
 
 static void
@@ -1157,13 +1135,27 @@ create_test_surface(struct client *client)
 	return surface;
 }
 
+struct surface *
+create_test_surface_with_buffer(struct client *client,
+				struct client_buffer *buffer)
+{
+	struct surface *surface = create_test_surface(client);
+
+	if (!surface)
+		return NULL;
+
+	test_surface_attach_buffer(surface, buffer);
+
+	return surface;
+}
+
 void
 surface_destroy(struct surface *surface)
 {
 	if (surface->wl_surface)
 		wl_surface_destroy(surface->wl_surface);
-	if (surface->buffer)
-		buffer_destroy(surface->buffer);
+	if (surface->wl_buffer)
+		wl_buffer_destroy(surface->wl_buffer);
 	free(surface);
 }
 
@@ -1183,6 +1175,7 @@ create_client_and_test_surface(int x, int y, int width, int height)
 {
 	struct client *client;
 	struct surface *surface;
+	struct client_buffer *buffer;
 	pixman_color_t color = { 16384, 16384, 16384, 16384 }; /* uint16_t */
 
 	client = create_client();
@@ -1193,7 +1186,9 @@ create_client_and_test_surface(int x, int y, int width, int height)
 
 	surface->width = width;
 	surface->height = height;
-	surface->buffer = create_shm_buffer_solid(client, width, height, &color);
+	buffer = create_shm_buffer_solid( width, height, &color);
+	test_surface_attach_buffer(surface, buffer);
+	client_buffer_util_destroy_buffer(buffer);
 
 	move_client_frame_sync(client, x, y);
 
@@ -1989,14 +1984,15 @@ static const struct weston_capture_source_v1_listener output_capturer_source_han
 	.failed = output_capturer_handle_failed,
 };
 
-struct buffer *
+struct client_buffer *
 client_capture_output(struct client *client,
 		      struct output *output,
 		      enum weston_capture_v1_source src,
 		      enum client_buffer_type buffer_type)
 {
 	struct output_capturer capt = {};
-	struct buffer *buf;
+	struct client_buffer *buf;
+	struct wl_buffer *wl_buffer;
 
 	capt.factory = bind_to_singleton_global(client,
 						&weston_capture_v1_interface,
@@ -2016,14 +2012,25 @@ client_capture_output(struct client *client,
 			 capt.formats_done &&
 			 "capture source not available");
 
-	buf = create_buffer(client, capt.width, capt.height, capt.drm_format,
+	buf = create_buffer(capt.width, capt.height, capt.drm_format,
 			    buffer_type);
 
-	weston_capture_source_v1_capture(capt.source, buf->proxy);
+	if (buffer_type == CLIENT_BUFFER_TYPE_SHM) {
+		wl_buffer = client_buffer_util_get_proxy_shm(buf,
+							     client->wl_shm);
+	} else {
+		wl_buffer = client_buffer_util_get_proxy_dmabuf(buf,
+								client->wl_display,
+								client->dmabuf);
+	}
+	test_assert_ptr_not_null(wl_buffer);
+
+	weston_capture_source_v1_capture(capt.source, wl_buffer);
 	while (!capt.complete)
 		if (!test_assert_int_ge(wl_display_dispatch(client->wl_display), 0))
 			break;
 
+	wl_buffer_destroy(wl_buffer);
 	weston_capture_source_v1_destroy(capt.source);
 	weston_capture_v1_destroy(capt.factory);
 
@@ -2049,17 +2056,19 @@ client_capture_output(struct client *client,
  * or NULL to use the client-defined output
  * @param include_decorations true if the screenshot should include output
  * decorations, or false if it should include just the client content
- * @returns A new buffer object, that should be freed with buffer_destroy().
+ * @returns A new buffer object, that should be freed with client_buffer_util_destroy_buffer().
  */
-struct buffer *
+struct client_buffer *
 capture_screenshot_of_output(struct client *client, const char *output_name,
 			     enum screenshot_decoration_mode include_decorations)
 {
-	struct image_header ih;
-	struct buffer *shm;
-	struct buffer *buf;
+	struct client_buffer *shm;
+	struct client_buffer *buf;
+	struct client_buffer_cpu_access *cpu_src, *cpu_dst;
 	struct output *output = NULL;
 	enum weston_capture_v1_source source;
+	const struct pixel_format_info *fmt =
+		pixel_format_get_info_by_pixman(PIXMAN_a8r8g8b8);
 
 	if (output_name) {
 		struct output *output_iter;
@@ -2083,16 +2092,21 @@ capture_screenshot_of_output(struct client *client, const char *output_name,
 
 	shm = client_capture_output(client, output, source,
 				    CLIENT_BUFFER_TYPE_SHM);
-	ih = image_header_from(shm->image);
 
-	if (ih.pixman_format == PIXMAN_a8r8g8b8)
+	if (shm->fmt == fmt)
 		return shm;
 
-	buf = create_pixman_buffer(ih.width, ih.height, PIXMAN_a8r8g8b8);
-	pixman_image_composite32(PIXMAN_OP_SRC, shm->image, NULL, buf->image,
-				 0, 0, 0, 0, 0, 0, ih.width, ih.height);
-
-	buffer_destroy(shm);
+	buf = client_buffer_util_allocate_shm_buffer(fmt, shm->width, shm->height);
+	test_assert_ptr_not_null(buf);
+	cpu_src = client_buffer_util_begin_cpu_access(shm);
+	test_assert_ptr_not_null(cpu_src);
+	cpu_dst = client_buffer_util_begin_cpu_access(buf);
+	test_assert_ptr_not_null(cpu_dst);
+	pixman_image_composite32(PIXMAN_OP_SRC, cpu_src->image, NULL, cpu_dst->image,
+				 0, 0, 0, 0, 0, 0, shm->width, shm->height);
+	client_buffer_util_end_cpu_access(cpu_src);
+	client_buffer_util_end_cpu_access(cpu_dst);
+	client_buffer_util_destroy_buffer(shm);
 	return buf;
 }
 
@@ -2145,41 +2159,39 @@ write_visual_diff(pixman_image_t *ref_image,
  * \sa verify_screen_content
  */
 bool
-verify_image(pixman_image_t *shot,
-	     const char *ref_image,
-	     int ref_seq_no,
+verify_image(struct client_buffer *shot,
+             pixman_image_t *ref,
+	     const char *ref_fname,
 	     const struct rectangle *clip,
 	     int seq_no)
 {
 	const struct range gl_fuzz = { -5, 4 };
-	pixman_image_t *ref = NULL;
-	char *ref_fname = NULL;
 	char *shot_fname;
 	bool match = false;
+	struct client_buffer_cpu_access *shot_cpu =
+		client_buffer_util_begin_cpu_access(shot);
 
 	shot_fname = output_filename_for_test_case("shot", seq_no, "png");
-	ref_fname = screenshot_reference_filename(ref_image, ref_seq_no);
-	ref = load_image_from_png(ref_fname);
 
 	if (ref) {
-		match = check_images_match(ref, shot, clip, &gl_fuzz);
+		match = check_images_match(ref, shot_cpu->image, clip,
+					   &gl_fuzz);
 		testlog("Verify reference image %s vs. shot %s: %s\n",
 			ref_fname, shot_fname, match ? "PASS" : "FAIL");
 
 		if (!match) {
-			write_visual_diff(ref, shot, clip, seq_no, &gl_fuzz);
+			write_visual_diff(ref, shot_cpu->image, clip, seq_no,
+					  &gl_fuzz);
 		}
-
-		pixman_image_unref(ref);
 	} else {
 		testlog("No reference image, shot %s: FAIL\n", shot_fname);
 	}
 
 	if (!match)
-		write_image_as_png(shot, shot_fname);
+		write_image_as_png(shot_cpu->image, shot_fname);
 
-	free(ref_fname);
 	free(shot_fname);
+	client_buffer_util_end_cpu_access(shot_cpu);
 
 	return match;
 }
@@ -2209,14 +2221,21 @@ verify_screen_content(struct client *client,
 		      int seq_no, const char *output_name,
 		      enum screenshot_decoration_mode include_decorations)
 {
-	struct buffer *shot;
+	struct client_buffer *shot;
+	char *ref_fname;
+	pixman_image_t *ref;
 	bool match;
+
+	ref_fname = screenshot_reference_filename(ref_image, ref_seq_no);
+	ref = load_image_from_png(ref_fname);
 
 	shot = capture_screenshot_of_output(client, output_name,
 					    include_decorations);
 	test_assert_ptr_not_null(shot);
-	match = verify_image(shot->image, ref_image, ref_seq_no, clip, seq_no);
-	buffer_destroy(shot);
+	match = verify_image(shot, ref, ref_fname, clip, seq_no);
+	pixman_image_unref(ref);
+	free(ref_fname);
+	client_buffer_util_destroy_buffer(shot);
 
 	return match;
 }
@@ -2232,16 +2251,17 @@ verify_screen_content(struct client *client,
  * \param basename The PNG file name without .png suffix.
  * \param scale Upscaling factor >= 1.
  */
-struct buffer *
-client_buffer_from_image_file(struct client *client,
-			      const char *basename,
+struct client_buffer *
+client_buffer_from_image_file(const char *basename,
 			      int scale)
 {
-	struct buffer *buf;
+	struct client_buffer *buf;
 	char *fname;
 	pixman_image_t *img;
 	int buf_w, buf_h;
 	pixman_transform_t scaling;
+	const struct pixel_format_info *fmt;
+	struct client_buffer_cpu_access *cpu;
 
 	test_assert_int_ge(scale, 1);
 
@@ -2252,7 +2272,11 @@ client_buffer_from_image_file(struct client *client,
 
 	buf_w = scale * pixman_image_get_width(img);
 	buf_h = scale * pixman_image_get_height(img);
-	buf = create_shm_buffer_a8r8g8b8(client, buf_w, buf_h);
+	fmt = pixel_format_get_info_by_pixman(PIXMAN_a8r8g8b8);
+	buf = client_buffer_util_allocate_shm_buffer(fmt, buf_w, buf_h);
+	test_assert_ptr_not_null(buf);
+	cpu = client_buffer_util_begin_cpu_access(buf);
+	test_assert_ptr_not_null(cpu);
 
 	pixman_transform_init_scale(&scaling,
 				    pixman_fixed_1 / scale,
@@ -2263,12 +2287,14 @@ client_buffer_from_image_file(struct client *client,
 	pixman_image_composite32(PIXMAN_OP_SRC,
 				 img, /* src */
 				 NULL, /* mask */
-				 buf->image, /* dst */
+				 cpu->image, /* dst */
 				 0, 0, /* src x,y */
 				 0, 0, /* mask x,y */
 				 0, 0, /* dst x,y */
 				 buf_w, buf_h);
 	pixman_image_unref(img);
+
+	client_buffer_util_end_cpu_access(cpu);
 
 	return buf;
 }
@@ -2359,16 +2385,17 @@ fill_image_with_color(pixman_image_t *image, const pixman_color_t *color)
 	pixman_image_unref(solid);
 }
 
-struct buffer *
-create_shm_buffer_solid(struct client *client, int width, int height,
-			const pixman_color_t *color)
+struct client_buffer *
+create_shm_buffer_solid(int width, int height, const pixman_color_t *color)
 {
-	struct buffer *buffer;
+	struct client_buffer *buffer;
+	struct client_buffer_cpu_access *cpu;
 
-	buffer = create_shm_buffer_a8r8g8b8(client, width, height);
-	if (!buffer)
-		return NULL;
-	fill_image_with_color(buffer->image, color);
+	buffer = create_shm_buffer_a8r8g8b8(width, height);
+	cpu = client_buffer_util_begin_cpu_access(buffer);
+	test_assert_ptr_not_null(cpu);
+	fill_image_with_color(cpu->image, color);
+	client_buffer_util_end_cpu_access(cpu);
 
 	return buffer;
 }
@@ -2480,9 +2507,9 @@ assert_surface_matches(struct wet_testsuite_data *suite_data,
 	test_assert_s32_eq(s->height, c->height);
 
 	test_assert_ptr_not_null(s->buffer_ref.buffer);
-	test_assert_ptr_not_null(c->buffer);
+	test_assert_ptr_not_null(c->wl_buffer);
 	assert_resource_is_proxy(suite_data, s->buffer_ref.buffer->resource,
-				 c->buffer->proxy);
+				 c->wl_buffer);
 }
 
 void
