@@ -105,22 +105,23 @@ fixture_setup(struct weston_test_harness *harness, const struct setup_args *arg)
 }
 DECLARE_FIXTURE_SETUP_WITH_ARG(fixture_setup, my_setup_args, meta);
 
-struct buffer_args {
+struct client_buffer_args {
 	int scale;
 	enum wl_output_transform transform;
 	const char *transform_name;
 };
 
-static const struct buffer_args my_buffer_args[] = {
+static const struct client_buffer_args my_buffer_args[] = {
 	{ 1, TRANSFORM(NORMAL) },
 	{ 2, TRANSFORM(90) },
 };
 
 TEST_P(output_transform, my_buffer_args)
 {
-	const struct buffer_args *bargs = data;
+	const struct client_buffer_args *bargs = data;
 	const struct setup_args *oargs;
 	struct client *client;
+	struct client_buffer *buffer;
 	bool match;
 	char *refname;
 	int ret;
@@ -140,12 +141,8 @@ TEST_P(output_transform, my_buffer_args)
 	 */
 
 	client = create_client();
-	client->surface = create_test_surface(client);
-	client->surface->width = 10000; /* used only for damage */
-	client->surface->height = 10000;
-	client->surface->buffer = client_buffer_from_image_file(client,
-							"basic-test-card",
-							bargs->scale);
+	buffer = client_buffer_from_image_file("basic-test-card", bargs->scale);
+	client->surface = create_test_surface_with_buffer(client, buffer);
 	wl_surface_set_buffer_scale(client->surface->wl_surface, bargs->scale);
 	wl_surface_set_buffer_transform(client->surface->wl_surface,
 					bargs->transform);
@@ -155,6 +152,7 @@ TEST_P(output_transform, my_buffer_args)
 				      NO_DECORATIONS);
 	test_assert_true(match);
 
+	client_buffer_util_destroy_buffer(buffer);
 	client_destroy(client);
 	free(refname);
 

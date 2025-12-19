@@ -184,12 +184,6 @@ struct output {
 	char *desc;
 };
 
-struct buffer {
-	struct wl_buffer *proxy;
-	pixman_image_t *image;
-	struct client_buffer *buf;
-};
-
 struct surface {
 	struct client *client; /* not owned */
 
@@ -199,7 +193,7 @@ struct surface {
 	int y;
 	int width;
 	int height;
-	struct buffer *buffer;
+	struct wl_buffer *wl_buffer;
 };
 
 struct rectangle {
@@ -228,6 +222,14 @@ client_destroy(struct client *client);
 struct surface *
 create_test_surface(struct client *client);
 
+struct surface *
+create_test_surface_with_buffer(struct client *client,
+				struct client_buffer *buffer);
+
+void
+test_surface_attach_buffer(struct surface *surface,
+			   struct client_buffer *buffer);
+
 void
 surface_destroy(struct surface *surface);
 
@@ -240,26 +242,21 @@ create_client_and_test_surface(int x, int y, int width, int height);
 bool
 support_shm_format(struct client *client, uint32_t shm_format);
 
-struct buffer *
-create_buffer(struct client *client, int width, int height, uint32_t drm_format,
+struct client_buffer *
+create_buffer(int width, int height, uint32_t drm_format,
 	      enum client_buffer_type buffer_type);
 
-struct buffer *
-create_shm_buffer(struct client *client, int width, int height,
-		  uint32_t drm_format);
+struct client_buffer *
+create_shm_buffer(int width, int height, uint32_t drm_format);
 
-struct buffer *
-create_shm_buffer_a8r8g8b8(struct client *client, int width, int height);
+struct client_buffer *
+create_shm_buffer_a8r8g8b8(int width, int height);
 
-struct buffer *
-create_shm_buffer_solid(struct client *client, int width, int height,
-			const pixman_color_t *solid);
+struct client_buffer *
+create_shm_buffer_solid(int width, int height, const pixman_color_t *solid);
 
 bool
 support_drm_format(struct client *client, uint32_t format, uint64_t modifier);
-
-void
-buffer_destroy(struct buffer *buf);
 
 int
 surface_contains(struct surface *surface, int x, int y);
@@ -333,11 +330,11 @@ write_image_as_png(pixman_image_t *image, const char *fname);
 pixman_image_t *
 load_image_from_png(const char *fname);
 
-struct buffer *
+struct client_buffer *
 capture_screenshot_of_output(struct client *client, const char *output_name,
 			     enum screenshot_decoration_mode include_decorations);
 
-struct buffer *
+struct client_buffer *
 client_capture_output(struct client *client,
 		      struct output *output,
 		      enum weston_capture_v1_source src,
@@ -347,7 +344,7 @@ pixman_image_t *
 image_convert_to_a8r8g8b8(pixman_image_t *image);
 
 bool
-verify_image(pixman_image_t *shot,
+verify_image(struct client_buffer *buf,
 	     const char *ref_image,
 	     int ref_seq_no,
 	     const struct rectangle *clip,
@@ -361,9 +358,8 @@ verify_screen_content(struct client *client,
 		      int seq_no, const char *output_name,
 		      enum screenshot_decoration_mode include_decorations);
 
-struct buffer *
-client_buffer_from_image_file(struct client *client,
-			      const char *basename,
+struct client_buffer *
+client_buffer_from_image_file(const char *basename,
 			      int scale);
 
 void *

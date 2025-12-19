@@ -29,6 +29,7 @@
 #include "weston-test-fixture-compositor.h"
 #include "weston-output-capture-client-protocol.h"
 #include "weston-test-assert.h"
+#include "pixel-formats.h"
 
 struct setup_args {
 	struct fixture_metadata meta;
@@ -74,41 +75,43 @@ fixture_setup(struct weston_test_harness *harness, const struct setup_args *arg)
 DECLARE_FIXTURE_SETUP_WITH_ARG(fixture_setup, my_setup_args, meta);
 
 static void
-draw_stuff(pixman_image_t *image)
+draw_stuff(struct client_buffer *buf)
 {
-	int w, h;
 	int stride; /* bytes */
 	int x, y;
-	uint32_t r, g, b;
 	uint32_t *pixels;
-	uint32_t *pixel;
-	pixman_format_code_t fmt;
+	struct client_buffer_cpu_access *cpu;
 
-	fmt = pixman_image_get_format(image);
-	w = pixman_image_get_width(image);
-	h = pixman_image_get_height(image);
-	stride = pixman_image_get_stride(image);
-	pixels = pixman_image_get_data(image);
+	cpu = client_buffer_util_begin_cpu_access(buf);
 
-	test_assert_int_eq(PIXMAN_FORMAT_BPP(fmt), 32);
+	stride = pixman_image_get_stride(cpu->image);
+	pixels = pixman_image_get_data(cpu->image);
 
-	for (x = 0; x < w; x++)
-		for (y = 0; y < h; y++) {
-			b = x;
-			g = x + y;
-			r = y;
-			pixel = pixels + (y * stride / 4) + x;
+	test_assert_int_eq(PIXMAN_FORMAT_BPP(buf->fmt->pixman_format), 32);
+
+	for (x = 0; x < buf->width; x++) {
+		for (y = 0; y < buf->height; y++) {
+			uint32_t r = y;
+			uint32_t b = x;
+			uint32_t g = x + y;
+			uint32_t *pixel = pixels + (y * stride / 4) + x;
 			*pixel = (255U << 24) | (r << 16) | (g << 8) | b;
 		}
+	}
+
+	client_buffer_util_end_cpu_access(cpu);
 }
 
 TEST(drm_writeback_screenshot) {
 	const struct setup_args *args = &my_setup_args[get_test_fixture_index()];
 	struct client *client;
-	struct buffer *buffer;
-	struct buffer *buffer_for_second_screenshot;
-	struct buffer *screenshot = NULL;
-	struct buffer *second_screenshot = NULL;
+	struct client_buffer *buffer;
+	struct wl_buffer *wl_buffer;
+	struct client_buffer *buffer_for_second_screenshot;
+	struct wl_buffer *second_wl_buffer;
+	struct client_buffer *screenshot = NULL;
+	struct client_buffer *second_screenshot = NULL;
+	struct client_buffer_cpu_access *cpu;
 	pixman_image_t *reference = NULL;
 	pixman_image_t *diffimg = NULL;
 	struct wl_surface *surface;
@@ -127,10 +130,11 @@ TEST(drm_writeback_screenshot) {
 	 * comparison of the writeback screenshot with the reference image */
 	weston_test_move_pointer(client->test->weston_test, 0, 1, 0, 0, 0);
 
-	buffer = create_shm_buffer_a8r8g8b8(client, 100, 100);
-	draw_stuff(buffer->image);
+	buffer = create_shm_buffer_a8r8g8b8(100, 100);
+	wl_buffer = client_buffer_util_get_proxy_shm(buffer, client->wl_shm);
+	draw_stuff(buffer);
 
-	wl_surface_attach(surface, buffer->proxy, 0, 0);
+	wl_surface_attach(surface, wl_buffer, 0, 0);
 	wl_surface_damage(surface, 0, 0, 100, 100);
 	frame_callback_set(surface, &frame);
 	wl_surface_commit(surface);
@@ -142,13 +146,14 @@ TEST(drm_writeback_screenshot) {
 					   WESTON_CAPTURE_V1_SOURCE_WRITEBACK,
 					   args->buffer_type);
 	test_assert_ptr_not_null(screenshot);
-	buffer_destroy(screenshot);
+	client_buffer_util_destroy_buffer(screenshot);
 
 	/* Use new buffer to avoid deadlock between first and second screenshot. */
-	buffer_for_second_screenshot = create_shm_buffer_a8r8g8b8(client, 100, 100);
-	draw_stuff(buffer_for_second_screenshot->image);
+	buffer_for_second_screenshot = create_shm_buffer_a8r8g8b8(100, 100);
+	second_wl_buffer = client_buffer_util_get_proxy_shm(buffer, client->wl_shm);
+	draw_stuff(buffer_for_second_screenshot);
 
-	wl_surface_attach(surface, buffer_for_second_screenshot->proxy, 0, 0);
+	wl_surface_attach(surface, second_wl_buffer, 0, 0);
 	wl_surface_damage(surface, 0, 0, 100, 100);
 	frame_callback_set(surface, &frame);
 	wl_surface_commit(surface);
@@ -175,22 +180,24 @@ TEST(drm_writeback_screenshot) {
 	clip.y = 100;
 	clip.width = 100;
 	clip.height = 100;
-	client_buffer_util_maybe_sync_dmabuf_start(second_screenshot->buf);
-	match = check_images_match(second_screenshot->image, reference, &clip, NULL);
+	cpu = client_buffer_util_begin_cpu_access(second_screenshot);
+	match = check_images_match(cpu->image, reference, &clip, NULL);
 	testlog("Screenshot %s reference image\n", match? "equal to" : "different from");
 	if (!match) {
-		diffimg = visualize_image_difference(second_screenshot->image, reference, &clip, NULL);
+		diffimg = visualize_image_difference(cpu->image, reference, &clip, NULL);
 		fname = output_filename_for_test_case("error", 0, "png");
 		write_image_as_png(diffimg, fname);
 		pixman_image_unref(diffimg);
 		free(fname);
 	}
-	client_buffer_util_maybe_sync_dmabuf_end(second_screenshot->buf);
+	client_buffer_util_end_cpu_access(cpu);
 
 	pixman_image_unref(reference);
-	buffer_destroy(second_screenshot);
-	buffer_destroy(buffer);
-	buffer_destroy(buffer_for_second_screenshot);
+	client_buffer_util_destroy_buffer(second_screenshot);
+	wl_buffer_destroy(wl_buffer);
+	client_buffer_util_destroy_buffer(buffer);
+	wl_buffer_destroy(second_wl_buffer);
+	client_buffer_util_destroy_buffer(buffer_for_second_screenshot);
 	client_destroy(client);
 
 	test_assert_true(match);

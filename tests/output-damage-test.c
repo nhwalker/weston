@@ -158,10 +158,10 @@ DECLARE_FIXTURE_SETUP_WITH_ARG(fixture_setup, my_setup_args, meta);
 
 static void
 commit_buffer_with_damage(struct surface *surface,
-			  struct buffer *buffer,
+			  struct client_buffer *buffer,
 			  struct rectangle damage)
 {
-	wl_surface_attach(surface->wl_surface, buffer->proxy, 0, 0);
+	test_surface_attach_buffer(surface, buffer);
 	wl_surface_damage(surface->wl_surface, damage.x, damage.y,
 			  damage.width, damage.height);
 	wl_surface_commit(surface->wl_surface);
@@ -182,7 +182,7 @@ TEST(output_damage)
 	bool match = true;
 	char *refname;
 	int ret;
-	struct buffer *buf[COUNT_BUFS];
+	struct client_buffer *buf[COUNT_BUFS];
 	pixman_color_t colors[COUNT_BUFS];
 	static const struct rectangle damages[COUNT_BUFS] = {
 		{ 0 /* full damage */ },
@@ -206,14 +206,11 @@ TEST(output_damage)
 	testlog("%s: %s\n", get_test_name(), refname);
 
 	client = create_client();
-	client->surface = create_test_surface(client);
-	client->surface->width = width;
-	client->surface->height = height;
 
 	for (i = 0; i < COUNT_BUFS; i++)
-		buf[i] = create_shm_buffer_solid(client, width, height, &colors[i]);
+		buf[i] = create_shm_buffer_solid(width, height, &colors[i]);
 
-	client->surface->buffer = buf[0];
+	client->surface = create_test_surface_with_buffer(client, buf[0]);
 	move_client_frame_sync(client, 19, 19);
 
 	/*
@@ -231,9 +228,8 @@ TEST(output_damage)
 	test_assert_true(match);
 
 	for (i = 0; i < COUNT_BUFS; i++)
-		buffer_destroy(buf[i]);
+		client_buffer_util_destroy_buffer(buf[i]);
 
-	client->surface->buffer = NULL;
 	client_destroy(client);
 	free(refname);
 

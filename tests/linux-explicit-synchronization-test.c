@@ -273,25 +273,28 @@ TEST(get_release_after_commit_succeeds)
 	struct zwp_linux_surface_synchronization_v1 *surface_sync =
 		zwp_linux_explicit_synchronization_v1_get_synchronization(
 			sync, surface);
-	struct buffer *buf1;
+	struct client_buffer *buf1;
+	struct wl_buffer *wl_buffer;
 	pixman_color_t black;
 	struct zwp_linux_buffer_release_v1 *buffer_release1;
 	struct zwp_linux_buffer_release_v1 *buffer_release2;
 
 	color_rgb888(&black, 0, 0, 0);
-	buf1 = create_shm_buffer_solid(client, 100, 100, &black);
+	buf1 = create_shm_buffer_solid(100, 100, &black);
+	wl_buffer = client_buffer_util_get_proxy_shm(buf1, client->wl_shm);
 	buffer_release1 =
 		zwp_linux_surface_synchronization_v1_get_release(surface_sync);
 	client_roundtrip(client);
 
-	wl_surface_attach(surface, buf1->proxy, 0, 0);
+	wl_surface_attach(surface, wl_buffer, 0, 0);
 	wl_surface_commit(surface);
 
 	buffer_release2 =
 		zwp_linux_surface_synchronization_v1_get_release(surface_sync);
 	client_roundtrip(client);
 
-	buffer_destroy(buf1);
+	wl_buffer_destroy(wl_buffer);
+	client_buffer_util_destroy_buffer(buf1);
 	zwp_linux_buffer_release_v1_destroy(buffer_release2);
 	zwp_linux_buffer_release_v1_destroy(buffer_release1);
 	zwp_linux_surface_synchronization_v1_destroy(surface_sync);
@@ -338,8 +341,10 @@ TEST(get_release_events_are_emitted_for_different_buffers)
 	struct zwp_linux_surface_synchronization_v1 *surface_sync =
 		zwp_linux_explicit_synchronization_v1_get_synchronization(
 			sync, client->surface->wl_surface);
-	struct buffer *buf1;
-	struct buffer *buf2;
+	struct client_buffer *buf1;
+	struct wl_buffer *wl_buf1;
+	struct client_buffer *buf2;
+	struct wl_buffer *wl_buf2;
 	pixman_color_t black;
 	struct wl_surface *surface = client->surface->wl_surface;
 	struct zwp_linux_buffer_release_v1 *buffer_release1;
@@ -349,15 +354,17 @@ TEST(get_release_events_are_emitted_for_different_buffers)
 	int frame;
 
 	color_rgb888(&black, 0, 0, 0);
-	buf1 = create_shm_buffer_solid(client, 100, 100, &black);
-	buf2 = create_shm_buffer_solid(client, 100, 100, &black);
+	buf1 = create_shm_buffer_solid(100, 100, &black);
+	wl_buf1 = client_buffer_util_get_proxy_shm(buf1, client->wl_shm);
+	buf2 = create_shm_buffer_solid(100, 100, &black);
+	wl_buf2 = client_buffer_util_get_proxy_shm(buf2, client->wl_shm);
 
 	buffer_release1 =
 		zwp_linux_surface_synchronization_v1_get_release(surface_sync);
 	zwp_linux_buffer_release_v1_add_listener(buffer_release1,
 						 &buffer_release_listener,
 						 &buf_released1);
-	wl_surface_attach(surface, buf1->proxy, 0, 0);
+	wl_surface_attach(surface, wl_buf1, 0, 0);
 	frame_callback_set(surface, &frame);
 	wl_surface_commit(surface);
 	frame_callback_wait(client, &frame);
@@ -370,7 +377,7 @@ TEST(get_release_events_are_emitted_for_different_buffers)
 	zwp_linux_buffer_release_v1_add_listener(buffer_release2,
 						 &buffer_release_listener,
 						 &buf_released2);
-	wl_surface_attach(surface, buf2->proxy, 0, 0);
+	wl_surface_attach(surface, wl_buf2, 0, 0);
 	frame_callback_set(surface, &frame);
 	wl_surface_commit(surface);
 	frame_callback_wait(client, &frame);
@@ -379,7 +386,7 @@ TEST(get_release_events_are_emitted_for_different_buffers)
 	test_assert_int_eq(buf_released1, 1);
 	test_assert_int_eq(buf_released2, 0);
 
-	wl_surface_attach(surface, buf1->proxy, 0, 0);
+	wl_surface_attach(surface, wl_buf1, 0, 0);
 	frame_callback_set(surface, &frame);
 	wl_surface_commit(surface);
 	frame_callback_wait(client, &frame);
@@ -388,8 +395,10 @@ TEST(get_release_events_are_emitted_for_different_buffers)
 	test_assert_int_eq(buf_released1, 1);
 	test_assert_int_eq(buf_released2, 1);
 
-	buffer_destroy(buf2);
-	buffer_destroy(buf1);
+	wl_buffer_destroy(wl_buf2);
+	client_buffer_util_destroy_buffer(buf2);
+	wl_buffer_destroy(wl_buf1);
+	client_buffer_util_destroy_buffer(buf1);
 	zwp_linux_buffer_release_v1_destroy(buffer_release2);
 	zwp_linux_buffer_release_v1_destroy(buffer_release1);
 	zwp_linux_surface_synchronization_v1_destroy(surface_sync);
@@ -407,7 +416,8 @@ TEST(get_release_events_are_emitted_for_same_buffer_on_surface)
 	struct zwp_linux_surface_synchronization_v1 *surface_sync =
 		zwp_linux_explicit_synchronization_v1_get_synchronization(
 			sync, client->surface->wl_surface);
-	struct buffer *buf;
+	struct client_buffer *buf;
+	struct wl_buffer *wl_buffer;
 	pixman_color_t black;
 	struct wl_surface *surface = client->surface->wl_surface;
 	struct zwp_linux_buffer_release_v1 *buffer_release1;
@@ -417,13 +427,14 @@ TEST(get_release_events_are_emitted_for_same_buffer_on_surface)
 	int frame;
 
 	color_rgb888(&black, 0, 0, 0);
-	buf = create_shm_buffer_solid(client, 100, 100, &black);
+	buf = create_shm_buffer_solid(100, 100, &black);
+	wl_buffer = client_buffer_util_get_proxy_shm(buf, client->wl_shm);
 	buffer_release1 =
 		zwp_linux_surface_synchronization_v1_get_release(surface_sync);
 	zwp_linux_buffer_release_v1_add_listener(buffer_release1,
 					   &buffer_release_listener,
 					   &buf_released1);
-	wl_surface_attach(surface, buf->proxy, 0, 0);
+	wl_surface_attach(surface, wl_buffer, 0, 0);
 	frame_callback_set(surface, &frame);
 	wl_surface_commit(surface);
 	frame_callback_wait(client, &frame);
@@ -436,7 +447,7 @@ TEST(get_release_events_are_emitted_for_same_buffer_on_surface)
 	zwp_linux_buffer_release_v1_add_listener(buffer_release2,
 					   &buffer_release_listener,
 					   &buf_released2);
-	wl_surface_attach(surface, buf->proxy, 0, 0);
+	wl_surface_attach(surface, wl_buffer, 0, 0);
 	frame_callback_set(surface, &frame);
 	wl_surface_commit(surface);
 	frame_callback_wait(client, &frame);
@@ -445,7 +456,7 @@ TEST(get_release_events_are_emitted_for_same_buffer_on_surface)
 	test_assert_int_eq(buf_released1, 1);
 	test_assert_int_eq(buf_released2, 0);
 
-	wl_surface_attach(surface, buf->proxy, 0, 0);
+	wl_surface_attach(surface, wl_buffer, 0, 0);
 	frame_callback_set(surface, &frame);
 	wl_surface_commit(surface);
 	frame_callback_wait(client, &frame);
@@ -454,7 +465,8 @@ TEST(get_release_events_are_emitted_for_same_buffer_on_surface)
 	test_assert_int_eq(buf_released1, 1);
 	test_assert_int_eq(buf_released2, 1);
 
-	buffer_destroy(buf);
+	wl_buffer_destroy(wl_buffer);
+	client_buffer_util_destroy_buffer(buf);
 	zwp_linux_buffer_release_v1_destroy(buffer_release2);
 	zwp_linux_buffer_release_v1_destroy(buffer_release1);
 	zwp_linux_surface_synchronization_v1_destroy(surface_sync);
@@ -478,8 +490,10 @@ TEST(get_release_events_are_emitted_for_same_buffer_on_different_surfaces)
 	struct zwp_linux_surface_synchronization_v1 *surface_sync2 =
 		zwp_linux_explicit_synchronization_v1_get_synchronization(
 			sync, surface2);
-	struct buffer *buf1;
-	struct buffer *buf2;
+	struct client_buffer *buf1;
+	struct wl_buffer *wl_buf1;
+	struct client_buffer *buf2;
+	struct wl_buffer *wl_buf2;
 	pixman_color_t black;
 	struct zwp_linux_buffer_release_v1 *buffer_release1;
 	struct zwp_linux_buffer_release_v1 *buffer_release2;
@@ -488,8 +502,10 @@ TEST(get_release_events_are_emitted_for_same_buffer_on_different_surfaces)
 	int frame;
 
 	color_rgb888(&black, 0, 0, 0);
-	buf1 = create_shm_buffer_solid(client, 100, 100, &black);
-	buf2 = create_shm_buffer_solid(client, 100, 100, &black);
+	buf1 = create_shm_buffer_solid(100, 100, &black);
+	wl_buf1 = client_buffer_util_get_proxy_shm(buf1, client->wl_shm);
+	buf2 = create_shm_buffer_solid(100, 100, &black);
+	wl_buf2 = client_buffer_util_get_proxy_shm(buf2, client->wl_shm);
 
 	weston_test_move_surface(client->test->weston_test, surface2, 0, 0);
 
@@ -499,7 +515,7 @@ TEST(get_release_events_are_emitted_for_same_buffer_on_different_surfaces)
 	zwp_linux_buffer_release_v1_add_listener(buffer_release1,
 					   &buffer_release_listener,
 					   &buf_released1);
-	wl_surface_attach(surface1, buf1->proxy, 0, 0);
+	wl_surface_attach(surface1, wl_buf1, 0, 0);
 	frame_callback_set(surface1, &frame);
 	wl_surface_commit(surface1);
 	frame_callback_wait(client, &frame);
@@ -509,7 +525,7 @@ TEST(get_release_events_are_emitted_for_same_buffer_on_different_surfaces)
 	zwp_linux_buffer_release_v1_add_listener(buffer_release2,
 					   &buffer_release_listener,
 					   &buf_released2);
-	wl_surface_attach(surface2, buf1->proxy, 0, 0);
+	wl_surface_attach(surface2, wl_buf2, 0, 0);
 	frame_callback_set(surface2, &frame);
 	wl_surface_commit(surface2);
 	frame_callback_wait(client, &frame);
@@ -519,7 +535,7 @@ TEST(get_release_events_are_emitted_for_same_buffer_on_different_surfaces)
 
 	/* Attach buf2 to surface1, and check that a buffer_release event for
 	 * the previous commit (buf1) for that surface is emitted. */
-	wl_surface_attach(surface1, buf2->proxy, 0, 0);
+	wl_surface_attach(surface1, wl_buf2, 0, 0);
 	frame_callback_set(surface1, &frame);
 	wl_surface_commit(surface1);
 	frame_callback_wait(client, &frame);
@@ -529,7 +545,7 @@ TEST(get_release_events_are_emitted_for_same_buffer_on_different_surfaces)
 
 	/* Attach buf2 to surface2, and check that a buffer_release event for
 	 * the previous commit (buf1) for that surface is emitted. */
-	wl_surface_attach(surface2, buf2->proxy, 0, 0);
+	wl_surface_attach(surface2, wl_buf2, 0, 0);
 	frame_callback_set(surface2, &frame);
 	wl_surface_commit(surface2);
 	frame_callback_wait(client, &frame);
@@ -537,8 +553,10 @@ TEST(get_release_events_are_emitted_for_same_buffer_on_different_surfaces)
 	test_assert_int_eq(buf_released1, 1);
 	test_assert_int_eq(buf_released2, 1);
 
-	buffer_destroy(buf2);
-	buffer_destroy(buf1);
+	wl_buffer_destroy(wl_buf2);
+	client_buffer_util_destroy_buffer(buf2);
+	wl_buffer_destroy(wl_buf1);
+	client_buffer_util_destroy_buffer(buf1);
 	zwp_linux_buffer_release_v1_destroy(buffer_release2);
 	zwp_linux_buffer_release_v1_destroy(buffer_release1);
 	zwp_linux_surface_synchronization_v1_destroy(surface_sync2);

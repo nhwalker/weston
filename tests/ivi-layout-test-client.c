@@ -462,7 +462,8 @@ TEST(ivi_layout_surface_configure_notification)
 	struct runner *runner;
 	struct ivi_application *iviapp;
 	struct ivi_window *wind;
-	struct buffer *buffer;
+	struct client_buffer *buffer;
+	struct wl_buffer *wl_buffer;
 	pixman_color_t black;
 
 	client = create_client();
@@ -474,21 +475,23 @@ TEST(ivi_layout_surface_configure_notification)
 	wind = client_create_ivi_window(client, iviapp, IVI_TEST_SURFACE_ID(0));
 
 	color_rgb888(&black, 0, 0, 0);
-	buffer = create_shm_buffer_solid(client, 200, 300, &black);
+	buffer = create_shm_buffer_solid(200, 300, &black);
+	wl_buffer = client_buffer_util_get_proxy_shm(buffer, client->wl_shm);
 
-	wl_surface_attach(wind->wl_surface, buffer->proxy, 0, 0);
+	wl_surface_attach(wind->wl_surface, wl_buffer, 0, 0);
 	wl_surface_damage(wind->wl_surface, 0, 0, 20, 30);
 	wl_surface_commit(wind->wl_surface);
 
 	runner_run(runner, "surface_configure_notification_p2");
 
-	wl_surface_attach(wind->wl_surface, buffer->proxy, 0, 0);
+	wl_surface_attach(wind->wl_surface, wl_buffer, 0, 0);
 	wl_surface_damage(wind->wl_surface, 0, 0, 40, 50);
 	wl_surface_commit(wind->wl_surface);
 
 	runner_run(runner, "surface_configure_notification_p3");
 
-	buffer_destroy(buffer);
+	wl_buffer_destroy(wl_buffer);
+	client_buffer_util_destroy_buffer(buffer);
 	ivi_window_destroy(wind);
 	runner_destroy(runner);
 	ivi_application_destroy(iviapp);

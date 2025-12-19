@@ -248,10 +248,9 @@ client_buffer_create(struct client *client,
 				return NULL;
 			}
 
-			buf = client_buffer_util_create_shm_buffer(client->wl_shm,
-								   create_data->fmt,
-								   create_data->width,
-								   create_data->height);
+			buf = client_buffer_util_allocate_shm_buffer(create_data->fmt,
+								     create_data->width,
+								     create_data->height);
 			break;
 		}
 		case BUFFER_TYPE_DMABUF: {
@@ -262,11 +261,9 @@ client_buffer_create(struct client *client,
 				return NULL;
 			}
 
-			buf = client_buffer_util_create_dmabuf_buffer(client->wl_display,
-								      client->dmabuf,
-								      create_data->fmt,
-								      create_data->width,
-								      create_data->height);
+			buf = client_buffer_util_allocate_dmabuf_buffer(create_data->fmt,
+								        create_data->width,
+								        create_data->height);
 			break;
 		}
 	}
@@ -306,6 +303,7 @@ rgba4444_create_buffer(struct client *client,
 	struct image_header src = image_header_from(rgb_image);
 	struct client_buffer_create_data args = create_init(drm_format, type, &src);
 	struct client_buffer *buf;
+	struct client_buffer_cpu_access *cpu;
 	bool is_opaque;
 	int idx, x, y;
 	uint16_t a;
@@ -355,10 +353,10 @@ rgba4444_create_buffer(struct client *client,
 	 * with 0xf. */
 	a = is_opaque ? 0x0 : 0xf;
 
-	client_buffer_util_maybe_sync_dmabuf_start(buf);
+	cpu = client_buffer_util_begin_cpu_access(buf);
 	for (y = 0; y < src.height; y++) {
 		uint16_t *dst_row =
-			(uint16_t*) buf->data + (buf->strides[0] / sizeof(uint16_t)) * y;
+			(uint16_t*) cpu->data + (buf->strides[0] / sizeof(uint16_t)) * y;
 		uint32_t *src_row = image_header_get_row_u32(&src, y);
 
 		for (x = 0; x < src.width; x++) {
@@ -373,7 +371,7 @@ rgba4444_create_buffer(struct client *client,
 				a << (swizzles[idx][3] * 4);
 		}
 	}
-	client_buffer_util_maybe_sync_dmabuf_end(buf);
+	client_buffer_util_end_cpu_access(cpu);
 
 	return buf;
 }
@@ -395,6 +393,7 @@ rgba5551_create_buffer(struct client *client,
 {
 	struct image_header src = image_header_from(rgb_image);
 	struct client_buffer_create_data args = create_init(drm_format, type, &src);
+	struct client_buffer_cpu_access *cpu;
 	struct client_buffer *buf;
 
 	int x, y;
@@ -414,10 +413,10 @@ rgba5551_create_buffer(struct client *client,
 	a = drm_format == DRM_FORMAT_RGBX5551 ||
 		drm_format == DRM_FORMAT_RGBX5551 ? 0x0 : 0x1;
 
-	client_buffer_util_maybe_sync_dmabuf_start(buf);
+	cpu = client_buffer_util_begin_cpu_access(buf);
 	for (y = 0; y < src.height; y++) {
 		uint16_t *dst_row =
-			(uint16_t*) buf->data + (buf->strides[0] / sizeof(uint16_t)) * y;
+			(uint16_t*) cpu->data + (buf->strides[0] / sizeof(uint16_t)) * y;
 		uint32_t *src_row = image_header_get_row_u32(&src, y);
 
 		for (x = 0; x < src.width; x++) {
@@ -432,7 +431,7 @@ rgba5551_create_buffer(struct client *client,
 				dst_row[x] = b << 11 | g << 6 | r << 1 | a;
 		}
 	}
-	client_buffer_util_maybe_sync_dmabuf_end(buf);
+	client_buffer_util_end_cpu_access(cpu);
 
 	return buf;
 }
@@ -451,6 +450,7 @@ rgb565_create_buffer(struct client *client,
 {
 	struct image_header src = image_header_from(rgb_image);
 	struct client_buffer_create_data args = create_init(drm_format, type, &src);
+	struct client_buffer_cpu_access *cpu;
 	struct client_buffer *buf;
 	int x, y;
 
@@ -461,10 +461,10 @@ rgb565_create_buffer(struct client *client,
 	if (!buf)
 		return NULL;
 
-	client_buffer_util_maybe_sync_dmabuf_start(buf);
+	cpu = client_buffer_util_begin_cpu_access(buf);
 	for (y = 0; y < src.height; y++) {
 		uint16_t *dst_row =
-			(uint16_t*) buf->data + (buf->strides[0] / sizeof(uint16_t)) * y;
+			(uint16_t*) cpu->data + (buf->strides[0] / sizeof(uint16_t)) * y;
 		uint32_t *src_row = image_header_get_row_u32(&src, y);
 
 		for (x = 0; x < src.width; x++) {
@@ -478,7 +478,7 @@ rgb565_create_buffer(struct client *client,
 				dst_row[x] = b << 11 | g << 5 | r;
 		}
 	}
-	client_buffer_util_maybe_sync_dmabuf_end(buf);
+	client_buffer_util_end_cpu_access(cpu);
 
 	return buf;
 }
@@ -497,6 +497,7 @@ rgb888_create_buffer(struct client *client,
 {
 	struct image_header src = image_header_from(rgb_image);
 	struct client_buffer_create_data args = create_init(drm_format, type, &src);
+	struct client_buffer_cpu_access *cpu;
 	struct client_buffer *buf;
 	int x, y;
 
@@ -507,9 +508,9 @@ rgb888_create_buffer(struct client *client,
 	if (!buf)
 		return NULL;
 
-	client_buffer_util_maybe_sync_dmabuf_start(buf);
+	cpu = client_buffer_util_begin_cpu_access(buf);
 	for (y = 0; y < src.height; y++) {
-		uint8_t *dst_row = (uint8_t*) buf->data + src.width * 3 * y;
+		uint8_t *dst_row = (uint8_t*) cpu->data + src.width * 3 * y;
 		uint32_t *src_row = image_header_get_row_u32(&src, y);
 
 		for (x = 0; x < src.width; x++) {
@@ -528,7 +529,7 @@ rgb888_create_buffer(struct client *client,
 			}
 		}
 	}
-	client_buffer_util_maybe_sync_dmabuf_end(buf);
+	client_buffer_util_end_cpu_access(cpu);
 
 	return buf;
 }
@@ -563,6 +564,7 @@ rgba8888_create_buffer(struct client *client,
 
 	struct image_header src = image_header_from(rgb_image);
 	struct client_buffer_create_data args = create_init(drm_format, type, &src);
+	struct client_buffer_cpu_access *cpu;
 	struct client_buffer *buf;
 	bool is_opaque;
 	int idx, x, y;
@@ -613,10 +615,10 @@ rgba8888_create_buffer(struct client *client,
 	 * with 0xff. */
 	a = is_opaque ? 0x00 : 0xff;
 
-	client_buffer_util_maybe_sync_dmabuf_start(buf);
+	cpu = client_buffer_util_begin_cpu_access(buf);
 	for (y = 0; y < src.height; y++) {
 		uint32_t *dst_row =
-			(uint32_t*) buf->data + (buf->strides[0] / sizeof(uint32_t)) * y;
+			(uint32_t*) cpu->data + (buf->strides[0] / sizeof(uint32_t)) * y;
 		uint32_t *src_row = image_header_get_row_u32(&src, y);
 
 		for (x = 0; x < src.width; x++) {
@@ -631,7 +633,7 @@ rgba8888_create_buffer(struct client *client,
 				a << (swizzles[idx][3] * 8);
 		}
 	}
-	client_buffer_util_maybe_sync_dmabuf_end(buf);
+	client_buffer_util_end_cpu_access(cpu);
 
 	return buf;
 }
@@ -653,6 +655,7 @@ rgba2101010_create_buffer(struct client *client,
 {
 	struct image_header src = image_header_from(rgb_image);
 	struct client_buffer_create_data args = create_init(drm_format, type, &src);
+	struct client_buffer_cpu_access *cpu;
 	struct client_buffer *buf;
 	int x, y;
 	uint32_t a;
@@ -671,10 +674,10 @@ rgba2101010_create_buffer(struct client *client,
 	a = drm_format == DRM_FORMAT_XRGB2101010 ||
 		drm_format == DRM_FORMAT_XRGB2101010 ? 0x0 : 0x3;
 
-	client_buffer_util_maybe_sync_dmabuf_start(buf);
+	cpu = client_buffer_util_begin_cpu_access(buf);
 	for (y = 0; y < src.height; y++) {
 		uint32_t *dst_row =
-			(uint32_t*) buf->data + (buf->strides[0] / sizeof(uint32_t)) * y;
+			(uint32_t*) cpu->data + (buf->strides[0] / sizeof(uint32_t)) * y;
 		uint32_t *src_row = image_header_get_row_u32(&src, y);
 
 		for (x = 0; x < src.width; x++) {
@@ -689,7 +692,7 @@ rgba2101010_create_buffer(struct client *client,
 				dst_row[x] = a << 30 | b << 20 | g << 10 | r;
 		}
 	}
-	client_buffer_util_maybe_sync_dmabuf_end(buf);
+	client_buffer_util_end_cpu_access(cpu);
 
 	return buf;
 }
@@ -716,6 +719,7 @@ rgba16161616_create_buffer(struct client *client,
 
 	struct image_header src = image_header_from(rgb_image);
 	struct client_buffer_create_data args = create_init(drm_format, type, &src);
+	struct client_buffer_cpu_access *cpu;
 	struct client_buffer *buf;
 	bool is_opaque;
 	int idx, x, y;
@@ -750,10 +754,10 @@ rgba16161616_create_buffer(struct client *client,
 	 * with 0xffff. */
 	a = is_opaque ? 0x0000 : 0xffff;
 
-	client_buffer_util_maybe_sync_dmabuf_start(buf);
+	cpu = client_buffer_util_begin_cpu_access(buf);
 	for (y = 0; y < src.height; y++) {
 		uint64_t *dst_row =
-			(uint64_t*) buf->data + (buf->strides[0] / sizeof(uint64_t)) * y;
+			(uint64_t*) cpu->data + (buf->strides[0] / sizeof(uint64_t)) * y;
 		uint32_t *src_row = image_header_get_row_u32(&src, y);
 
 		for (x = 0; x < src.width; x++) {
@@ -768,7 +772,7 @@ rgba16161616_create_buffer(struct client *client,
 				a << (swizzles[idx][3] * 16);
 		}
 	}
-	client_buffer_util_maybe_sync_dmabuf_end(buf);
+	client_buffer_util_end_cpu_access(cpu);
 
 	return buf;
 }
@@ -818,6 +822,7 @@ rgba16161616f_create_buffer(struct client *client,
 
 	struct image_header src = image_header_from(rgb_image);
 	struct client_buffer_create_data args = create_init(drm_format, type, &src);
+	struct client_buffer_cpu_access *cpu;
 	struct client_buffer *buf;
 	bool is_opaque;
 	int idx, x, y;
@@ -854,10 +859,10 @@ rgba16161616f_create_buffer(struct client *client,
 		binary16_from_binary32(0.0f) :
 		binary16_from_binary32(1.0f);
 
-	client_buffer_util_maybe_sync_dmabuf_start(buf);
+	cpu = client_buffer_util_begin_cpu_access(buf);
 	for (y = 0; y < src.height; y++) {
 		uint64_t *dst_row =
-			(uint64_t*) buf->data + (buf->strides[0] / sizeof(uint64_t)) * y;
+			(uint64_t*) cpu->data + (buf->strides[0] / sizeof(uint64_t)) * y;
 		uint32_t *src_row = image_header_get_row_u32(&src, y);
 
 		for (x = 0; x < src.width; x++) {
@@ -875,7 +880,7 @@ rgba16161616f_create_buffer(struct client *client,
 				a << (swizzles[idx][3] * 16);
 		}
 	}
-	client_buffer_util_maybe_sync_dmabuf_end(buf);
+	client_buffer_util_end_cpu_access(cpu);
 
 	return buf;
 }
@@ -976,6 +981,7 @@ y_u_v_create_buffer(struct client *client,
 {
 	struct image_header src = image_header_from(rgb_image);
 	struct client_buffer_create_data args = create_init(drm_format, type, &src);
+	struct client_buffer_cpu_access *cpu;
 	struct client_buffer *buf;
 	int x, y;
 	uint32_t *rgb_row;
@@ -991,23 +997,24 @@ y_u_v_create_buffer(struct client *client,
 	if (!buf)
 		return NULL;
 
-	y_base = buf->data + buf->offsets[0];
+	cpu = client_buffer_util_begin_cpu_access(buf);
+
+	y_base = cpu->data + buf->offsets[0];
 	switch (drm_format) {
 	case DRM_FORMAT_YUV420:
 	case DRM_FORMAT_YUV422:
 	case DRM_FORMAT_YUV444:
-		u_base = buf->data + buf->offsets[1];
-		v_base = buf->data + buf->offsets[2];
+		u_base = cpu->data + buf->offsets[1];
+		v_base = cpu->data + buf->offsets[2];
 		break;
 	case DRM_FORMAT_YVU420:
 	case DRM_FORMAT_YVU422:
 	case DRM_FORMAT_YVU444:
-		v_base = buf->data + buf->offsets[1];
-		u_base = buf->data + buf->offsets[2];
+		v_base = cpu->data + buf->offsets[1];
+		u_base = cpu->data + buf->offsets[2];
 		break;
 	}
 
-	client_buffer_util_maybe_sync_dmabuf_start(buf);
 	for (y = 0; y < src.height; y++) {
 		rgb_row = image_header_get_row_u32(&src, y / 2 * 2);
 		y_row = y_base + y * buf->strides[0];
@@ -1051,7 +1058,7 @@ y_u_v_create_buffer(struct client *client,
 			}
 		}
 	}
-	client_buffer_util_maybe_sync_dmabuf_end(buf);
+	client_buffer_util_end_cpu_access(cpu);
 
 	return buf;
 }
@@ -1079,6 +1086,7 @@ nv12_create_buffer(struct client *client,
 	};
 	struct image_header src = image_header_from(rgb_image);
 	struct client_buffer_create_data args = create_init(drm_format, type, &src);
+	struct client_buffer_cpu_access *cpu;
 	struct client_buffer *buf;
 	int idx, x, y;
 	uint32_t *rgb_row;
@@ -1104,11 +1112,11 @@ nv12_create_buffer(struct client *client,
 	buf = client_buffer_create(client, &args);
 	if (!buf)
 		return NULL;
+	cpu = client_buffer_util_begin_cpu_access(buf);
 
-	y_base = buf->data + buf->offsets[0];
-	uv_base = (uint16_t *)(buf->data + buf->offsets[1]);
+	y_base = cpu->data + buf->offsets[0];
+	uv_base = (uint16_t *)(cpu->data + buf->offsets[1]);
 
-	client_buffer_util_maybe_sync_dmabuf_start(buf);
 	for (y = 0; y < src.height; y++) {
 		rgb_row = image_header_get_row_u32(&src, y / 2 * 2);
 		y_row = y_base + y * buf->strides[0];
@@ -1138,7 +1146,7 @@ nv12_create_buffer(struct client *client,
 			}
 		}
 	}
-	client_buffer_util_maybe_sync_dmabuf_end(buf);
+	client_buffer_util_end_cpu_access(cpu);
 
 	return buf;
 }
@@ -1166,6 +1174,7 @@ nv16_create_buffer(struct client *client,
 	};
 	struct image_header src = image_header_from(rgb_image);
 	struct client_buffer_create_data args = create_init(drm_format, type, &src);
+	struct client_buffer_cpu_access *cpu;
 	struct client_buffer *buf;
 	int idx, x, y;
 	uint32_t *rgb_row;
@@ -1191,11 +1200,11 @@ nv16_create_buffer(struct client *client,
 	buf = client_buffer_create(client, &args);
 	if (!buf)
 		return NULL;
+	cpu = client_buffer_util_begin_cpu_access(buf);
 
-	y_base = buf->data + buf->offsets[0];
-	uv_base = (uint16_t *)(buf->data + buf->offsets[1]);
+	y_base = cpu->data + buf->offsets[0];
+	uv_base = (uint16_t *)(cpu->data + buf->offsets[1]);
 
-	client_buffer_util_maybe_sync_dmabuf_start(buf);
 	for (y = 0; y < src.height; y++) {
 		rgb_row = image_header_get_row_u32(&src, y / 2 * 2);
 		y_row = y_base + y * buf->strides[0];
@@ -1225,7 +1234,7 @@ nv16_create_buffer(struct client *client,
 			}
 		}
 	}
-	client_buffer_util_maybe_sync_dmabuf_end(buf);
+	client_buffer_util_end_cpu_access(cpu);
 
 	return buf;
 }
@@ -1253,6 +1262,7 @@ nv24_create_buffer(struct client *client,
 	};
 	struct image_header src = image_header_from(rgb_image);
 	struct client_buffer_create_data args = create_init(drm_format, type, &src);
+	struct client_buffer_cpu_access *cpu;
 	struct client_buffer *buf;
 	int idx, x, y;
 	uint32_t *rgb_row;
@@ -1278,11 +1288,11 @@ nv24_create_buffer(struct client *client,
 	buf = client_buffer_create(client, &args);
 	if (!buf)
 		return NULL;
+	cpu = client_buffer_util_begin_cpu_access(buf);
 
-	y_base = buf->data + buf->offsets[0];
-	uv_base = (uint16_t *)(buf->data + buf->offsets[1]);
+	y_base = cpu->data + buf->offsets[0];
+	uv_base = (uint16_t *)(cpu->data + buf->offsets[1]);
 
-	client_buffer_util_maybe_sync_dmabuf_start(buf);
 	for (y = 0; y < src.height; y++) {
 		rgb_row = image_header_get_row_u32(&src, y / 2 * 2);
 		y_row = y_base + y * buf->strides[0];
@@ -1303,7 +1313,7 @@ nv24_create_buffer(struct client *client,
 				((uint16_t) cb << (swizzles[idx][0] * 8));
 		}
 	}
-	client_buffer_util_maybe_sync_dmabuf_end(buf);
+	client_buffer_util_end_cpu_access(cpu);
 
 	return buf;
 }
@@ -1337,6 +1347,7 @@ yuyv_create_buffer(struct client *client,
 	};
 	struct image_header src = image_header_from(rgb_image);
 	struct client_buffer_create_data args = create_init(drm_format, type, &src);
+	struct client_buffer_cpu_access *cpu;
 	struct client_buffer *buf;
 	int idx, x, y;
 	uint32_t *rgb_row;
@@ -1366,10 +1377,10 @@ yuyv_create_buffer(struct client *client,
 	buf = client_buffer_create(client, &args);
 	if (!buf)
 		return NULL;
+	cpu = client_buffer_util_begin_cpu_access(buf);
 
-	yuv_base = buf->data;
+	yuv_base = cpu->data;
 
-	client_buffer_util_maybe_sync_dmabuf_start(buf);
 	for (y = 0; y < src.height; y++) {
 		rgb_row = image_header_get_row_u32(&src, y / 2 * 2);
 		yuv_row = yuv_base + y * (buf->strides[0] / sizeof(uint32_t));
@@ -1388,7 +1399,7 @@ yuyv_create_buffer(struct client *client,
 				((uint32_t)y0 << (swizzles[idx][0] * 8));
 		}
 	}
-	client_buffer_util_maybe_sync_dmabuf_end(buf);
+	client_buffer_util_end_cpu_access(cpu);
 
 	return buf;
 }
@@ -1407,6 +1418,7 @@ xyuv8888_create_buffer(struct client *client,
 {
 	struct image_header src = image_header_from(rgb_image);
 	struct client_buffer_create_data args = create_init(drm_format, type, &src);
+	struct client_buffer_cpu_access *cpu;
 	struct client_buffer *buf;
 	int x, y;
 	uint32_t *rgb_row;
@@ -1421,10 +1433,10 @@ xyuv8888_create_buffer(struct client *client,
 	buf = client_buffer_create(client, &args);
 	if (!buf)
 		return NULL;
+	cpu = client_buffer_util_begin_cpu_access(buf);
 
-	yuv_base = buf->data;
+	yuv_base = cpu->data;
 
-	client_buffer_util_maybe_sync_dmabuf_start(buf);
 	for (y = 0; y < src.height; y++) {
 		rgb_row = image_header_get_row_u32(&src, y / 2 * 2);
 		yuv_row = yuv_base + y * (buf->strides[0] / sizeof(uint32_t));
@@ -1447,7 +1459,7 @@ xyuv8888_create_buffer(struct client *client,
 				((uint32_t)cr << 0);
 		}
 	}
-	client_buffer_util_maybe_sync_dmabuf_end(buf);
+	client_buffer_util_end_cpu_access(cpu);
 
 	return buf;
 }
@@ -1475,6 +1487,7 @@ p016_create_buffer(struct client *client,
 {
 	struct image_header src = image_header_from(rgb_image);
 	struct client_buffer_create_data args = create_init(drm_format, type, &src);
+	struct client_buffer_cpu_access *cpu;
 	struct client_buffer *buf;
 	int depth, x, y;
 	uint32_t *rgb_row;
@@ -1503,11 +1516,11 @@ p016_create_buffer(struct client *client,
 	buf = client_buffer_create(client, &args);
 	if (!buf)
 		return NULL;
+	cpu = client_buffer_util_begin_cpu_access(buf);
 
-	y_base = (uint16_t *)(buf->data + buf->offsets[0]);
-	uv_base = (uint32_t *)(buf->data + buf->offsets[1]);
+	y_base = (uint16_t *)(cpu->data + buf->offsets[0]);
+	uv_base = (uint32_t *)(cpu->data + buf->offsets[1]);
 
-	client_buffer_util_maybe_sync_dmabuf_start(buf);
 	for (y = 0; y < src.height; y++) {
 		rgb_row = image_header_get_row_u32(&src, y / 2 * 2);
 		y_row = y_base + y * (buf->strides[0] / sizeof(uint16_t));
@@ -1537,7 +1550,7 @@ p016_create_buffer(struct client *client,
 			}
 		}
 	}
-	client_buffer_util_maybe_sync_dmabuf_end(buf);
+	client_buffer_util_end_cpu_access(cpu);
 
 	return buf;
 }
@@ -1546,16 +1559,28 @@ static void
 show_window_with_client_buffer(struct client *client, struct client_buffer *buf)
 {
 	struct surface *surface = client->surface;
+	struct wl_buffer *wl_buffer;
 	int done;
+
+	if (buf->type == CLIENT_BUFFER_TYPE_SHM) {
+		wl_buffer = client_buffer_util_get_proxy_shm(buf,
+							     client->wl_shm);
+	} else {
+		wl_buffer = client_buffer_util_get_proxy_dmabuf(buf,
+								client->wl_display,
+								client->dmabuf);
+	}
+	test_assert_ptr_not_null(wl_buffer);
 
 	weston_test_move_surface(client->test->weston_test, surface->wl_surface,
 				 4, 4);
-	wl_surface_attach(surface->wl_surface, buf->wl_buffer, 0, 0);
+	wl_surface_attach(surface->wl_surface, wl_buffer, 0, 0);
 	wl_surface_damage(surface->wl_surface, 0, 0, buf->width,
 			  buf->height);
 	frame_callback_set(surface->wl_surface, &done);
 	wl_surface_commit(surface->wl_surface);
 	frame_callback_wait(client, &done);
+	wl_buffer_destroy(wl_buffer);
 }
 
 static const struct client_buffer_case client_buffer_cases[] = {

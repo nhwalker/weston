@@ -162,6 +162,7 @@ TEST(drm_offload_fullscreen) {
 	struct xdg_surface_data *xdg_surface;
 	struct client *client;
 	struct client_buffer *buffer;
+	struct wl_buffer *wl_buffer;
 	struct wl_surface *surface;
 	const struct pixel_format_info *fmt_info;
 	struct wp_presentation_feedback *presentation_feedback;
@@ -182,13 +183,14 @@ TEST(drm_offload_fullscreen) {
 	test_assert_int_gt(xdg_surface->configure.width, 0);
 	test_assert_int_gt(xdg_surface->configure.height, 0);
 
-	buffer = client_buffer_util_create_dmabuf_buffer(client->wl_display,
-							 client->dmabuf,
-							 fmt_info,
-							 xdg_surface->configure.width,
-							 xdg_surface->configure.height);
-	wl_buffer_add_listener(buffer->wl_buffer, &buffer_listener, buffer);
-	wl_surface_attach(surface, buffer->wl_buffer, 0, 0);
+	buffer = client_buffer_util_allocate_dmabuf_buffer(fmt_info,
+							   xdg_surface->configure.width,
+							   xdg_surface->configure.height);
+	wl_buffer = client_buffer_util_get_proxy_dmabuf(buffer,
+							client->wl_display,
+							client->dmabuf);
+	wl_buffer_add_listener(wl_buffer, &buffer_listener, buffer);
+	wl_surface_attach(surface, wl_buffer, 0, 0);
 	wl_surface_damage(surface, 0, 0, INT32_MAX, INT32_MAX);
 	xdg_surface_maybe_ack_configure(xdg_surface);
 
@@ -202,6 +204,7 @@ TEST(drm_offload_fullscreen) {
 	presentation_wait_nofail(client, &result);
 	test_assert_enum(result, FB_PRESENTED_ZERO_COPY);
 
+	wl_buffer_destroy(wl_buffer);
 	client_buffer_util_destroy_buffer(buffer);
 	destroy_xdg_surface(xdg_surface);
 	xdg_client_destroy(xdg_client);
@@ -218,6 +221,7 @@ TEST(drm_offload_fullscreen_transparent_overlay) {
 	struct xdg_surface_data *xdg_surface;
 	struct client *client;
 	struct client_buffer *buffer;
+	struct wl_buffer *wl_buffer;
 	struct wl_surface *surface;
 	struct wl_surface *overlay_surface;
 	struct wl_subsurface *overlay_subsurface;
@@ -242,13 +246,14 @@ TEST(drm_offload_fullscreen_transparent_overlay) {
 	test_assert_int_gt(xdg_surface->configure.width, 0);
 	test_assert_int_gt(xdg_surface->configure.height, 0);
 
-	buffer = client_buffer_util_create_dmabuf_buffer(client->wl_display,
-							 client->dmabuf,
-							 fmt_info,
-							 xdg_surface->configure.width,
-							 xdg_surface->configure.height);
-	wl_buffer_add_listener(buffer->wl_buffer, &buffer_listener, buffer);
-	wl_surface_attach(surface, buffer->wl_buffer, 0, 0);
+	buffer = client_buffer_util_allocate_dmabuf_buffer(fmt_info,
+							   xdg_surface->configure.width,
+							   xdg_surface->configure.height);
+	wl_buffer = client_buffer_util_get_proxy_dmabuf(buffer,
+							client->wl_display,
+							client->dmabuf);
+	wl_buffer_add_listener(wl_buffer, &buffer_listener, buffer);
+	wl_surface_attach(surface, wl_buffer, 0, 0);
 	wl_surface_damage(surface, 0, 0, INT32_MAX, INT32_MAX);
 	xdg_surface_maybe_ack_configure(xdg_surface);
 
@@ -282,6 +287,7 @@ TEST(drm_offload_fullscreen_transparent_overlay) {
 	wl_subsurface_destroy(overlay_subsurface);
 	wl_surface_destroy(overlay_surface);
 
+	wl_buffer_destroy(wl_buffer);
 	client_buffer_util_destroy_buffer(buffer);
 	destroy_xdg_surface(xdg_surface);
 	xdg_client_destroy(xdg_client);
@@ -298,6 +304,7 @@ TEST(drm_offload_fullscreen_black_background) {
 	struct xdg_surface_data *xdg_surface;
 	struct client *client;
 	struct client_buffer *buffer;
+	struct wl_buffer *wl_buffer;
 	struct wl_surface *surface;
 	const struct pixel_format_info *fmt_info;
 	struct wp_presentation_feedback *presentation_feedback;
@@ -318,13 +325,14 @@ TEST(drm_offload_fullscreen_black_background) {
 	test_assert_int_gt(xdg_surface->configure.width, 0);
 	test_assert_int_gt(xdg_surface->configure.height, 0);
 
-	buffer = client_buffer_util_create_dmabuf_buffer(client->wl_display,
-							 client->dmabuf,
-							 fmt_info,
-							 xdg_surface->configure.width - 100,
-							 xdg_surface->configure.height - 100);
-	wl_buffer_add_listener(buffer->wl_buffer, &buffer_listener, buffer);
-	wl_surface_attach(surface, buffer->wl_buffer, 0, 0);
+	buffer = client_buffer_util_allocate_dmabuf_buffer(fmt_info,
+							   xdg_surface->configure.width - 100,
+							   xdg_surface->configure.height - 100);
+	wl_buffer = client_buffer_util_get_proxy_dmabuf(buffer,
+							client->wl_display,
+							client->dmabuf);
+	wl_buffer_add_listener(wl_buffer, &buffer_listener, buffer);
+	wl_surface_attach(surface, wl_buffer, 0, 0);
 	wl_surface_damage_buffer(surface, 0, 0, INT32_MAX, INT32_MAX);
 	xdg_surface_maybe_ack_configure(xdg_surface);
 
@@ -338,6 +346,7 @@ TEST(drm_offload_fullscreen_black_background) {
 	presentation_wait_nofail(client, &result);
 	test_assert_enum(result, FB_PRESENTED_ZERO_COPY);
 
+	wl_buffer_destroy(wl_buffer);
 	client_buffer_util_destroy_buffer(buffer);
 	destroy_xdg_surface(xdg_surface);
 	xdg_client_destroy(xdg_client);
@@ -779,6 +788,7 @@ TEST(drm_offload_windowed) {
 	struct xdg_surface_data *xdg_surface;
 	struct client *client;
 	struct client_buffer *buffer;
+	struct wl_buffer *wl_buffer;
 	struct wl_surface *surface;
 	const struct pixel_format_info *fmt_info;
 	struct wp_presentation_feedback *presentation_feedback;
@@ -798,13 +808,12 @@ TEST(drm_offload_windowed) {
 	test_assert_int_eq(xdg_surface->configure.width, 0);
 	test_assert_int_eq(xdg_surface->configure.height, 0);
 
-	buffer = client_buffer_util_create_dmabuf_buffer(client->wl_display,
-							 client->dmabuf,
-							 fmt_info,
-							 100,
-							 100);
-	wl_buffer_add_listener(buffer->wl_buffer, &buffer_listener, buffer);
-	wl_surface_attach(surface, buffer->wl_buffer, 0, 0);
+	buffer = client_buffer_util_allocate_dmabuf_buffer(fmt_info, 100, 100);
+	wl_buffer = client_buffer_util_get_proxy_dmabuf(buffer,
+							client->wl_display,
+							client->dmabuf);
+	wl_buffer_add_listener(wl_buffer, &buffer_listener, buffer);
+	wl_surface_attach(surface, wl_buffer, 0, 0);
 	wl_surface_damage_buffer(surface, 0, 0, INT32_MAX, INT32_MAX);
 	xdg_surface_maybe_ack_configure(xdg_surface);
 
@@ -818,6 +827,7 @@ TEST(drm_offload_windowed) {
 	presentation_wait_nofail(client, &result);
 	test_assert_enum(result, FB_PRESENTED);
 
+	wl_buffer_destroy(wl_buffer);
 	client_buffer_util_destroy_buffer(buffer);
 	destroy_xdg_surface(xdg_surface);
 	xdg_client_destroy(xdg_client);
@@ -835,6 +845,7 @@ TEST(drm_offload_windowed_shm) {
 	struct xdg_surface_data *xdg_surface;
 	struct client *client;
 	struct client_buffer *buffer;
+	struct wl_buffer *wl_buffer;
 	struct wl_surface *surface;
 	const struct pixel_format_info *fmt_info;
 	struct wp_presentation_feedback *presentation_feedback;
@@ -854,12 +865,10 @@ TEST(drm_offload_windowed_shm) {
 	test_assert_int_eq(xdg_surface->configure.width, 0);
 	test_assert_int_eq(xdg_surface->configure.height, 0);
 
-	buffer = client_buffer_util_create_shm_buffer(client->wl_shm,
-						      fmt_info,
-						      100,
-						      100);
-	wl_buffer_add_listener(buffer->wl_buffer, &buffer_listener, buffer);
-	wl_surface_attach(surface, buffer->wl_buffer, 0, 0);
+	buffer = client_buffer_util_allocate_shm_buffer(fmt_info, 100, 100);
+	wl_buffer = client_buffer_util_get_proxy_shm(buffer, client->wl_shm);
+	wl_buffer_add_listener(wl_buffer, &buffer_listener, buffer);
+	wl_surface_attach(surface, wl_buffer, 0, 0);
 	wl_surface_damage_buffer(surface, 0, 0, INT32_MAX, INT32_MAX);
 	xdg_surface_maybe_ack_configure(xdg_surface);
 
@@ -873,6 +882,7 @@ TEST(drm_offload_windowed_shm) {
 	presentation_wait_nofail(client, &result);
 	test_assert_enum(result, FB_PRESENTED);
 
+	wl_buffer_destroy(wl_buffer);
 	client_buffer_util_destroy_buffer(buffer);
 	destroy_xdg_surface(xdg_surface);
 	xdg_client_destroy(xdg_client);

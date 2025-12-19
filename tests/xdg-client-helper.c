@@ -177,7 +177,7 @@ xdg_surface_commit_solid(struct xdg_surface_data *xdg_surface,
 			 uint8_t r, uint8_t g, uint8_t b)
 {
 	pixman_color_t color;
-	struct buffer *buf;
+	struct client_buffer *buf;
 	int width = 0;
 	int height = 0;
 
@@ -191,12 +191,9 @@ xdg_surface_commit_solid(struct xdg_surface_data *xdg_surface,
 	height = xdg_surface->configure.height;
 
 	color_rgb888(&color, r, g, b);
-	buf = create_shm_buffer_solid(xdg_surface->surface->client,
-				      width, height, &color);
+	buf = create_shm_buffer_solid(width, height, &color);
 	test_assert_ptr_not_null(buf);
-	xdg_surface->surface->buffer = buf;
-
-	wl_surface_attach(xdg_surface->surface->wl_surface, buf->proxy, 0, 0);
+	test_surface_attach_buffer(xdg_surface->surface, buf);
 	wl_surface_damage_buffer(xdg_surface->surface->wl_surface,
 				 0, 0, width, height);
 
@@ -206,6 +203,8 @@ xdg_surface_commit_solid(struct xdg_surface_data *xdg_surface,
 	xdg_surface->surface->height = height;
 
 	wl_surface_commit(xdg_surface->surface->wl_surface);
+
+	client_buffer_util_destroy_buffer(buf);
 }
 
 struct xdg_client *
