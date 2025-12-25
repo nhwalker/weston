@@ -189,7 +189,6 @@ struct output {
 
 struct buffer {
 	struct wl_buffer *proxy;
-	pixman_image_t *image;
 	struct client_buffer *buf;
 };
 
@@ -230,6 +229,14 @@ client_destroy(struct client *client);
 
 struct surface *
 create_test_surface(struct client *client);
+
+struct surface *
+create_test_surface_with_buffer(struct client *client,
+				struct client_buffer *buffer);
+
+void
+test_surface_attach_buffer(struct surface *surface,
+			   struct client_buffer *buffer);
 
 void
 surface_destroy(struct surface *surface);
@@ -341,11 +348,11 @@ write_image_as_png(pixman_image_t *image, const char *fname);
 pixman_image_t *
 load_image_from_png(const char *fname);
 
-struct buffer *
+struct client_buffer *
 capture_screenshot_of_output(struct client *client, const char *output_name,
 			     enum screenshot_decoration_mode include_decorations);
 
-struct buffer *
+struct client_buffer *
 client_capture_output(struct client *client,
 		      struct output *output,
 		      enum weston_capture_v1_source src,
@@ -355,7 +362,7 @@ pixman_image_t *
 image_convert_to_a8r8g8b8(pixman_image_t *image);
 
 bool
-verify_image(pixman_image_t *shot,
+verify_image(struct client_buffer *buf,
 	     const char *ref_image,
 	     int ref_seq_no,
 	     const struct rectangle *clip,
@@ -369,7 +376,7 @@ verify_screen_content(struct client *client,
 		      int seq_no, const char *output_name,
 		      enum screenshot_decoration_mode include_decorations);
 
-struct buffer *
+struct client_buffer *
 client_buffer_from_image_file(struct client *client,
 			      const char *basename,
 			      int scale);

@@ -74,6 +74,7 @@ TEST(viewport_upscale_solid)
 	struct client *client;
 	struct wp_viewport *viewport;
 	pixman_color_t color;
+	struct buffer *buffer;
 	const int width = 256;
 	const int height = 100;
 	bool match;
@@ -81,10 +82,9 @@ TEST(viewport_upscale_solid)
 	color_rgb888(&color, 255, 128, 0);
 
 	client = create_client();
-	client->surface = create_test_surface(client);
+	buffer = create_shm_buffer_solid(client, 2, 2, &color);
+	client->surface = create_test_surface_with_buffer(client, buffer->buf);
 	viewport = client_create_viewport(client);
-
-	client->surface->buffer = create_shm_buffer_solid(client, 2, 2, &color);
 
 	/* Needs output scale != buffer scale to hit bilinear filter. */
 	wl_surface_set_buffer_scale(client->surface->wl_surface, 2);
@@ -100,6 +100,7 @@ TEST(viewport_upscale_solid)
 	test_assert_true(match);
 
 	wp_viewport_destroy(viewport);
+	buffer_destroy(buffer);
 	client_destroy(client);
 
 	return RESULT_OK;

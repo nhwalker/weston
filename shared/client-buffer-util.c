@@ -27,6 +27,7 @@
 
 #include "client-buffer-util.h"
 
+#include <assert.h>
 #include <fcntl.h>
 #include <linux/dma-buf.h>
 #include <linux/udmabuf.h>
@@ -58,7 +59,7 @@ static bool
 client_buffer_util_fill_buffer_args(struct client_buffer *buf,
 				    bool align_for_gpu)
 {
-	buf->dmabuf_fd = -1;
+	buf->fd = -1;
 
 	switch (buf->fmt->format) {
 	case DRM_FORMAT_RGBX4444:
@@ -210,71 +211,68 @@ client_buffer_util_is_dmabuf_supported(void)
 void
 client_buffer_util_destroy_buffer(struct client_buffer *buf)
 {
-	if (buf->wl_buffer)
-		wl_buffer_destroy(buf->wl_buffer);
-	if (buf->data)
-		munmap(buf->data, buf->bytes);
-	if (buf->dmabuf_fd > -1)
-		close(buf->dmabuf_fd);
+	if (buf->data_donotuse)
+		munmap(buf->data_donotuse, buf->bytes);
+	if (buf->fd > -1)
+		close(buf->fd);
 	free(buf);
 }
 
 struct client_buffer *
-client_buffer_util_create_shm_buffer(struct wl_shm *shm,
-				     const struct pixel_format_info *fmt,
-				     int width,
-				     int height)
+client_buffer_util_allocate_shm_buffer(const struct pixel_format_info *fmt,
+				       int width,
+				       int height)
 {
 	struct client_buffer *buf;
-	struct wl_shm_pool *pool;
-	int fd = -1;
 
 	buf = xzalloc(sizeof *buf);
 	buf->fmt = fmt;
 	buf->type = CLIENT_BUFFER_TYPE_SHM;
 	buf->width = width;
 	buf->height = height;
+	buf->fd = -1;
 
 	if (!client_buffer_util_fill_buffer_args(buf, false))
 		goto error;
 
-	fd = os_create_anonymous_file(buf->bytes);
-	if (fd == -1) {
+	buf->fd = os_create_anonymous_file(buf->bytes);
+	if (buf->fd == -1) {
 		fprintf(stderr, "os_create_anonymous_file() failed: %s\n",
 			strerror (errno));
 		goto error;
 	}
 
-	buf->data = mmap(NULL, buf->bytes,
-			 PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-	if (buf->data == MAP_FAILED) {
+	buf->data_donotuse = mmap(NULL, buf->bytes, PROT_READ | PROT_WRITE,
+				  MAP_SHARED, buf->fd, 0);
+	if (buf->data_donotuse == MAP_FAILED) {
 		fprintf(stderr, "mmap() failed: %s\n", strerror (errno));
-		goto error;
-	}
-
-	pool = wl_shm_create_pool(shm, fd, buf->bytes);
-	buf->wl_buffer = wl_shm_pool_create_buffer(pool, 0, buf->width,
-						   buf->height, buf->strides[0],
-						   pixel_format_get_shm_format(fmt));
-	wl_shm_pool_destroy(pool);
-	close(fd);
-
-	if (!buf->wl_buffer) {
-		fprintf(stderr, "wl_shm_pool_create_buffer() failed\n");
 		goto error;
 	}
 
 	return buf;
 
 error:
-	if (fd != -1)
-		close(fd);
 	client_buffer_util_destroy_buffer(buf);
 	return NULL;
 }
 
+struct wl_buffer *
+client_buffer_util_get_proxy_shm(struct client_buffer *buf, struct wl_shm *shm)
+{
+	struct wl_shm_pool *pool;
+	struct wl_buffer *ret;
+
+	pool = wl_shm_create_pool(shm, buf->fd, buf->bytes);
+	ret = wl_shm_pool_create_buffer(pool, 0, buf->width,
+					buf->height, buf->strides[0],
+					pixel_format_get_shm_format(buf->fmt));
+	wl_shm_pool_destroy(pool);
+
+	return ret;
+}
+
 struct buffer_create_data {
-	struct client_buffer *buf;
+	struct wl_buffer **buf;
 	bool failed;
 };
 
@@ -284,11 +282,14 @@ create_succeeded(void *data,
 		 struct wl_buffer *new_buffer)
 {
 	struct buffer_create_data *create_data = data;
+	struct wl_buffer *buf;
 
-	create_data->buf->wl_buffer = new_buffer;
-	wl_proxy_set_queue ((struct wl_proxy *) create_data->buf->wl_buffer, NULL);
+	buf = new_buffer;
+	wl_proxy_set_queue ((struct wl_proxy *) buf, NULL);
 
 	zwp_linux_buffer_params_v1_destroy(params);
+
+	*create_data->buf = buf;
 }
 
 static void
@@ -306,16 +307,11 @@ static const struct zwp_linux_buffer_params_v1_listener params_listener = {
 };
 
 struct client_buffer *
-client_buffer_util_create_dmabuf_buffer(struct wl_display *display,
-					struct zwp_linux_dmabuf_v1 *dmabuf,
-					const struct pixel_format_info *fmt,
-					int width,
-					int height)
+client_buffer_util_allocate_dmabuf_buffer(const struct pixel_format_info *fmt,
+					  int width,
+					  int height)
 {
 	struct client_buffer *buf;
-	struct buffer_create_data create_data = { 0 };
-	struct zwp_linux_buffer_params_v1 *params;
-	struct wl_event_queue *event_queue;
 	struct udmabuf_create create;
 	int udmabuf_fd = -1;
 	int mem_fd = -1;
@@ -358,8 +354,8 @@ client_buffer_util_create_dmabuf_buffer(struct wl_display *display,
 	create.offset = 0;
 	create.size = buf->bytes;
 
-	buf->dmabuf_fd = ioctl (udmabuf_fd, UDMABUF_CREATE, &create);
-	if (buf->dmabuf_fd == -1) {
+	buf->fd = ioctl (udmabuf_fd, UDMABUF_CREATE, &create);
+	if (buf->fd == -1) {
 		fprintf(stderr, "creating udmabuf failed: %s\n", strerror (errno));
 		goto error;
 	}
@@ -369,47 +365,10 @@ client_buffer_util_create_dmabuf_buffer(struct wl_display *display,
 	close (udmabuf_fd);
 	udmabuf_fd = -1;
 
-	buf->data = mmap(NULL, buf->bytes, PROT_READ | PROT_WRITE, MAP_SHARED,
-			 buf->dmabuf_fd, 0);
-	if (buf->data == MAP_FAILED) {
+	buf->data_donotuse = mmap(NULL, buf->bytes, PROT_READ | PROT_WRITE,
+				  MAP_SHARED, buf->fd, 0);
+	if (buf->data_donotuse == MAP_FAILED) {
 		fprintf(stderr, "mmap() failed: %s\n", strerror (errno));
-		goto error;
-	}
-
-	params = zwp_linux_dmabuf_v1_create_params(dmabuf);
-	event_queue = wl_display_create_queue (display);
-	wl_proxy_set_queue ((struct wl_proxy *) params, event_queue);
-
-	for (unsigned int i = 0; i < pixel_format_get_plane_count(buf->fmt); i++) {
-		zwp_linux_buffer_params_v1_add(params,
-					       buf->dmabuf_fd,
-					       i /* plane id */,
-					       buf->offsets[i],
-					       buf->strides[i],
-					       DRM_FORMAT_MOD_LINEAR >> 32,
-		                               DRM_FORMAT_MOD_LINEAR & 0xffffffff);
-	}
-
-	create_data.buf = buf;
-	zwp_linux_buffer_params_v1_add_listener(params,
-						&params_listener,
-						&create_data);
-
-	zwp_linux_buffer_params_v1_create(params,
-					  buf->width,
-					  buf->height,
-					  fmt->format,
-					  0 /* flags */);
-
-	while (!buf->wl_buffer && !create_data.failed) {
-		if (wl_display_dispatch_queue(display, event_queue) == -1)
-			break;
-	}
-
-	wl_event_queue_destroy(event_queue);
-
-	if (!buf->wl_buffer) {
-		fprintf(stderr, "zwp_linux_buffer_params_v1_create() failed\n");
 		goto error;
 	}
 
@@ -424,30 +383,109 @@ error:
 	return NULL;
 }
 
-void
+struct wl_buffer *
+client_buffer_util_get_proxy_dmabuf(struct client_buffer *buf,
+				    struct wl_display *display,
+				    struct zwp_linux_dmabuf_v1 *dmabuf)
+{
+	struct buffer_create_data create_data = { 0 };
+	struct wl_event_queue *event_queue = wl_display_create_queue(display);
+	struct zwp_linux_buffer_params_v1 *params =
+		zwp_linux_dmabuf_v1_create_params(dmabuf);
+	struct wl_buffer *ret = NULL;
+
+	wl_proxy_set_queue((struct wl_proxy *) params, event_queue);
+
+	for (unsigned int i = 0; i < pixel_format_get_plane_count(buf->fmt); i++) {
+		zwp_linux_buffer_params_v1_add(params,
+					       buf->fd,
+					       i /* plane id */,
+					       buf->offsets[i],
+					       buf->strides[i],
+					       DRM_FORMAT_MOD_LINEAR >> 32,
+		                               DRM_FORMAT_MOD_LINEAR & 0xffffffff);
+	}
+
+	create_data.buf = &ret;
+	zwp_linux_buffer_params_v1_add_listener(params,
+						&params_listener,
+						&create_data);
+
+	zwp_linux_buffer_params_v1_create(params,
+					  buf->width,
+					  buf->height,
+					  buf->fmt->format,
+					  0 /* flags */);
+
+	while (!ret && !create_data.failed) {
+		if (wl_display_dispatch_queue(display, event_queue) == -1)
+			break;
+	}
+
+	wl_event_queue_destroy(event_queue);
+
+	if (!ret)
+		fprintf(stderr, "zwp_linux_buffer_params_v1_create() failed\n");
+
+	return ret;
+}
+
+static void
 client_buffer_util_maybe_sync_dmabuf_start(struct client_buffer *buf)
 {
 	struct dma_buf_sync sync = { DMA_BUF_SYNC_START | DMA_BUF_SYNC_READ | DMA_BUF_SYNC_WRITE };
 	int ret;
 
-	if (buf->dmabuf_fd == -1)
+	if (buf->type != CLIENT_BUFFER_TYPE_DMABUF)
 		return;
 
 	do {
-		ret = ioctl(buf->dmabuf_fd, DMA_BUF_IOCTL_SYNC, &sync);
+		ret = ioctl(buf->fd, DMA_BUF_IOCTL_SYNC, &sync);
 	} while (ret && (errno == EINTR || errno == EAGAIN));
 }
 
-void
+static void
 client_buffer_util_maybe_sync_dmabuf_end(struct client_buffer *buf)
 {
 	struct dma_buf_sync sync = { DMA_BUF_SYNC_END | DMA_BUF_SYNC_READ | DMA_BUF_SYNC_WRITE };
 	int ret;
 
-	if (buf->dmabuf_fd == -1)
+	if (buf->type != CLIENT_BUFFER_TYPE_DMABUF)
 		return;
 
 	do {
-		ret = ioctl(buf->dmabuf_fd, DMA_BUF_IOCTL_SYNC, &sync);
+		ret = ioctl(buf->fd, DMA_BUF_IOCTL_SYNC, &sync);
 	} while (ret && (errno == EINTR || errno == EAGAIN));
+}
+
+struct client_buffer_cpu_access *
+client_buffer_util_begin_cpu_access(struct client_buffer *buf)
+{
+	struct client_buffer_cpu_access *cpu = xzalloc(sizeof(*cpu));
+
+	cpu->buf = buf;
+	client_buffer_util_maybe_sync_dmabuf_start(buf);
+	cpu->data = buf->data_donotuse;
+	cpu->image = pixman_image_create_bits_no_clear(buf->fmt->pixman_format,
+						       buf->width,
+						       buf->height,
+						       cpu->data,
+						       buf->strides[0]);
+	if (!cpu->image) {
+		free(cpu);
+		return NULL;
+	}
+
+	return cpu;
+}
+
+void
+client_buffer_util_end_cpu_access(struct client_buffer_cpu_access *cpu)
+{
+	bool unref;
+
+	unref = pixman_image_unref(cpu->image);
+	assert(unref); /* ensure no more CPU access */
+	client_buffer_util_maybe_sync_dmabuf_end(cpu->buf);
+	free(cpu);
 }

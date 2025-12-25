@@ -519,32 +519,28 @@ create_buffer(struct client *client, int width, int height, uint32_t drm_format,
 		if (!support_shm_format(client, shm_format))
 		    return NULL;
 
-		buf->buf = client_buffer_util_create_shm_buffer(client->wl_shm,
-								pfmt,
-								width,
-								height);
+		buf->buf = client_buffer_util_allocate_shm_buffer(pfmt,
+								  width,
+								  height);
+		test_assert_ptr_not_null(buf->buf);
+		buf->proxy = client_buffer_util_get_proxy_shm(buf->buf,
+							      client->wl_shm);
 	} else {
 		test_assert_true(buffer_type == CLIENT_BUFFER_TYPE_DMABUF);
 
 		if (!support_drm_format(client, drm_format, DRM_FORMAT_MOD_LINEAR))
 		    return NULL;
 
-		buf->buf = client_buffer_util_create_dmabuf_buffer(client->wl_display,
-								   client->dmabuf,
-								   pfmt,
-								   width,
-								   height);
+		buf->buf = client_buffer_util_allocate_dmabuf_buffer(pfmt,
+								     width,
+								     height);
+		test_assert_ptr_not_null(buf->buf);
+		buf->proxy = client_buffer_util_get_proxy_dmabuf(buf->buf,
+								 client->wl_display,
+								 client->dmabuf);
 	}
-	test_assert_ptr_not_null(buf->buf);
-	buf->proxy = buf->buf->wl_buffer;
-
-	buf->image = pixman_image_create_bits(pfmt->pixman_format,
-					      width, height,
-					      buf->buf->data,
-					      buf->buf->strides[0]);
 
 	test_assert_ptr_not_null(buf->proxy);
-	test_assert_ptr_not_null(buf->image);
 
 	return buf;
 }
@@ -563,30 +559,44 @@ create_shm_buffer_a8r8g8b8(struct client *client, int width, int height)
 	return create_shm_buffer(client, width, height, DRM_FORMAT_ARGB8888);
 }
 
-static struct buffer *
-create_pixman_buffer(int width, int height, pixman_format_code_t pixman_format)
-{
-	struct buffer *buf;
-
-	test_assert_int_gt(width, 0);
-	test_assert_int_gt(height, 0);
-
-	buf = xzalloc(sizeof *buf);
-	buf->image = pixman_image_create_bits(pixman_format,
-					      width, height, NULL, 0);
-	test_assert_ptr_not_null(buf->image);
-
-	return buf;
-}
-
 void
 buffer_destroy(struct buffer *buf)
 {
-	test_assert_true(pixman_image_unref(buf->image));
-
+	if (buf->proxy)
+		wl_buffer_destroy(buf->proxy);
 	if (buf->buf)
 		client_buffer_util_destroy_buffer(buf->buf);
 	free(buf);
+}
+
+void
+test_surface_attach_buffer(struct surface *surface, struct client_buffer *buf)
+{
+	if (surface->buffer) {
+		buffer_destroy(surface->buffer);
+		surface->buffer = NULL;
+	}
+
+	if (!buf)
+		return;
+
+	surface->buffer = xzalloc(sizeof(*surface->buffer));
+	surface->width = buf->width;
+	surface->height = buf->height;
+
+	if (buf->type == CLIENT_BUFFER_TYPE_SHM) {
+		surface->buffer->proxy =
+			client_buffer_util_get_proxy_shm(buf,
+							 surface->client->wl_shm);
+	} else if (buf->type == CLIENT_BUFFER_TYPE_DMABUF) {
+		surface->buffer->proxy =
+			client_buffer_util_get_proxy_dmabuf(buf,
+							    surface->client->wl_display,
+							    surface->client->dmabuf);
+	}
+	test_assert_ptr_not_null(surface->buffer->proxy);
+
+	wl_surface_attach(surface->wl_surface, surface->buffer->proxy, 0, 0);
 }
 
 static void
@@ -1218,6 +1228,20 @@ create_test_surface(struct client *client)
 				surface);
 
 	wl_surface_set_user_data(surface->wl_surface, surface);
+
+	return surface;
+}
+
+struct surface *
+create_test_surface_with_buffer(struct client *client,
+				struct client_buffer *buffer)
+{
+	struct surface *surface = create_test_surface(client);
+
+	if (!surface)
+		return NULL;
+
+	test_surface_attach_buffer(surface, buffer);
 
 	return surface;
 }
@@ -2060,13 +2084,14 @@ static const struct weston_capture_source_v1_listener output_capturer_source_han
 	.failed = output_capturer_handle_failed,
 };
 
-struct buffer *
+struct client_buffer *
 client_capture_output(struct client *client,
 		      struct output *output,
 		      enum weston_capture_v1_source src,
 		      enum client_buffer_type buffer_type)
 {
 	struct output_capturer capt = {};
+	struct client_buffer *ret;
 	struct buffer *buf;
 
 	capt.factory = bind_to_singleton_global(client,
@@ -2097,8 +2122,12 @@ client_capture_output(struct client *client,
 
 	weston_capture_source_v1_destroy(capt.source);
 	weston_capture_v1_destroy(capt.factory);
+	wl_buffer_destroy(buf->proxy);
 
-	return buf;
+	ret = buf->buf;
+	free(buf);
+
+	return ret;
 }
 
 /**
@@ -2122,15 +2151,17 @@ client_capture_output(struct client *client,
  * decorations, or false if it should include just the client content
  * @returns A new buffer object, that should be freed with buffer_destroy().
  */
-struct buffer *
+struct client_buffer *
 capture_screenshot_of_output(struct client *client, const char *output_name,
 			     enum screenshot_decoration_mode include_decorations)
 {
-	struct image_header ih;
-	struct buffer *shm;
-	struct buffer *buf;
+	struct client_buffer *shm;
+	struct client_buffer *buf;
+	struct client_buffer_cpu_access *cpu_src, *cpu_dst;
 	struct output *output = NULL;
 	enum weston_capture_v1_source source;
+	const struct pixel_format_info *fmt =
+		pixel_format_get_info_by_pixman(PIXMAN_a8r8g8b8);
 
 	if (output_name) {
 		struct output *output_iter;
@@ -2154,16 +2185,21 @@ capture_screenshot_of_output(struct client *client, const char *output_name,
 
 	shm = client_capture_output(client, output, source,
 				    CLIENT_BUFFER_TYPE_SHM);
-	ih = image_header_from(shm->image);
 
-	if (ih.pixman_format == PIXMAN_a8r8g8b8)
+	if (shm->fmt == fmt)
 		return shm;
 
-	buf = create_pixman_buffer(ih.width, ih.height, PIXMAN_a8r8g8b8);
-	pixman_image_composite32(PIXMAN_OP_SRC, shm->image, NULL, buf->image,
-				 0, 0, 0, 0, 0, 0, ih.width, ih.height);
-
-	buffer_destroy(shm);
+	buf = client_buffer_util_allocate_shm_buffer(fmt, shm->width, shm->height);
+	test_assert_ptr_not_null(buf);
+	cpu_src = client_buffer_util_begin_cpu_access(shm);
+	test_assert_ptr_not_null(cpu_src);
+	cpu_dst = client_buffer_util_begin_cpu_access(buf);
+	test_assert_ptr_not_null(cpu_dst);
+	pixman_image_composite32(PIXMAN_OP_SRC, cpu_src->image, NULL, cpu_dst->image,
+				 0, 0, 0, 0, 0, 0, shm->width, shm->height);
+	client_buffer_util_end_cpu_access(cpu_src);
+	client_buffer_util_end_cpu_access(cpu_dst);
+	client_buffer_util_destroy_buffer(shm);
 	return buf;
 }
 
@@ -2216,7 +2252,7 @@ write_visual_diff(pixman_image_t *ref_image,
  * \sa verify_screen_content
  */
 bool
-verify_image(pixman_image_t *shot,
+verify_image(struct client_buffer *shot,
 	     const char *ref_image,
 	     int ref_seq_no,
 	     const struct rectangle *clip,
@@ -2227,18 +2263,22 @@ verify_image(pixman_image_t *shot,
 	char *ref_fname = NULL;
 	char *shot_fname;
 	bool match = false;
+	struct client_buffer_cpu_access *shot_cpu =
+		client_buffer_util_begin_cpu_access(shot);
 
 	shot_fname = output_filename_for_test_case("shot", seq_no, "png");
 	ref_fname = screenshot_reference_filename(ref_image, ref_seq_no);
 	ref = load_image_from_png(ref_fname);
 
 	if (ref) {
-		match = check_images_match(ref, shot, clip, &gl_fuzz);
+		match = check_images_match(ref, shot_cpu->image, clip,
+					   &gl_fuzz);
 		testlog("Verify reference image %s vs. shot %s: %s\n",
 			ref_fname, shot_fname, match ? "PASS" : "FAIL");
 
 		if (!match) {
-			write_visual_diff(ref, shot, clip, seq_no, &gl_fuzz);
+			write_visual_diff(ref, shot_cpu->image, clip, seq_no,
+					  &gl_fuzz);
 		}
 
 		pixman_image_unref(ref);
@@ -2247,10 +2287,11 @@ verify_image(pixman_image_t *shot,
 	}
 
 	if (!match)
-		write_image_as_png(shot, shot_fname);
+		write_image_as_png(shot_cpu->image, shot_fname);
 
 	free(ref_fname);
 	free(shot_fname);
+	client_buffer_util_end_cpu_access(shot_cpu);
 
 	return match;
 }
@@ -2280,14 +2321,14 @@ verify_screen_content(struct client *client,
 		      int seq_no, const char *output_name,
 		      enum screenshot_decoration_mode include_decorations)
 {
-	struct buffer *shot;
+	struct client_buffer *shot;
 	bool match;
 
 	shot = capture_screenshot_of_output(client, output_name,
 					    include_decorations);
 	test_assert_ptr_not_null(shot);
-	match = verify_image(shot->image, ref_image, ref_seq_no, clip, seq_no);
-	buffer_destroy(shot);
+	match = verify_image(shot, ref_image, ref_seq_no, clip, seq_no);
+	client_buffer_util_destroy_buffer(shot);
 
 	return match;
 }
@@ -2303,16 +2344,18 @@ verify_screen_content(struct client *client,
  * \param basename The PNG file name without .png suffix.
  * \param scale Upscaling factor >= 1.
  */
-struct buffer *
+struct client_buffer *
 client_buffer_from_image_file(struct client *client,
 			      const char *basename,
 			      int scale)
 {
-	struct buffer *buf;
+	struct client_buffer *buf;
 	char *fname;
 	pixman_image_t *img;
 	int buf_w, buf_h;
 	pixman_transform_t scaling;
+	const struct pixel_format_info *fmt;
+	struct client_buffer_cpu_access *cpu;
 
 	test_assert_int_ge(scale, 1);
 
@@ -2323,7 +2366,11 @@ client_buffer_from_image_file(struct client *client,
 
 	buf_w = scale * pixman_image_get_width(img);
 	buf_h = scale * pixman_image_get_height(img);
-	buf = create_shm_buffer_a8r8g8b8(client, buf_w, buf_h);
+	fmt = pixel_format_get_info_by_pixman(PIXMAN_a8r8g8b8);
+	buf = client_buffer_util_allocate_shm_buffer(fmt, buf_w, buf_h);
+	test_assert_ptr_not_null(buf);
+	cpu = client_buffer_util_begin_cpu_access(buf);
+	test_assert_ptr_not_null(cpu);
 
 	pixman_transform_init_scale(&scaling,
 				    pixman_fixed_1 / scale,
@@ -2334,12 +2381,14 @@ client_buffer_from_image_file(struct client *client,
 	pixman_image_composite32(PIXMAN_OP_SRC,
 				 img, /* src */
 				 NULL, /* mask */
-				 buf->image, /* dst */
+				 cpu->image, /* dst */
 				 0, 0, /* src x,y */
 				 0, 0, /* mask x,y */
 				 0, 0, /* dst x,y */
 				 buf_w, buf_h);
 	pixman_image_unref(img);
+
+	client_buffer_util_end_cpu_access(cpu);
 
 	return buf;
 }
@@ -2434,12 +2483,17 @@ struct buffer *
 create_shm_buffer_solid(struct client *client, int width, int height,
 			const pixman_color_t *color)
 {
+	struct client_buffer_cpu_access *cpu;
 	struct buffer *buffer;
 
 	buffer = create_shm_buffer_a8r8g8b8(client, width, height);
 	if (!buffer)
 		return NULL;
-	fill_image_with_color(buffer->image, color);
+
+	cpu = client_buffer_util_begin_cpu_access(buffer->buf);
+	test_assert_ptr_not_null(cpu);
+	fill_image_with_color(cpu->image, color);
+	client_buffer_util_end_cpu_access(cpu);
 
 	return buffer;
 }
