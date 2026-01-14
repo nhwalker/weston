@@ -11274,5 +11274,6 @@ weston_cached_str_get(struct weston_cached_string *s, void *data)
 WL_EXPORT void
 weston_cached_str_invalidate(struct weston_cached_string *s)
 {
+	WESTON_TRACE_FUNC();
 	s->is_up_to_date = false;
 }
