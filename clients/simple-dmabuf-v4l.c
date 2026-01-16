@@ -44,6 +44,10 @@
 #include <linux/videodev2.h>
 #include <linux/input.h>
 
+#include <sys/ioctl.h>
+#include <linux/udmabuf.h>
+#include <linux/memfd.h>
+
 #include <wayland-client.h>
 #include <wayland-cursor.h>
 #include <libweston/zalloc.h>
@@ -60,12 +64,16 @@
 #define OPT_FLAG_DIRECT_DISPLAY (1 << 1)
 #define WIN_FLAG_FULLSCREEN (1 << 0)
 #define WIN_FLAG_FULLSCREEN_CURSOR (1 << 1)
+#define OPT_FLAG_DMABUF_BG  (1 << 3)
 
 struct window;
+
+struct wp_viewporter *viewporter;
 
 static void
 redraw(void *data, struct wl_callback *callback, uint32_t time);
 
+static struct wl_surface *bg_surface = NULL;
 static int
 xioctl(int fh, int request, void *arg)
 {
@@ -104,10 +112,57 @@ struct buffer_format {
 	unsigned strides[VIDEO_MAX_PLANES];
 };
 
+static void
+handle_output_geometry(void *data, struct wl_output *output,
+				   int32_t x, int32_t y,
+				   int32_t physical_width,
+				   int32_t physical_height,
+				   int32_t subpixel,
+				   const char *make,
+				   const char *model,
+				   int32_t transform)
+{
+	// geometry not needed for size
+}
+static int screen_width=0;
+static int screen_height=0;
+
+static void
+handle_output_mode(void *data, struct wl_output *output,
+		   uint32_t flags, int32_t width, int32_t height,
+		   int32_t refresh)
+{
+	if (flags & WL_OUTPUT_MODE_CURRENT) {
+		screen_width = width;
+		screen_height = height;
+		printf("Detected screen resolution: %dx%d\n", width, height);
+	}
+}
+
+static void
+handle_done(void *data, struct wl_output *wl_output)
+{
+	// Optional: signal completion
+}
+
+static void
+handle_scale(void *data, struct wl_output *wl_output, int32_t factor) {
+	// Optional: store scale factor
+}
+static const struct wl_output_listener output_listener = {
+	.geometry = handle_output_geometry,
+	.mode = handle_output_mode,
+	.done = handle_done,
+	.scale = handle_scale,
+};
+
+struct gbm_device *gbm_dev = NULL;
+
 struct display {
 	struct wl_display *display;
 	struct wl_registry *registry;
 	struct wl_compositor *compositor;
+	struct wl_subcompositor *subcompositor;
 	struct wl_seat *seat;
 	struct wl_pointer *pointer;
 	struct wl_keyboard *keyboard;
@@ -117,6 +172,8 @@ struct display {
 	struct wl_surface *cursor_surface;
 	struct xdg_wm_base *wm_base;
 	struct zwp_linux_dmabuf_v1 *dmabuf;
+	struct zwp_linux_dmabuf_v1 *dmabuf_bg;
+	int drmfd_bg;
 	struct weston_direct_display_v1 *direct_display;
 	struct wp_viewporter *viewporter;
 	bool requested_format_found;
@@ -125,9 +182,12 @@ struct display {
 	int v4l_fd;
 	struct buffer_format format;
 	uint32_t drm_format;
+	int32_t screen_width;
+	int32_t screen_height;
 	struct window *window;
 };
 
+struct wl_buffer *create_argb8888_dmabuf_buffer(struct display *display);
 struct buffer {
 	struct wl_buffer *buffer;
 	struct display *display;
@@ -154,7 +214,147 @@ struct window {
 	bool fullscreen_cursor;
 };
 
+
+static void draw_argb_background(struct display *display, struct wl_surface *surface);
+
 static bool running = true;
+
+struct buffer_data {
+	struct wl_buffer *buffer;
+	int done;
+};
+
+static void
+dmabuf_created(void *data, struct zwp_linux_buffer_params_v1 *params,
+	       struct wl_buffer *new_buffer)
+{
+	struct buffer_data *bd = data;
+	bd->buffer = new_buffer;
+	bd->done = 1;
+}
+
+static void
+dmabuf_failed(void *data, struct zwp_linux_buffer_params_v1 *params)
+{
+	struct buffer_data *bd = data;
+	fprintf(stderr, "DMA-BUF wl_buffer creation failed\n");
+	bd->buffer = NULL;
+	bd->done = 1;
+}
+
+static const struct zwp_linux_buffer_params_v1_listener dmabuf_param_listener = {
+	.created = dmabuf_created,
+	.failed = dmabuf_failed,
+};
+
+#ifndef SYS_memfd_create
+#define SYS_memfd_create 319
+#endif
+
+struct wl_buffer *
+create_argb8888_dmabuf_buffer(struct display *display)
+{
+	struct zwp_linux_buffer_params_v1 *params;
+	struct udmabuf_create create;
+	struct buffer_data buf_data = { 0 };
+	uint32_t *pixels;
+	void *addr;
+	int width = screen_width;
+	int height = screen_height;
+	size_t stride = width * 4;
+	size_t size = stride * height;
+	int memfd, udmabuf_fd, dma_fd;
+	int seals;
+
+	/* Step 1: Create memfd */
+	memfd = memfd_create("udmabuf", MFD_CLOEXEC | MFD_ALLOW_SEALING);
+	if (memfd < 0) {
+		perror("memfd_create failed");
+		return NULL;
+	}
+
+	if (ftruncate(memfd, size) < 0) {
+		perror("ftruncate failed");
+		close(memfd);
+		return NULL;
+	}
+
+	seals = F_SEAL_SHRINK | F_SEAL_GROW | F_SEAL_SEAL;
+	if (fcntl(memfd, F_ADD_SEALS, seals) < 0) {
+		perror("fcntl(F_ADD_SEALS) failed");
+		close(memfd);
+		return NULL;
+	}
+
+	/* Step 2: Map memory and initialize with ARGB */
+	addr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, memfd, 0);
+	if (addr == MAP_FAILED) {
+		perror("mmap failed");
+		close(memfd);
+		return NULL;
+	}
+
+	pixels = (uint32_t *)addr;
+	for (int y = 0; y < height; y++) {
+		for (int x = 0; x < width; x++) {
+			int top = (y < height / 2);
+			int left = (x < width / 2);
+			if ((top && left) || (!top && !left))
+				pixels[y * width + x] = 0x00707070; /* Fully transparent */
+			else
+				pixels[y * width + x] = 0x7F707070; /* Semi-transparent */
+		}
+	}
+
+	munmap(addr, size);
+
+	/* Step 3: Create DMA-BUF using udmabuf */
+	udmabuf_fd = open("/dev/udmabuf", O_RDWR);
+	if (udmabuf_fd < 0) {
+		perror("open /dev/udmabuf failed");
+		close(memfd);
+		return NULL;
+	}
+
+	memset(&create, 0, sizeof(create));
+	create.memfd = memfd;
+	create.flags = UDMABUF_FLAGS_CLOEXEC;
+	create.offset = 0;
+	create.size = size;
+
+	dma_fd = ioctl(udmabuf_fd, UDMABUF_CREATE, &create);
+	if (dma_fd < 0) {
+		perror("UDMABUF_CREATE ioctl failed");
+		close(udmabuf_fd);
+		close(memfd);
+		return NULL;
+	}
+
+	close(udmabuf_fd);
+	close(memfd);
+
+	/* Step 4: Create wl_buffer using linux-dmabuf */
+	params = zwp_linux_dmabuf_v1_create_params(display->dmabuf);
+	zwp_linux_buffer_params_v1_add(params, dma_fd,
+					0,        /* plane index */
+					0,        /* offset */
+					stride,   /* stride */
+					0, 0);    /* modifier_lo, modifier_hi */
+
+	zwp_linux_buffer_params_v1_add_listener(params,
+						&dmabuf_param_listener, &buf_data);
+
+	zwp_linux_buffer_params_v1_create(params, width, height,
+					  DRM_FORMAT_ARGB8888, 0);
+
+	while (!buf_data.done)
+		wl_display_roundtrip(display->display);
+
+	zwp_linux_buffer_params_v1_destroy(params);
+	close(dma_fd);
+
+	return buf_data.buffer;
+}
 
 static int
 queue(struct display *display, struct buffer *buffer)
@@ -559,7 +759,16 @@ buffer_export(struct display *display, int index, int dmafd[])
 {
 	struct v4l2_exportbuffer expbuf;
 	unsigned i;
+	void *dummy;
+	size_t length = display->format.height * display->format.strides[0];
 
+	// Dummy mmap to satisfy drivers that need it before EXPBUF
+	dummy = mmap(NULL, length, PROT_READ | PROT_WRITE, MAP_SHARED, display->v4l_fd, 0);
+	if (dummy == MAP_FAILED) {
+		perror("mmap");
+		return 0;
+	}
+	munmap(dummy, length);
 	CLEAR(expbuf);
 
 	for (i = 0; i < display->format.num_planes; ++i) {
@@ -725,7 +934,6 @@ xdg_toplevel_handle_configure(void *data, struct xdg_toplevel *toplevel,
 {
 	struct window *window = data;
 	uint32_t *p;
-
 	window->fullscreen = 0;
 	wl_array_for_each(p, states) {
 		uint32_t state = *p;
@@ -740,6 +948,7 @@ xdg_toplevel_handle_configure(void *data, struct xdg_toplevel *toplevel,
 		return;
 
 	if (window->fullscreen) {
+
 		float ratio_w = (float)width / window->display->format.width;
 		float ratio_h = (float)height / window->display->format.height;
 		int32_t viewport_w;
@@ -750,9 +959,13 @@ xdg_toplevel_handle_configure(void *data, struct xdg_toplevel *toplevel,
 			viewport_h = height;
 		} else {
 			viewport_w = width;
-			viewport_h = height / ratio_h * ratio_w;
+			if (window->display->opts & OPT_FLAG_DMABUF_BG) {
+				viewport_h = height;
+			}
+			else {
+				viewport_h = height / ratio_h * ratio_w;
+			}
 		}
-
 		wp_viewport_set_destination(window->viewport, viewport_w,
 					    viewport_h);
 	} else {
@@ -808,6 +1021,8 @@ create_window(struct display *display, uint32_t win_flags)
 		xdg_toplevel_add_listener(window->xdg_toplevel,
 					  &xdg_toplevel_listener, window);
 
+		if (window->display->opts & OPT_FLAG_DMABUF_BG)
+			xdg_toplevel_set_fullscreen(window->xdg_toplevel, NULL);
 		xdg_toplevel_set_title(window->xdg_toplevel, "simple-dmabuf-v4l");
 		xdg_toplevel_set_app_id(window->xdg_toplevel,
 				"org.freedesktop.weston.simple-dmabuf-v4l");
@@ -819,6 +1034,21 @@ create_window(struct display *display, uint32_t win_flags)
 
 		window->wait_for_configure = true;
 		wl_surface_commit(window->surface);
+		if (window->display->opts & OPT_FLAG_DMABUF_BG) {
+			bg_surface = wl_compositor_create_surface(display->compositor);
+			uint32_t id = wl_proxy_get_id((struct wl_proxy *)bg_surface);
+			printf("Subsurface surface ID: %u\n", id);
+
+			struct wl_subsurface *bg_subsurface = wl_subcompositor_get_subsurface(display->subcompositor, bg_surface, window->surface);
+			assert(bg_subsurface);
+			wl_subsurface_set_position(bg_subsurface, 0, 0);
+			wl_subsurface_place_above(bg_subsurface, window->surface);
+
+			wl_display_roundtrip(display->display);  // Let wl_output events arrive
+
+			printf("screen: %dx%d\n", screen_width, screen_height);
+			draw_argb_background(display, bg_surface);
+		}
 	} else {
 		assert(0);
 	}
@@ -1091,6 +1321,7 @@ static const struct xdg_wm_base_listener wm_base_listener = {
 	xdg_wm_base_ping,
 };
 
+
 static void
 registry_handle_global(void *data, struct wl_registry *registry,
                        uint32_t id, const char *interface, uint32_t version)
@@ -1105,6 +1336,11 @@ registry_handle_global(void *data, struct wl_registry *registry,
 		d->seat = wl_registry_bind(registry,
 		                           id, &wl_seat_interface, 1);
 		wl_seat_add_listener(d->seat, &seat_listener, d);
+	} else if (strcmp(interface, wl_subcompositor_interface.name) == 0) {
+		d->subcompositor = wl_registry_bind(registry, id, &wl_subcompositor_interface, 1);
+	} else if (strcmp(interface, wl_output_interface.name) == 0) {
+		struct wl_output *output = wl_registry_bind(registry, id, &wl_output_interface, 2);
+		wl_output_add_listener(output, &output_listener, d);
 	} else if (strcmp(interface, wl_shm_interface.name) == 0) {
 		d->shm = wl_registry_bind(registry, id,
 					  &wl_shm_interface, 1);
@@ -1235,6 +1471,7 @@ usage(const char *argv0)
 	       "- d-display skip importing dmabuf-based buffer into the GPU\n  "
 	       "and attempt pass the buffer straight to the display controller\n"
 	       "- fullscreen make the window fullscreen and scale up the image\n"
+	       "- dmabuf-bg Enable DMA-BUF ARGB8888 background surface\n"
 	       "- fs-cursor show the cursor in fullscreen mode\n",
 	       argv0);
 
@@ -1266,6 +1503,32 @@ signal_int(int signum)
 	running = false;
 }
 
+
+static void
+draw_argb_background(struct display *display,
+		     struct wl_surface *surface)
+{
+	int width = screen_width;
+	int height = screen_height;
+
+	/*FIXME: Delay could be removed if events are handled properly*/
+	usleep(500000);
+	if (width == 0 || height == 0) {
+		fprintf(stderr, "draw_argb_background: invalid dimensions\n");
+		return;
+	}
+
+	struct wl_buffer *bg_buffer = create_argb8888_dmabuf_buffer(display);
+	if (!bg_buffer) {
+		printf("Buffer creation argb8888 failed...\n");
+		return;
+	}
+
+	wl_surface_attach(surface, bg_buffer, 0, 0);
+	wl_surface_damage(surface, 0, 0, 100, 100);
+	wl_surface_commit(surface);
+}
+
 int
 main(int argc, char **argv)
 {
@@ -1287,11 +1550,12 @@ main(int argc, char **argv)
 		{ "d-display",   no_argument, 	    NULL, 'g' },
 		{ "fullscreen",  no_argument, 	    NULL, 's' },
 		{ "fs-cursor",   no_argument, 	    NULL, 'c' },
+		{ "dmabuf-bg",   no_argument,       NULL, 'b' },
 		{ "help",        no_argument,       NULL, 'h' },
 		{ 0,             0,                 NULL,  0  }
 	};
 
-	while ((c = getopt_long(argc, argv, "hiv:d:f:gsc", long_options,
+	while ((c = getopt_long(argc, argv, "hiv:d:f:gscb", long_options,
 				&opt_index)) != -1) {
 		switch (c) {
 		case 'v':
@@ -1314,6 +1578,9 @@ main(int argc, char **argv)
 			break;
 		case 'c':
 			win_flags |= WIN_FLAG_FULLSCREEN_CURSOR;
+			break;
+		case 'b':
+			opts_flags |= OPT_FLAG_DMABUF_BG;
 			break;
 		default:
 		case 'h':
