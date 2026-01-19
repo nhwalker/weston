@@ -2182,7 +2182,7 @@ drm_output_init_legacy_gamma_size(struct drm_output *output)
 }
 
 static void
-drm_colorop_3x1d_lut_destroy(struct drm_colorop_3x1d_lut *lut)
+drm_colorop_3x1d_lut_blob_destroy(struct drm_colorop_3x1d_lut_blob *lut)
 {
 	wl_list_remove(&lut->destroy_listener.link);
 	wl_list_remove(&lut->link);
@@ -2191,36 +2191,36 @@ drm_colorop_3x1d_lut_destroy(struct drm_colorop_3x1d_lut *lut)
 }
 
 static void
-drm_colorop_3x1d_lut_destroy_handler(struct wl_listener *l, void *data)
+drm_colorop_3x1d_lut_blob_destroy_handler(struct wl_listener *l, void *data)
 {
-	struct drm_colorop_3x1d_lut *lut;
+	struct drm_colorop_3x1d_lut_blob *lut;
 
 	lut = wl_container_of(l, lut, destroy_listener);
 	assert(lut->xform == data);
 
-	drm_colorop_3x1d_lut_destroy(lut);
+	drm_colorop_3x1d_lut_blob_destroy(lut);
 }
 
-static struct drm_colorop_3x1d_lut *
-drm_colorop_3x1d_lut_search(struct drm_device *device,
-			    struct weston_color_transform *xform,
-			    uint32_t lut_len)
+static struct drm_colorop_3x1d_lut_blob *
+drm_colorop_3x1d_lut_blob_search(struct drm_device *device,
+				 struct weston_color_transform *xform,
+				 uint32_t lut_len)
 {
-	struct drm_colorop_3x1d_lut *lut;
+	struct drm_colorop_3x1d_lut_blob *lut;
 
-	wl_list_for_each(lut, &device->drm_colorop_3x1d_lut_list, link)
+	wl_list_for_each(lut, &device->drm_colorop_3x1d_lut_blob_list, link)
 		if (lut->xform == xform && lut->lut_len == lut_len)
 			return lut;
 
 	return NULL;
 }
 
-static struct drm_colorop_3x1d_lut *
-drm_colorop_3x1d_lut_create(struct weston_color_transform *xform,
-			    struct drm_device *device, uint32_t lut_len,
-			    uint32_t blob_id)
+static struct drm_colorop_3x1d_lut_blob *
+drm_colorop_3x1d_lut_blob_create(struct weston_color_transform *xform,
+				 struct drm_device *device, uint32_t lut_len,
+				 uint32_t blob_id)
 {
-	struct drm_colorop_3x1d_lut *lut;
+	struct drm_colorop_3x1d_lut_blob *lut;
 
 	lut = xzalloc(sizeof(*lut));
 
@@ -2229,9 +2229,9 @@ drm_colorop_3x1d_lut_create(struct weston_color_transform *xform,
 	lut->xform = xform;
 	lut->lut_len = lut_len;
 
-	wl_list_insert(&device->drm_colorop_3x1d_lut_list, &lut->link);
+	wl_list_insert(&device->drm_colorop_3x1d_lut_blob_list, &lut->link);
 
-	lut->destroy_listener.notify = drm_colorop_3x1d_lut_destroy_handler;
+	lut->destroy_listener.notify = drm_colorop_3x1d_lut_blob_destroy_handler;
 	wl_signal_add(&lut->xform->destroy_signal, &lut->destroy_listener);
 
 	return lut;
@@ -2283,7 +2283,7 @@ drm_output_pick_blend_to_output(struct drm_output *output)
 	struct weston_compositor *compositor = output->base.compositor;
 	struct drm_device *device = output->device;
 	struct drm_backend *b = device->backend;
-	struct drm_colorop_3x1d_lut *colorop_lut;
+	struct drm_colorop_3x1d_lut_blob *colorop_lut;
 	struct weston_color_transform *xform;
 	struct drm_color_lut *drm_lut;
 	size_t lut_len;
@@ -2309,7 +2309,7 @@ drm_output_pick_blend_to_output(struct drm_output *output)
 	 * First let's check if the xform has already been cached. If that's the
 	 * case, we make use of it.
 	 */
-	colorop_lut = drm_colorop_3x1d_lut_search(device, xform, lut_len);
+	colorop_lut = drm_colorop_3x1d_lut_blob_search(device, xform, lut_len);
 	if (colorop_lut) {
 		output->blend_to_output_xform = colorop_lut;
 		return 0;
@@ -2339,8 +2339,8 @@ drm_output_pick_blend_to_output(struct drm_output *output)
 	}
 
 	output->blend_to_output_xform =
-		drm_colorop_3x1d_lut_create(xform, device, lut_len,
-					    gamma_lut_blob_id);
+		drm_colorop_3x1d_lut_blob_create(xform, device, lut_len,
+						 gamma_lut_blob_id);
 	return 0;
 }
 
@@ -4080,7 +4080,7 @@ drm_device_destroy(struct drm_device *device)
 			      &device->writeback_connector_list, link)
 		drm_writeback_destroy(writeback);
 
-	weston_assert_true(ec, wl_list_empty(&device->drm_colorop_3x1d_lut_list));
+	weston_assert_true(ec, wl_list_empty(&device->drm_colorop_3x1d_lut_blob_list));
 
 	if (device->drm_event_source)
 		wl_event_source_remove(device->drm_event_source);
@@ -4543,7 +4543,7 @@ drm_device_create(struct drm_backend *backend,
 	wl_list_init(&device->plane_list);
 	create_sprites(device);
 
-	wl_list_init(&device->drm_colorop_3x1d_lut_list);
+	wl_list_init(&device->drm_colorop_3x1d_lut_blob_list);
 
 	wl_list_init(&device->writeback_connector_list);
 	if (drm_backend_discover_connectors(device, device->kms_device->udev_device, res) < 0) {
