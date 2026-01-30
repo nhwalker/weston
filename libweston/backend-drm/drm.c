@@ -3141,14 +3141,12 @@ drm_writeback_update_info(struct drm_writeback *writeback, drmModeConnector *con
  *
  * @param device DRM device structure
  * @param conn DRM connector object
- * @param drm_device udev device pointer
  * @returns 0 on success, -1 on failure
  *
  * Takes ownership of @c connector on success, not on failure.
  */
 static int
-drm_head_create(struct drm_device *device, drmModeConnector *conn,
-		struct udev_device *drm_device)
+drm_head_create(struct drm_device *device, drmModeConnector *conn)
 {
 	struct drm_backend *backend = device->backend;
 	struct drm_head *head;
@@ -3574,12 +3572,10 @@ drm_writeback_destroy(struct drm_writeback *writeback)
  *
  * @param device The DRM device structure
  * @param conn The DRM connector object
- * @param drm_device udev device pointer
  * @return 0 on success, -1 on failure
  */
 static int
-drm_backend_add_connector(struct drm_device *device, drmModeConnector *conn,
-			  struct udev_device *drm_device)
+drm_backend_add_connector(struct drm_device *device, drmModeConnector *conn)
 {
 	int ret;
 
@@ -3589,7 +3585,7 @@ drm_backend_add_connector(struct drm_device *device, drmModeConnector *conn,
 			weston_log("DRM: failed to create writeback for connector %d.\n",
 				   conn->connector_id);
 	} else {
-		ret = drm_head_create(device, conn, drm_device);
+		ret = drm_head_create(device, conn);
 		if (ret < 0)
 			weston_log("DRM: failed to create head for connector %d.\n",
 				   conn->connector_id);
@@ -3604,13 +3600,11 @@ drm_backend_add_connector(struct drm_device *device, drmModeConnector *conn,
  * These objects are added to the DRM-backend lists of heads and writebacks.
  *
  * @param device The DRM device structure
- * @param drm_device udev device pointer
  * @param resources The DRM resources, it is taken with drmModeGetResources
  * @return 0 on success, -1 on failure
  */
 static int
 drm_backend_discover_connectors(struct drm_device *device,
-				struct udev_device *drm_device,
 				drmModeRes *resources)
 {
 	drmModeConnector *conn;
@@ -3628,7 +3622,7 @@ drm_backend_discover_connectors(struct drm_device *device,
 		if (!conn)
 			continue;
 
-		ret = drm_backend_add_connector(device, conn, drm_device);
+		ret = drm_backend_add_connector(device, conn);
 		if (ret < 0)
 			drmModeFreeConnector(conn);
 	}
@@ -3649,7 +3643,6 @@ resources_has_connector(drmModeRes *resources, uint32_t connector_id)
 
 static void
 drm_backend_update_connector(struct drm_device *device,
-			     struct udev_device *drm_device,
 			     uint32_t connector_id)
 {
 	struct drm_backend *b = device->backend;
@@ -3703,7 +3696,7 @@ drm_backend_update_connector(struct drm_device *device,
 	} else if (writeback) {
 		ret = drm_writeback_update_info(writeback, conn);
 	} else {
-		ret = drm_backend_add_connector(device, conn, drm_device);
+		ret = drm_backend_add_connector(device, conn);
 	}
 
 	if (ret < 0)
@@ -3760,7 +3753,6 @@ drm_backend_update_connectors_post_destroy(struct drm_device *device,
 
 static void
 drm_backend_update_connectors(struct drm_device *device,
-			      struct udev_device *drm_device,
 			      drmModeRes *resources)
 {
 	int i;
@@ -3769,7 +3761,7 @@ drm_backend_update_connectors(struct drm_device *device,
 
 	for (i = 0; i < resources->count_connectors; i++) {
 		uint32_t connector_id = resources->connectors[i];
-		drm_backend_update_connector(device, drm_device, connector_id);
+		drm_backend_update_connector(device, connector_id);
 	}
 
 	drm_backend_update_connectors_post_destroy(device, resources);
@@ -3892,10 +3884,10 @@ udev_drm_event(int fd, uint32_t mask, void *data)
 		if (conn_id > 0 && prop_id > 0) {
 			drm_backend_update_conn_props(b, device, conn_id, prop_id);
 		} else if (conn_id > 0) {
-			drm_backend_update_connector(device, event, conn_id);
+			drm_backend_update_connector(device, conn_id);
 			drm_backend_update_connectors_post_destroy(device, resources);
 		} else {
-			drm_backend_update_connectors(device, event, resources);
+			drm_backend_update_connectors(device, resources);
 		}
 		drmModeFreeResources(resources);
 	}
@@ -3915,10 +3907,10 @@ udev_drm_event(int fd, uint32_t mask, void *data)
 		if (conn_id && prop_id > 0) {
 			drm_backend_update_conn_props(b, device_iter, conn_id, prop_id);
 		} else if (conn_id > 0) {
-			drm_backend_update_connector(device_iter, event, conn_id);
+			drm_backend_update_connector(device_iter, conn_id);
 			drm_backend_update_connectors_post_destroy(device_iter, resources);
 		} else {
-			drm_backend_update_connectors(device_iter, event, resources);
+			drm_backend_update_connectors(device_iter, resources);
 		}
 		drmModeFreeResources(resources);
 	}
@@ -4446,7 +4438,7 @@ drm_device_create(struct drm_backend *backend, const char *name)
 	wl_list_init(&device->drm_colorop_3x1d_lut_list);
 
 	wl_list_init(&device->writeback_connector_list);
-	if (drm_backend_discover_connectors(device, udev_device, res) < 0) {
+	if (drm_backend_discover_connectors(device, res) < 0) {
 		weston_log("Failed to create heads for %s\n", device->drm.filename);
 		goto err;
 	}
@@ -4659,7 +4651,7 @@ drm_backend_create(struct weston_compositor *compositor,
 	}
 
 	wl_list_init(&b->drm->writeback_connector_list);
-	if (drm_backend_discover_connectors(b->drm, drm_device, res) < 0) {
+	if (drm_backend_discover_connectors(b->drm, res) < 0) {
 		weston_log("Failed to create heads for %s\n", b->drm->drm.filename);
 		goto err_udev_input;
 	}
