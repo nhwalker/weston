@@ -4147,28 +4147,29 @@ out_fd:
  * rather than pure render nodes (GPU with no display), or pure
  * memory-allocation devices (VGEM).
  */
-static struct udev_device*
+static int
 find_primary_gpu(struct drm_backend *b, const char *seat)
 {
 	struct drm_device *device = b->drm;
 	struct udev_enumerate *e;
 	struct udev_list_entry *entry;
 	const char *path, *device_seat, *id;
-	struct udev_device *dev, *drm_device, *pci;
+	bool device_found = false;
 
 	e = udev_enumerate_new(b->udev);
 	udev_enumerate_add_match_subsystem(e, "drm");
 	udev_enumerate_add_match_sysname(e, "card[0-9]*");
 
 	udev_enumerate_scan_devices(e);
-	drm_device = NULL;
 	udev_list_entry_foreach(entry, udev_enumerate_get_list_entry(e)) {
+		struct udev_device *dev, *pci;
 		bool is_boot_vga = false;
 
 		path = udev_list_entry_get_name(entry);
 		dev = udev_device_new_from_syspath(b->udev, path);
 		if (!dev)
 			continue;
+
 		device_seat = udev_device_get_property_value(dev, "ID_SEAT");
 		if (!device_seat)
 			device_seat = default_seat;
@@ -4188,7 +4189,7 @@ find_primary_gpu(struct drm_backend *b, const char *seat)
 		/* If we already have a modesetting-capable device, and this
 		 * device isn't our boot-VGA device, we aren't going to use
 		 * it. */
-		if (!is_boot_vga && drm_device) {
+		if (!is_boot_vga && device_found) {
 			udev_device_unref(dev);
 			continue;
 		}
@@ -4196,36 +4197,26 @@ find_primary_gpu(struct drm_backend *b, const char *seat)
 		/* Make sure this device is actually capable of modesetting;
 		 * if this call succeeds, device->drm.{fd,filename} will be set,
 		 * and any old values freed. */
-		if (!drm_device_is_kms(b, b->drm, dev)) {
-			udev_device_unref(dev);
-			continue;
-		}
+		if (drm_device_is_kms(b, b->drm, dev))
+			device_found = true;
+
+		udev_device_unref(dev);
 
 		/* There can only be one boot_vga device, and we try to use it
 		 * at all costs. */
-		if (is_boot_vga) {
-			if (drm_device)
-				udev_device_unref(drm_device);
-			drm_device = dev;
+		if (device_found && is_boot_vga)
 			break;
-		}
-
-		/* Per the (!is_boot_vga && drm_device) test above, we only
-		 * trump existing saved devices with boot-VGA devices, so if
-		 * we end up here, this must be the first device we've seen. */
-		assert(!drm_device);
-		drm_device = dev;
 	}
 
-	/* If we're returning a device to use, we must have an open FD for
-	 * it. */
-	assert(!!drm_device == (device->drm.fd >= 0));
+	/* If we found a device, we must have an open FD for it. */
+	assert(device_found == (device->drm.fd >= 0));
 
 	udev_enumerate_unref(e);
-	return drm_device;
+
+	return device_found ? 0 : -1;
 }
 
-static struct udev_device *
+static int
 open_specific_drm_device(struct drm_backend *b, struct drm_device *device,
 			 const char *name)
 {
@@ -4234,20 +4225,22 @@ open_specific_drm_device(struct drm_backend *b, struct drm_device *device,
 	udev_device = udev_device_new_from_subsystem_sysname(b->udev, "drm", name);
 	if (!udev_device) {
 		weston_log("ERROR: could not open DRM device '%s'\n", name);
-		return NULL;
+		return -1;
 	}
 
 	if (!drm_device_is_kms(b, device, udev_device)) {
 		udev_device_unref(udev_device);
 		weston_log("ERROR: DRM device '%s' is not a KMS device.\n", name);
-		return NULL;
+		return -1;
 	}
+
+	udev_device_unref(udev_device);
 
 	/* If we're returning a device to use, we must have an open FD for
 	 * it. */
 	assert(device->drm.fd >= 0);
 
-	return udev_device;
+	return 0;
 }
 
 static void
@@ -4392,7 +4385,6 @@ static struct drm_device *
 drm_device_create(struct drm_backend *backend, const char *name)
 {
 	struct weston_compositor *compositor = backend->compositor;
-	struct udev_device *udev_device;
 	struct drm_device *device;
 	struct wl_event_loop *loop;
 	drmModeRes *res;
@@ -4405,8 +4397,7 @@ drm_device_create(struct drm_backend *backend, const char *name)
 	device->backend = backend;
 	device->gem_handle_refcnt = hash_table_create();
 
-	udev_device = open_specific_drm_device(backend, device, name);
-	if (!udev_device) {
+	if (open_specific_drm_device(backend, device, name) < 0) {
 		free(device);
 		return NULL;
 	}
@@ -4490,7 +4481,6 @@ drm_backend_create(struct weston_compositor *compositor,
 {
 	struct drm_backend *b;
 	struct drm_device *device;
-	struct udev_device *drm_device;
 	struct wl_event_loop *loop;
 	const char *seat_id = default_seat;
 	const char *session_seat;
@@ -4561,18 +4551,18 @@ drm_backend_create(struct weston_compositor *compositor,
 	wl_signal_add(&compositor->session_signal, &b->session_listener);
 
 	if (config->specific_device)
-		drm_device = open_specific_drm_device(b, device,
-						      config->specific_device);
+		ret = open_specific_drm_device(b, device,
+					       config->specific_device);
 	else
-		drm_device = find_primary_gpu(b, seat_id);
-	if (drm_device == NULL) {
+		ret = find_primary_gpu(b, seat_id);
+	if (ret < 0) {
 		weston_log("no drm device found\n");
 		goto err_udev;
 	}
 
 	if (init_kms_caps(device) < 0) {
 		weston_log("failed to initialize kms\n");
-		goto err_udev_dev;
+		goto err_udev;
 	}
 
 	if (config->additional_devices)
@@ -4595,24 +4585,24 @@ drm_backend_create(struct weston_compositor *compositor,
 	case WESTON_RENDERER_PIXMAN:
 		if (init_pixman(b) < 0) {
 			weston_log("failed to initialize pixman renderer\n");
-			goto err_udev_dev;
+			goto err_udev;
 		}
 		break;
 	case WESTON_RENDERER_GL:
 		if (init_egl(b) < 0) {
 			weston_log("failed to initialize egl\n");
-			goto err_udev_dev;
+			goto err_udev;
 		}
 		break;
 	case WESTON_RENDERER_VULKAN:
 		if (init_vulkan(b) < 0) {
 			weston_log("failed to initialize vulkan\n");
-			goto err_udev_dev;
+			goto err_udev;
 		}
 		break;
 	default:
 		weston_log("unsupported renderer for DRM backend\n");
-		goto err_udev_dev;
+		goto err_udev;
 	}
 
 	b->base.shutdown = drm_shutdown;
@@ -4629,7 +4619,7 @@ drm_backend_create(struct weston_compositor *compositor,
 	res = drmModeGetResources(b->drm->drm.fd);
 	if (!res) {
 		weston_log("Failed to get drmModeRes\n");
-		goto err_udev_dev;
+		goto err_udev;
 	}
 
 	wl_list_init(&b->drm->crtc_list);
@@ -4687,8 +4677,6 @@ drm_backend_create(struct weston_compositor *compositor,
 		weston_log("failed to enable udev-monitor receiving\n");
 		goto err_udev_monitor;
 	}
-
-	udev_device_unref(drm_device);
 
 	weston_compositor_add_debug_binding(compositor, KEY_O,
 					    planes_binding, b);
@@ -4764,8 +4752,6 @@ err_sprite:
 	destroy_sprites(b->drm);
 err_create_crtc_list:
 	drmModeFreeResources(res);
-err_udev_dev:
-	udev_device_unref(drm_device);
 err_udev:
 	udev_unref(b->udev);
 err_launcher:
