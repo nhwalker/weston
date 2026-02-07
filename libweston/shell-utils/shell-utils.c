@@ -193,11 +193,12 @@ weston_shell_utils_curtain_create(struct weston_compositor *compositor,
 	if (view == NULL)
 		goto err_surface;
 
-	buffer_ref = weston_buffer_create_solid_rgba(compositor,
-						     params->r,
-						     params->g,
-						     params->b,
-						     params->a);
+	buffer_ref = weston_buffer_create_solid_image(compositor,
+						      params->image,
+						      params->r,
+						      params->g,
+						      params->b,
+						      params->a);
 	if (buffer_ref == NULL)
 		goto err_view;
 

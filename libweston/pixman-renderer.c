@@ -37,6 +37,7 @@
 #include "pixel-formats.h"
 #include "output-capture.h"
 #include "shared/helpers.h"
+#include "shared/image-loader.h"
 #include "shared/weston-drm-fourcc.h"
 #include "shared/xalloc.h"
 
@@ -702,23 +703,46 @@ buffer_state_handle_buffer_destroy(struct wl_listener *listener, void *data)
 }
 
 static void
-pixman_renderer_surface_set_color(struct weston_surface *es,
-		 float red, float green, float blue, float alpha)
+pixman_image_add_fill(pixman_image_t *image,
+		      float red, float green, float blue, float alpha)
 {
-	struct pixman_surface_state *ps = get_surface_state(es);
+	pixman_rectangle16_t rect;
 	pixman_color_t color;
+
+	if (!image)
+		return;
+
+	rect.x = 0;
+	rect.y = 0;
+	rect.width = pixman_image_get_width(image);
+	rect.height = pixman_image_get_height(image);
 
 	color.red = red * 0xffff;
 	color.green = green * 0xffff;
 	color.blue = blue * 0xffff;
 	color.alpha = alpha * 0xffff;
 
-	if (ps->image) {
-		pixman_image_unref(ps->image);
-		ps->image = NULL;
-	}
+	pixman_image_fill_rectangles(PIXMAN_OP_OVER,
+				     image, &color, 1, &rect);
+}
 
-	ps->image = pixman_image_create_solid_fill(&color);
+static void
+pixman_image_add_overlay(pixman_image_t *image,
+			 pixman_image_t *overlay)
+{
+	int width, height, x, y;
+
+	if (!image || !overlay)
+		return;
+
+	width = pixman_image_get_width(overlay);
+	height = pixman_image_get_height(overlay);
+	x = (pixman_image_get_width(image) - width) / 2;
+	y = (pixman_image_get_height(image) - height) / 2;
+
+	pixman_image_composite32(PIXMAN_OP_OVER,
+				 overlay, NULL, image,
+				 0, 0, 0, 0, x, y, width, height);
 }
 
 static void
@@ -750,11 +774,20 @@ pixman_renderer_attach(struct weston_paint_node *pnode)
 		return;
 
 	if (buffer->type == WESTON_BUFFER_SOLID) {
-		pixman_renderer_surface_set_color(es,
-						  buffer->solid.r,
-						  buffer->solid.g,
-						  buffer->solid.b,
-						  buffer->solid.a);
+		ps->image = pixman_image_create_bits(PIXMAN_a8r8g8b8,
+						     es->width, es->height,
+						     NULL, 0);
+
+		pixman_image_add_fill(ps->image,
+				      buffer->solid.r,
+				      buffer->solid.g,
+				      buffer->solid.b,
+				      buffer->solid.a);
+
+		if (buffer->solid.image)
+			pixman_image_add_overlay(ps->image,
+						 buffer->solid.image->pixman_image);
+
 		weston_buffer_reference(&ps->buffer_ref, NULL,
 					BUFFER_WILL_NOT_BE_ACCESSED);
 		weston_buffer_release_reference(&ps->buffer_release_ref, NULL);

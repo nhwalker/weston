@@ -94,6 +94,7 @@ struct kiosk_shell_output {
 	struct weston_output *output;
 	struct wl_listener output_destroy_listener;
 	struct weston_curtain *curtain;
+	struct weston_image *background;
 
 	struct kiosk_shell *shell;
 	struct wl_list link;
