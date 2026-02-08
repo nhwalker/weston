@@ -200,6 +200,8 @@ spa_video_format_from_drm_fourcc(uint32_t fourcc)
 	switch (fourcc) {
 	case DRM_FORMAT_XRGB8888:
 		return SPA_VIDEO_FORMAT_BGRx;
+	case DRM_FORMAT_ARGB8888:
+		return SPA_VIDEO_FORMAT_BGRA;
 	case DRM_FORMAT_RGB565:
 		return SPA_VIDEO_FORMAT_RGB16;
 	default:
