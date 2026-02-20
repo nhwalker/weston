@@ -545,6 +545,20 @@ weston_output_has_renderer_capture_tasks(struct weston_output *output)
 	return false;
 }
 
+/** Check if any capture tasks of a certain buffer type are waiting on the output */
+WL_EXPORT bool
+weston_output_has_capture_tasks_of_buffer_type(struct weston_output *output,
+					       enum weston_buffer_type buffer_type)
+{
+	struct weston_output_capture_info *ci = output->capture_info;
+	struct weston_capture_task *ct;
+
+	wl_list_for_each(ct, &ci->pending_capture_list, link)
+		if (ct->buffer->type == buffer_type)
+			return true;
+	return false;
+}
+
 /** Get the destination buffer */
 WL_EXPORT struct weston_buffer *
 weston_capture_task_get_buffer(struct weston_capture_task *ct)
