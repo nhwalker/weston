@@ -223,6 +223,8 @@ struct weston_testsuite_quirks {
 	bool gl_force_full_redraw_of_shadow_fb;
 	/** Force GL-renderer to use the internal YUV->RGB shader */
 	bool gl_force_import_yuv_fallback;
+	/** Force GL-renderer to consider glBlitFramebuffer unsupported */
+	bool gl_force_blit_fb_unsupported;
 	/** Required enum weston_capability bit mask, otherwise skip run. */
 	uint32_t required_capabilities;
 };

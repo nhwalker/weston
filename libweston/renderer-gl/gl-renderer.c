@@ -177,6 +177,11 @@ struct gl_output_state {
 	/* struct timeline_render_point::link */
 	struct wl_list timeline_render_point_list;
 
+	/**
+	 * We redirect drawing to shadow when we have color-management enabled,
+	 * when gl_force_full_redraw_of_shadow_fb is set or when we have dma-buf
+	 * screenshot tasks and glBlitFramebuffer is unsupported.
+	 */
 	const struct pixel_format_info *shadow_format;
 	struct gl_texture_parameters shadow_param;
 	GLuint shadow_tex;
@@ -392,6 +397,41 @@ static bool
 shadow_exists(const struct gl_output_state *go)
 {
 	return go->shadow_fb != 0;
+}
+
+static bool
+is_glBlitFramebuffer_supported(struct gl_renderer *gr)
+{
+	const struct weston_testsuite_quirks *quirks =
+		&gr->compositor->test_data.test_quirks;
+
+	if (quirks->gl_force_blit_fb_unsupported)
+		return false;
+
+	return gr->gl_version >= gl_version(3, 0);
+}
+
+static bool
+should_repaint_to_shadow(struct weston_output *output)
+{
+	struct gl_renderer *gr = get_renderer(output->compositor);
+	const struct weston_testsuite_quirks *quirks =
+		&output->compositor->test_data.test_quirks;
+
+	if (output->color_outcome->from_blend_to_output != NULL &&
+	    output->from_blend_to_output_by_backend == false)
+		return true;
+
+	if (quirks->gl_force_full_redraw_of_shadow_fb)
+		return true;
+
+	if (weston_output_has_renderer_capture_tasks(output) &&
+	    weston_output_has_capture_tasks_of_buffer_type(output,
+							   WESTON_BUFFER_DMABUF) &&
+	    !is_glBlitFramebuffer_supported(gr))
+		return true;
+
+	return false;
 }
 
 static bool
@@ -1305,6 +1345,86 @@ blit_rb_to_dmabuf(struct gl_renderbuffer *rb, EGLImageKHR image,
 }
 
 static void
+set_blend_state(struct gl_renderer *gr,
+		bool state)
+{
+	if (gr->blend_state == state)
+		return;
+
+	if (state)
+		glEnable(GL_BLEND);
+	else
+		glDisable(GL_BLEND);
+	gr->blend_state = state;
+}
+
+static bool
+blit_shadow_to_dmabuf(struct weston_output *output, EGLImageKHR image,
+		      bool invert_y)
+{
+	struct gl_output_state *go = get_output_state(output);
+	struct gl_renderer *gr = get_renderer(output->compositor);
+	GLuint fbo, rbo;
+	float y_flip = invert_y ? -1.0f : 1.0f;
+	struct gl_shader_config sconf = {
+		.req = {
+			.variant = SHADER_VARIANT_RGBA,
+			.input_is_premult = true,
+		},
+		.projection = {
+			.M = WESTON_MAT4F(
+				2.0,          0.0, 0.0,    -1.0,
+				0.0, y_flip * 2.0, 0.0, -y_flip,
+				0.0,          0.0, 1.0,     0.0,
+				0.0,          0.0, 0.0,     1.0
+			),
+			.type = WESTON_MATRIX_TRANSFORM_SCALE |
+				WESTON_MATRIX_TRANSFORM_TRANSLATE,
+		},
+		.view_alpha = 1.0f,
+		.input_tex = &go->shadow_tex,
+		.input_param = &go->shadow_param,
+		.input_num = 1,
+	};
+	static const GLfloat verts[4 * 2] = {
+		0.0f, 0.0f,
+		1.0f, 0.0f,
+		1.0f, 1.0f,
+		0.0f, 1.0f
+	};
+	double width = go->area.width;
+	double height = go->area.height;
+
+	if (!gl_fbo_image_init(gr, image, &fbo, &rbo))
+		return false;
+
+	glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+	glViewport(0, 0, width, height);
+
+	gl_renderer_use_program(gr, &sconf);
+	set_blend_state(gr, false);
+
+	glEnableVertexAttribArray(SHADER_ATTRIB_LOC_POSITION);
+	glEnableVertexAttribArray(SHADER_ATTRIB_LOC_TEXCOORD);
+
+	glVertexAttribPointer(SHADER_ATTRIB_LOC_POSITION, 2, GL_FLOAT,
+			      GL_FALSE, 0, verts);
+	glVertexAttribPointer(SHADER_ATTRIB_LOC_TEXCOORD, 2, GL_FLOAT,
+			      GL_FALSE, 0, verts);
+
+	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+
+	glDisableVertexAttribArray(SHADER_ATTRIB_LOC_TEXCOORD);
+	glDisableVertexAttribArray(SHADER_ATTRIB_LOC_POSITION);
+
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+	gl_fbo_fini(&fbo, &rbo);
+
+	return true;
+}
+
+static void
 gl_renderer_do_capture_tasks(struct gl_renderer *gr,
 			     struct weston_output *output,
 			     struct gl_renderbuffer *rb,
@@ -1374,15 +1494,17 @@ gl_renderer_do_capture_tasks(struct gl_renderer *gr,
 			 */
 			invert_y = is_y_flipped(go) ^ (buffer->buffer_origin == ORIGIN_BOTTOM_LEFT);
 
-			if (gr->gl_version < gl_version(3, 0)) {
-				weston_capture_task_retire_failed(ct, "GL: OpenGL ES < 3.0 does not support glBlitFramebuffer");
-				continue;
+			if (is_glBlitFramebuffer_supported(gr)) {
+				if (blit_rb_to_dmabuf(rb, image, &rect, invert_y))
+					weston_capture_task_retire_complete(ct);
+				else
+					weston_capture_task_retire_failed(ct, "GL: blit_rb_to_dmabuf() failed");
+			} else {
+				if (blit_shadow_to_dmabuf(output, image, invert_y))
+					weston_capture_task_retire_complete(ct);
+				else
+					weston_capture_task_retire_failed(ct, "GL: blit_shadow_to_dmabuf() failed");
 			}
-
-			if (blit_rb_to_dmabuf(rb, image, &rect, invert_y))
-				weston_capture_task_retire_complete(ct);
-			else
-				weston_capture_task_retire_failed(ct, "GL: failed to blit to dma-buf buffer");
 
 			gr->destroy_image(gr->egl_display, image);
 		} else if (buffer->type == WESTON_BUFFER_SHM) {
@@ -2139,20 +2261,6 @@ set_debug_mode(struct gl_renderer *gr,
 }
 
 static void
-set_blend_state(struct gl_renderer *gr,
-		bool state)
-{
-	if (gr->blend_state == state)
-		return;
-
-	if (state)
-		glEnable(GL_BLEND);
-	else
-		glDisable(GL_BLEND);
-	gr->blend_state = state;
-}
-
-static void
 draw_mesh(struct gl_renderer *gr,
 	  struct weston_paint_node *pnode,
 	  struct gl_shader_config *sconf,
@@ -2881,7 +2989,7 @@ gl_renderer_repaint_output(struct weston_output *output,
 			    go->y_flip * 2.0 / go->area.height, 1);
 
 	/* If using shadow, redirect all drawing to it first. */
-	if (shadow_exists(go)) {
+	if (should_repaint_to_shadow(output)) {
 		glBindFramebuffer(GL_FRAMEBUFFER, go->shadow_fb);
 		glViewport(0, 0, go->area.width, go->area.height);
 	} else {
@@ -2929,9 +3037,10 @@ gl_renderer_repaint_output(struct weston_output *output,
 		free(egl_rects);
 	}
 
-	if (shadow_exists(go)) {
+	if (should_repaint_to_shadow(output)) {
 		/* Repaint into shadow. */
-		if (compositor->test_data.test_quirks.gl_force_full_redraw_of_shadow_fb)
+		if (compositor->test_data.test_quirks.gl_force_full_redraw_of_shadow_fb ||
+		    weston_output_has_renderer_capture_tasks(output))
 			repaint_views(output, &output->region);
 		else
 			repaint_views(output, output_damage);
@@ -4549,6 +4658,7 @@ gl_renderer_output_create(struct weston_output *output,
 	struct gl_output_state *go;
 	struct gl_renderer *gr = get_renderer(output->compositor);
 	const struct weston_testsuite_quirks *quirks;
+	bool is_shadow_for_cm = false;
 	int i;
 
 	assert(!get_output_state(output));
@@ -4578,12 +4688,16 @@ gl_renderer_output_create(struct weston_output *output,
 	go->render_sync = EGL_NO_SYNC_KHR;
 
 	if ((output->color_outcome->from_blend_to_output != NULL &&
-	     output->from_blend_to_output_by_backend == false) ||
-	    quirks->gl_force_full_redraw_of_shadow_fb) {
+	     output->from_blend_to_output_by_backend == false)) {
 		assert(gl_features_has(gr, FEATURE_COLOR_TRANSFORMS));
-
+		is_shadow_for_cm = true;
 		go->shadow_format =
 			pixel_format_get_info(DRM_FORMAT_ABGR16161616F);
+	} else if (!is_glBlitFramebuffer_supported(gr) ||
+		   quirks->gl_force_full_redraw_of_shadow_fb) {
+		/* This is enough when the shadow is not for color-management. */
+		go->shadow_format =
+			pixel_format_get_info(DRM_FORMAT_ARGB8888);
 	}
 
 	wl_list_init(&go->renderbuffer_list);
@@ -4598,7 +4712,7 @@ gl_renderer_output_create(struct weston_output *output,
 		return -1;
 	}
 
-	if (shadow_exists(go)) {
+	if (shadow_exists(go) && is_shadow_for_cm) {
 		weston_log("Output %s uses 16F shadow.\n",
 			   output->name);
 	}
