@@ -251,7 +251,7 @@ ivi_layout_surface_destroy(struct ivi_layout_surface *ivisurf)
 		ivi_view_destroy(ivi_view);
 	}
 
-	wl_signal_emit(&layout->surface_notification.removed, ivisurf);
+	wl_signal_emit_mutable(&layout->surface_notification.removed, ivisurf);
 
 	ivi_layout_remove_all_surface_transitions(ivisurf);
 
@@ -882,14 +882,14 @@ commit_transition(struct ivi_layout* layout)
 static void
 send_surface_prop(struct ivi_layout_surface *ivisurf)
 {
-	wl_signal_emit(&ivisurf->property_changed, ivisurf);
+	wl_signal_emit_mutable(&ivisurf->property_changed, ivisurf);
 	ivisurf->pending.prop.event_mask = 0;
 }
 
 static void
 send_layer_prop(struct ivi_layout_layer *ivilayer)
 {
-	wl_signal_emit(&ivilayer->property_changed, ivilayer);
+	wl_signal_emit_mutable(&ivilayer->property_changed, ivilayer);
 	ivilayer->pending.prop.event_mask = 0;
 }
 
@@ -1269,7 +1269,7 @@ ivi_layout_layer_create_with_dimension(uint32_t id_layer,
 
 	wl_list_insert(&layout->layer_list, &ivilayer->link);
 
-	wl_signal_emit(&layout->layer_notification.created, ivilayer);
+	wl_signal_emit_mutable(&layout->layer_notification.created, ivilayer);
 
 	return ivilayer;
 }
@@ -1291,7 +1291,7 @@ ivi_layout_layer_destroy(struct ivi_layout_layer *ivilayer)
 			ivi_view_destroy(ivi_view);
 	}
 
-	wl_signal_emit(&layout->layer_notification.removed, ivilayer);
+	wl_signal_emit_mutable(&layout->layer_notification.removed, ivilayer);
 
 	wl_list_remove(&ivilayer->pending.link);
 	wl_list_remove(&ivilayer->order.link);
@@ -1784,8 +1784,8 @@ ivi_layout_surface_set_id(struct ivi_layout_surface *ivisurf,
 
 	ivisurf->id_surface = id_surface;
 
-	wl_signal_emit(&layout->surface_notification.configure_changed,
-		       ivisurf);
+	wl_signal_emit_mutable(&layout->surface_notification.configure_changed,
+			       ivisurf);
 
 	return IVI_SUCCEEDED;
 }
@@ -1923,7 +1923,7 @@ ivi_layout_desktop_surface_configure(struct ivi_layout_surface *ivisurf,
 	ivisurf->prop.event_mask |= IVI_NOTIFICATION_CONFIGURE;
 
 	/* emit callback which is set by ivi-layout api user */
-	wl_signal_emit(&layout->surface_notification.configure_desktop_changed,
+	wl_signal_emit_mutable(&layout->surface_notification.configure_desktop_changed,
 		       ivisurf);
 }
 
@@ -1946,7 +1946,7 @@ ivi_layout_desktop_surface_create(struct weston_surface *wl_surface,
 				  IVI_LAYOUT_SURFACE_TYPE_DESKTOP);
 
 	ivisurf->weston_desktop_surface = surface;
-	wl_signal_emit(&layout->surface_notification.created, ivisurf);
+	wl_signal_emit_mutable(&layout->surface_notification.created, ivisurf);
 
 	return ivisurf;
 }
@@ -2080,7 +2080,7 @@ ivi_layout_surface_configure(struct ivi_layout_surface *ivisurf,
 	ivisurf->prop.event_mask |= IVI_NOTIFICATION_CONFIGURE;
 
 	/* emit callback which is set by ivi-layout api user */
-	wl_signal_emit(&layout->surface_notification.configure_changed,
+	wl_signal_emit_mutable(&layout->surface_notification.configure_changed,
 		       ivisurf);
 }
 
@@ -2101,7 +2101,7 @@ ivi_layout_surface_create(struct weston_surface *wl_surface,
 				 IVI_LAYOUT_SURFACE_TYPE_IVI);
 
 	if (ivisurf)
-		wl_signal_emit(&layout->surface_notification.created, ivisurf);
+		wl_signal_emit_mutable(&layout->surface_notification.created, ivisurf);
 
 	return ivisurf;
 }

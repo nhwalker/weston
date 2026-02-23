@@ -208,6 +208,8 @@ kiosk_shell_grab_handle_shsurf_destroy(struct wl_listener *listener, void *data)
 		container_of(listener, struct kiosk_shell_grab,
 			     shsurf_destroy_listener);
 
+	wl_list_remove(&shgrab->shsurf_destroy_listener.link);
+
 	shgrab->shsurf = NULL;
 }
 
