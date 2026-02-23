@@ -4820,6 +4820,21 @@ surface_attach(struct wl_client *client,
 	surface->pending.status |= WESTON_SURFACE_DIRTY_BUFFER;
 }
 
+/* XXX Needs to correctly support clients pushing scaled buffers. */
+static void
+maybe_enlarge_damage(struct weston_surface *surface,
+		     int32_t *x, int32_t *y, int32_t *width, int32_t *height)
+{
+	/* Pixels on the border of the damage area of a scaled surface can spill
+	 * over the area because of bilinear filtering. */
+	if (surface->output && surface->output->current_scale > 1) {
+		*x -= surface->output->current_scale;
+		*y -= surface->output->current_scale;
+		*width += 2 * surface->output->current_scale;
+		*height += 2 * surface->output->current_scale;
+	}
+}
+
 static void
 surface_damage(struct wl_client *client,
 	       struct wl_resource *resource,
@@ -4830,6 +4845,7 @@ surface_damage(struct wl_client *client,
 	if (width <= 0 || height <= 0)
 		return;
 
+	maybe_enlarge_damage(surface, &x, &y, &width, &height);
 	pixman_region32_union_rect(&surface->pending.damage_surface,
 				   &surface->pending.damage_surface,
 				   x, y, width, height);
@@ -4845,6 +4861,7 @@ surface_damage_buffer(struct wl_client *client,
 	if (width <= 0 || height <= 0)
 		return;
 
+	maybe_enlarge_damage(surface, &x, &y, &width, &height);
 	pixman_region32_union_rect(&surface->pending.damage_buffer,
 				   &surface->pending.damage_buffer,
 				   x, y, width, height);
