@@ -1540,6 +1540,7 @@ gl_renderer_do_capture_tasks(struct gl_renderer *gr,
 			const struct pixel_format_info *info;
 			EGLImageKHR image;
 			bool invert_y;
+			bool ok;
 
 			if (dmabuf->attributes.n_planes > 1) {
 				weston_capture_task_retire_failed(ct, "GL: multi-planar formats not supported");
@@ -1565,19 +1566,22 @@ gl_renderer_do_capture_tasks(struct gl_renderer *gr,
 			 */
 			invert_y = is_y_flipped(go) ^ (buffer->buffer_origin == ORIGIN_BOTTOM_LEFT);
 
-			if (is_glBlitFramebuffer_supported(gr)) {
-				if (blit_rb_to_dmabuf(rb, image, &rect, invert_y))
-					weston_capture_task_retire_complete(ct);
-				else
-					weston_capture_task_retire_failed(ct, "GL: blit_rb_to_dmabuf() failed");
-			} else {
-				if (blit_shadow_to_dmabuf(output, image, invert_y))
-					weston_capture_task_retire_complete(ct);
-				else
-					weston_capture_task_retire_failed(ct, "GL: blit_shadow_to_dmabuf() failed");
-			}
+			if (is_glBlitFramebuffer_supported(gr))
+				ok = blit_rb_to_dmabuf(rb, image, &rect, invert_y);
+			else
+				ok = blit_shadow_to_dmabuf(output, image, invert_y);
 
 			gr->destroy_image(gr->egl_display, image);
+
+			if (!ok) {
+				weston_capture_task_retire_failed(ct, "GL: failed to blit to dma-buf");
+				continue;
+			}
+
+			if (!create_capture_task_fence(ct, gr, buffer->type,
+						       NULL /* shm state */)) {
+				weston_capture_task_retire_failed(ct, "GL: create_capture_task_fence() failed");
+			}
 		} else if (buffer->type == WESTON_BUFFER_SHM) {
 			if (buffer->buffer_origin != ORIGIN_TOP_LEFT) {
 				weston_capture_task_retire_failed(ct, "GL: unsupported buffer");
