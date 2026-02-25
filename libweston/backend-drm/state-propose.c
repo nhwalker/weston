@@ -749,6 +749,7 @@ drm_output_find_plane_for_view(struct drm_output_state *state,
 	if (mode == DRM_OUTPUT_PROPOSE_STATE_PLANES_ONLY) {
 		bool scanout_has_view_assigned;
 		bool view_matches_entire_output;
+		bool scanout_plane_possible;
 
 		scanout_has_view_assigned =
 			drm_output_check_plane_has_view_assigned(output->scanout_handle->plane,
@@ -759,6 +760,30 @@ drm_output_find_plane_for_view(struct drm_output_state *state,
 								 &output->base);
 
 		use_scanout_plane = !scanout_has_view_assigned && view_matches_entire_output;
+
+		scanout_plane_possible = possible_plane_mask & (1 << output->scanout_handle->plane->plane_idx);
+
+		if (use_scanout_plane && scanout_plane_possible) {
+			uint64_t zpos;
+			bool ok;
+
+			ok = check_plane(state, output->scanout_handle, pnode, mode,
+					 scanout_state, need_underlay,
+					 current_lowest_zpos_underlay,
+					 &current_lowest_zpos, &zpos);
+			if (!ok)
+				return NULL;
+
+			ps = drm_output_try_paint_node_on_plane(output->scanout_handle,
+								state, pnode, mode,
+								fb, zpos);
+		}
+
+		if (!ps)
+			pnode->try_view_on_plane_failure_reasons |=
+				FAILURE_REASONS_PLANES_REJECTED;
+		drm_fb_unref(fb);
+		return ps;
 	}
 
 	/* assemble a list with possible candidates */
@@ -784,11 +809,8 @@ drm_output_find_plane_for_view(struct drm_output_state *state,
 						  "Illegal use of cursor plane");
 			continue;
 		case WDRM_PLANE_TYPE_PRIMARY:
-			if (plane != output->scanout_handle->plane)
-				continue;
-			if (!use_scanout_plane)
-				continue;
-			break;
+			/* We've already tested the primary plane independently */
+			continue;
 		case WDRM_PLANE_TYPE_OVERLAY:
 			assert(mode != DRM_OUTPUT_PROPOSE_STATE_RENDERER_AND_CURSOR);
 			if (use_scanout_plane)
