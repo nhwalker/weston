@@ -738,8 +738,11 @@ drm_output_find_plane_for_view(struct drm_output_state *state,
 			drm_debug(b, "\t\t\t[view] couldn't get FB for view: %s\n", fr_str);
 			free(fr_str);
 			pnode->try_view_on_plane_failure_reasons |= fb_failure_reasons;
+			return NULL;
 		}
 	}
+
+	assert(fb);
 
 	/* if the view covers the whole output, put it in the scanout plane,
 	 * not overlay */
@@ -812,11 +815,9 @@ drm_output_find_plane_for_view(struct drm_output_state *state,
 
 		assert(plane->type != WDRM_PLANE_TYPE_CURSOR);
 
-		if (fb)
-			ps = drm_output_try_paint_node_on_plane(handle, state,
-								pnode, mode,
-								fb, zpos);
-
+		ps = drm_output_try_paint_node_on_plane(handle, state,
+							pnode, mode,
+							fb, zpos);
 		if (ps) {
 			/* Check if this ps is underlay plane, if so, the view
 			 * needs through hole on primary plane. */
