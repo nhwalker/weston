@@ -542,6 +542,94 @@ view_with_region_matches_output_entirely(struct weston_paint_node *pnode,
 	return res;
 }
 
+static bool
+check_plane(struct drm_output_state *output_state,
+	    struct drm_plane_handle *handle,
+	    struct weston_paint_node *pnode,
+	    enum drm_output_propose_state_mode mode,
+	    struct drm_plane_state *scanout_state,
+	    bool need_underlay,
+	    uint64_t current_lowest_zpos_underlay,
+	    uint64_t *current_lowest_zpos,
+	    uint64_t *zpos)
+{
+	const char *p_name = drm_output_get_handle_type_name(handle);
+	struct drm_output *output = output_state->output;
+	struct drm_plane *plane = handle->plane;
+	struct drm_backend *b = output->backend;
+	bool mm_underlay_only =
+		drm_mixed_mode_check_underlay(mode, scanout_state, plane->zpos_max);
+
+	if (!drm_plane_is_available(plane, output))
+		return false;
+
+	if (drm_output_check_plane_has_view_assigned(plane, output_state)) {
+		drm_debug(b, "\t\t\t\t[plane] not trying plane %d: "
+			     "another view already assigned\n",
+			     plane->plane_id);
+		return false;
+	}
+
+	/* if view has alpha check if this plane supports plane alpha */
+	if (pnode->view->alpha != 1.0f && plane->alpha_max == plane->alpha_min) {
+		drm_debug(b, "\t\t\t\t[plane] not trying plane %d:"
+			     "plane-alpha not supported\n",
+			     plane->plane_id);
+		return false;
+	}
+
+	/* Pre-judge whether the plane will be set as underlay plane. If so, start
+	 * trying to find underlay plane based on 'current_lowest_zpos_underlay'. */
+	if (!need_underlay) {
+		uint64_t tmp_next_lowest_zpos;
+		if (*current_lowest_zpos == DRM_PLANE_ZPOS_INVALID_PLANE)
+			tmp_next_lowest_zpos = plane->zpos_max;
+		else
+			tmp_next_lowest_zpos = *current_lowest_zpos - 1;
+		if (drm_mixed_mode_check_underlay(mode, scanout_state, tmp_next_lowest_zpos)) {
+			drm_debug(b, "\t\t\t\t[plane] could not use overlay planes, "
+			             "attempting to find underlay plane\n");
+			*current_lowest_zpos = current_lowest_zpos_underlay;
+		}
+	}
+
+	if (plane->zpos_min >= *current_lowest_zpos) {
+		drm_debug(b, "\t\t\t\t[plane] not trying plane %d: "
+			     "plane's minimum zpos (%"PRIu64") above "
+			     "current lowest zpos (%"PRIu64")\n",
+			     plane->plane_id, plane->zpos_min,
+			     *current_lowest_zpos);
+		return false;
+	}
+
+	/* If the surface buffer has an in-fence fd, but the plane doesn't
+	 * support fences, we can't place the buffer on this plane. */
+	if (pnode->surface->acquire_fence_fd >= 0 &&
+	    plane->props[WDRM_PLANE_IN_FENCE_FD].prop_id == 0) {
+		drm_debug(b, "\t\t\t\t[%s] not placing view %s on %s: "
+		          "no in-fence support\n",
+			  p_name, pnode->view->internal_name, p_name);
+		return false;
+	}
+
+	if (!output->has_underlay && mm_underlay_only) {
+		drm_debug(b, "\t\t\t\t[plane] not adding plane %d to "
+			     "candidate list: plane is below the primary "
+			     "plane and backend format (%s) is opaque, "
+			     "hole on primary plane will not work\n",
+			     plane->plane_id, b->format->drm_format_name);
+
+		return false;
+	}
+
+	if (*current_lowest_zpos == DRM_PLANE_ZPOS_INVALID_PLANE)
+		*zpos = plane->zpos_max;
+	else
+		*zpos = MIN(*current_lowest_zpos - 1, plane->zpos_max);
+
+	return true;
+}
+
 static struct drm_plane_state *
 drm_output_find_plane_for_view(struct drm_output_state *state,
 			       struct weston_paint_node *pnode,
@@ -701,72 +789,11 @@ drm_output_find_plane_for_view(struct drm_output_state *state,
 			assert(false && "unknown plane type");
 		}
 
-		if (!drm_plane_is_available(plane, output))
+		if (!check_plane(state, handle, pnode, mode,
+				 scanout_state, need_underlay,
+				 current_lowest_zpos_underlay,
+				 &current_lowest_zpos, &zpos))
 			continue;
-
-		if (drm_output_check_plane_has_view_assigned(plane, state)) {
-			drm_debug(b, "\t\t\t\t[plane] not trying plane %d: "
-				     "another view already assigned\n",
-				     plane->plane_id);
-			continue;
-		}
-
-		/* if view has alpha check if this plane supports plane alpha */
-		if (ev->alpha != 1.0f && plane->alpha_max == plane->alpha_min) {
-			drm_debug(b, "\t\t\t\t[plane] not trying plane %d:"
-				     "plane-alpha not supported\n",
-				     plane->plane_id);
-			continue;
-		}
-
-		/* Pre-judge whether the plane will be set as underlay plane. If so, start
-		 * trying to find underlay plane based on 'current_lowest_zpos_underlay'. */
-		if (!need_underlay) {
-			uint64_t tmp_next_lowest_zpos;
-			if (current_lowest_zpos == DRM_PLANE_ZPOS_INVALID_PLANE)
-				tmp_next_lowest_zpos = plane->zpos_max;
-			else
-				tmp_next_lowest_zpos = current_lowest_zpos - 1;
-			if (drm_mixed_mode_check_underlay(mode, scanout_state, tmp_next_lowest_zpos)) {
-				drm_debug(b, "\t\t\t\t[plane] could not use overlay planes, "
-				             "attempting to find underlay plane\n");
-				current_lowest_zpos = current_lowest_zpos_underlay;
-			}
-		}
-
-		if (plane->zpos_min >= current_lowest_zpos) {
-			drm_debug(b, "\t\t\t\t[plane] not trying plane %d: "
-				     "plane's minimum zpos (%"PRIu64") above "
-				     "current lowest zpos (%"PRIu64")\n",
-				     plane->plane_id, plane->zpos_min,
-				     current_lowest_zpos);
-			continue;
-		}
-
-		/* If the surface buffer has an in-fence fd, but the plane doesn't
-		 * support fences, we can't place the buffer on this plane. */
-		if (ev->surface->acquire_fence_fd >= 0 &&
-		    plane->props[WDRM_PLANE_IN_FENCE_FD].prop_id == 0) {
-			drm_debug(b, "\t\t\t\t[%s] not placing view %s on %s: "
-			          "no in-fence support\n",
-				  p_name, ev->internal_name, p_name);
-			continue;
-		}
-
-		if (!output->has_underlay && mm_underlay_only) {
-			drm_debug(b, "\t\t\t\t[plane] not adding plane %d to "
-				     "candidate list: plane is below the primary "
-				     "plane and backend format (%s) is opaque, "
-				     "hole on primary plane will not work\n",
-				     plane->plane_id, b->format->drm_format_name);
-
-			continue;
-		}
-
-		if (current_lowest_zpos == DRM_PLANE_ZPOS_INVALID_PLANE)
-			zpos = plane->zpos_max;
-		else
-			zpos = MIN(current_lowest_zpos - 1, plane->zpos_max);
 
 		any_candidate_picked = true;
 		drm_debug(b, "\t\t\t\t[plane] plane %d picked "
