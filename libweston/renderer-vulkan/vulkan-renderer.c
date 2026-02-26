@@ -271,7 +271,6 @@ struct dmabuf_allocator {
 struct vulkan_renderer_dmabuf_memory {
 	struct linux_dmabuf_memory base;
 	struct dmabuf_allocator *allocator;
-	struct gbm_bo *bo;
 };
 
 struct dmabuf_format {
@@ -745,7 +744,7 @@ vulkan_renderer_dmabuf_destroy(struct linux_dmabuf_memory *dmabuf)
 		close(attributes->fd[i]);
 	free(dmabuf->attributes);
 
-	gbm_bo_destroy(vulkan_renderer_dmabuf->bo);
+	gbm_bo_destroy(vulkan_renderer_dmabuf->base.bo);
 	free(vulkan_renderer_dmabuf);
 }
 
@@ -786,7 +785,7 @@ vulkan_renderer_dmabuf_alloc(struct weston_renderer *renderer,
 	}
 
 	vulkan_renderer_dmabuf = xzalloc(sizeof(*vulkan_renderer_dmabuf));
-	vulkan_renderer_dmabuf->bo = bo;
+	vulkan_renderer_dmabuf->base.bo = bo;
 	vulkan_renderer_dmabuf->allocator = allocator;
 
 	attributes = xzalloc(sizeof(*attributes));

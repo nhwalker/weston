@@ -70,8 +70,10 @@ typedef bool (*weston_renderbuffer_discarded_func)(weston_renderbuffer_t renderb
 struct weston_renderer_options {
 };
 
+struct gbm_bo;
 struct linux_dmabuf_memory {
 	struct dmabuf_attributes *attributes;
+	struct gbm_bo *bo;
 
 	void (*destroy)(struct linux_dmabuf_memory *dmabuf);
 };

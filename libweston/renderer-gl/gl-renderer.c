@@ -215,7 +215,6 @@ struct dmabuf_allocator {
 struct gl_renderer_dmabuf_memory {
 	struct linux_dmabuf_memory base;
 	struct dmabuf_allocator *allocator;
-	struct gbm_bo *bo;
 };
 
 struct dmabuf_format {
@@ -4582,7 +4581,7 @@ gl_renderer_dmabuf_destroy(struct linux_dmabuf_memory *dmabuf)
 		close(attributes->fd[i]);
 	free(dmabuf->attributes);
 
-	gbm_bo_destroy(gl_renderer_dmabuf->bo);
+	gbm_bo_destroy(gl_renderer_dmabuf->base.bo);
 	free(gl_renderer_dmabuf);
 }
 #endif
@@ -4625,7 +4624,7 @@ gl_renderer_dmabuf_alloc(struct weston_renderer *renderer,
 	}
 
 	gl_renderer_dmabuf = xzalloc(sizeof(*gl_renderer_dmabuf));
-	gl_renderer_dmabuf->bo = bo;
+	gl_renderer_dmabuf->base.bo = bo;
 	gl_renderer_dmabuf->allocator = allocator;
 
 	attributes = xzalloc(sizeof(*attributes));
