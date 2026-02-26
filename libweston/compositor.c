@@ -11237,6 +11237,19 @@ weston_backend_clear_deferred(struct weston_backend *backend,
 WL_EXPORT const char *
 weston_cached_str_get(struct weston_cached_string *s, void *data)
 {
+
+#ifdef DEBUG
+	char *tmp_cached = NULL;
+	bool cache_valid = false;
+
+	if (s->is_up_to_date) {
+		cache_valid = true;
+		str_printf(&tmp_cached, "%s", s->cached_str);
+	}
+
+	s->is_up_to_date = false;
+#endif
+
 	if (!s->is_up_to_date) {
 		char *str = NULL;
 		size_t size = 0;
@@ -11255,6 +11268,13 @@ weston_cached_str_get(struct weston_cached_string *s, void *data)
 		}
 		s->is_up_to_date = true;
 	}
+
+#ifdef DEBUG
+	if (cache_valid) {
+		weston_assert_str_eq(NULL, tmp_cached, s->cached_str);
+		free(tmp_cached);
+	}
+#endif
 
 	return s->cached_str;
 }
