@@ -218,10 +218,6 @@ enum weston_hdcp_protection {
  * \ingroup testharness
  */
 struct weston_testsuite_quirks {
-	/** Force GL/Vulkan-renderer to do a full upload of wl_shm buffers. */
-	bool force_full_upload;
-	/** Ensure GL shadow fb is used, and always repaint it fully. */
-	bool gl_force_full_redraw_of_shadow_fb;
 	/** Force GL-renderer to use the internal YUV->RGB shader */
 	bool gl_force_import_yuv_fallback;
 	/** Required enum weston_capability bit mask, otherwise skip run. */

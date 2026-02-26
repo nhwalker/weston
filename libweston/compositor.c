@@ -119,6 +119,9 @@ static bool
 weston_view_is_fully_blended(struct weston_view *ev,
 			     pixman_region32_t *region);
 
+static bool
+weston_view_is_fully_transparent(struct weston_view *ev);
+
 static void
 weston_view_dirty_paint_nodes(struct weston_view *view)
 {
@@ -210,61 +213,55 @@ paint_node_update_early(struct weston_paint_node *pnode)
 	bool view_dirty = pnode->status & WESTON_PAINT_NODE_VIEW_DIRTY;
 	bool output_dirty = pnode->status & WESTON_PAINT_NODE_OUTPUT_DIRTY;
 	bool buffer_dirty = pnode->status & WESTON_PAINT_NODE_BUFFER_DIRTY;
-	bool recording_censor, unprotected_censor;
-	bool was_solid = pnode->draw_solid;
-	struct weston_buffer *buffer;
+	struct weston_buffer *buffer = surface->buffer_ref.buffer;
+	bool params_dirty =
+		pnode->status & WESTON_PAINT_NODE_BUFFER_PARAMS_DIRTY;
 
 	if (view_dirty || output_dirty) {
 		weston_view_buffer_to_output_matrix(pnode->view,
 						    pnode->output, mat);
 		weston_matrix_invert(&pnode->output_to_buffer_matrix, mat);
 		pnode->needs_filtering = weston_matrix_needs_filtering(mat);
-
 		pnode->valid_transform = weston_matrix_to_transform(mat,
 								    &pnode->transform);
 	}
 
-	buffer = pnode->surface->buffer_ref.buffer;
-	pnode->draw_solid = false;
-	pnode->is_fully_transparent = false;
-	pnode->censored = false;
-	if (buffer->type == WESTON_BUFFER_SOLID) {
-		pnode->draw_solid = true;
-		pnode->is_fully_opaque = (pnode->view->alpha == 1.0f &&
-					  buffer->solid.a == 1.0f);
-		pnode->is_fully_blended = !pnode->is_fully_opaque;
-		pnode->solid = buffer->solid;
-		if (pnode->solid.a == 0.0f)
-			pnode->is_fully_transparent = true;
-	}
-
-	if (pnode->view->alpha == 0.0f)
-		pnode->is_fully_transparent = true;
-
-	/* Check for 2 types of censor requirements
-	 * - recording_censor: Censor protected view when a
-	 *   protected view is captured.
-	 * - unprotected_censor: Censor regions of protected views
-	 *   when displayed on an output which has lower protection capability.
-	 */
-	recording_censor = (output->disable_planes > 0) &&
-			   (surface->desired_protection > WESTON_HDCP_DISABLE);
-	unprotected_censor = (surface->desired_protection > output->current_protection);
-	if (surface->protection_mode ==
-	    WESTON_SURFACE_PROTECTION_MODE_ENFORCED &&
-	    (recording_censor || unprotected_censor)) {
-		pnode->draw_solid = true;
-		pnode->censored = true;
-		pnode->is_fully_opaque = (pnode->view->alpha == 1.0f);
-		pnode->is_fully_blended = !pnode->is_fully_opaque;
-		get_placeholder_color(pnode, &pnode->solid);
-	}
-
-	if (!pnode->draw_solid && (was_solid || view_dirty)) {
-		pnode->is_fully_opaque = weston_view_is_opaque(pnode->view,
-							       &pnode->view->transform.boundingbox);
-		pnode->is_fully_blended = weston_view_is_fully_blended(pnode->view,
-								       &pnode->view->transform.boundingbox);
+	if (view_dirty || params_dirty) {
+		if (surface->protection_mode ==
+		    WESTON_SURFACE_PROTECTION_MODE_ENFORCED &&
+		    surface->desired_protection > output->current_protection) {
+			pnode->draw_solid = true;
+			pnode->censored = true;
+			pnode->is_fully_opaque =
+				(pnode->view->alpha == 1.0f);
+			pnode->is_fully_blended = !pnode->is_fully_opaque;
+			pnode->is_fully_transparent =
+				(pnode->view->alpha == 0.0f);
+			get_placeholder_color(pnode, &pnode->solid);
+		} else if (buffer->type == WESTON_BUFFER_SOLID) {
+			pnode->draw_solid = true;
+			pnode->censored = false;
+			pnode->solid = buffer->solid;
+			pnode->is_fully_opaque =
+				weston_view_is_opaque(pnode->view,
+						      &pnode->view->transform.boundingbox);
+			pnode->is_fully_blended =
+				weston_view_is_fully_blended(pnode->view,
+							     &pnode->view->transform.boundingbox);
+			pnode->is_fully_transparent =
+				weston_view_is_fully_transparent(pnode->view);
+		} else {
+			pnode->draw_solid = false;
+			pnode->censored = false;
+			pnode->is_fully_opaque =
+				weston_view_is_opaque(pnode->view,
+						      &pnode->view->transform.boundingbox);
+			pnode->is_fully_blended =
+				weston_view_is_fully_blended(pnode->view,
+							     &pnode->view->transform.boundingbox);
+			pnode->is_fully_transparent =
+				weston_view_is_fully_transparent(pnode->view);
+		}
 	}
 
 	if (buffer_dirty)
@@ -1393,6 +1390,9 @@ weston_surface_compute_protection(struct protected_surface *psurface)
 	if (!min_protection_valid)
 		min_protection = WESTON_HDCP_DISABLE;
 
+	if (surface->current_protection == min_protection)
+		return;
+
 	surface->current_protection = min_protection;
 
 	weston_protected_surface_send_event(psurface, surface->current_protection);
@@ -2349,6 +2349,24 @@ weston_view_is_fully_blended(struct weston_view *ev, pixman_region32_t *region)
 	return !pixman_region32_not_empty(&ev->transform.opaque);
 }
 
+static bool
+weston_view_is_fully_transparent(struct weston_view *ev)
+{
+	struct weston_buffer *buffer = ev->surface->buffer_ref.buffer;
+
+	if (ev->alpha == 0.0)
+		return true;
+
+	/* Well, we're not going to draw anything. */
+	if (!buffer)
+		return true;
+
+	if (buffer->type == WESTON_BUFFER_SOLID && buffer->solid.a == 0.0)
+		return true;
+
+	return false;
+}
+
 /** Check if the view has a valid buffer available
  *
  * @param ev The view to check if it has a valid buffer.
@@ -3118,6 +3136,10 @@ weston_surface_attach_solid(struct weston_surface *surface,
 		surface->is_opaque = false;
 		pixman_region32_init(&surface->opaque);
 	}
+
+	surface->pending.status |=
+		WESTON_SURFACE_DIRTY_BUFFER | WESTON_SURFACE_DIRTY_BUFFER_PARAMS |
+		WESTON_SURFACE_DIRTY_SIZE;
 }
 
 WL_EXPORT void
@@ -3743,7 +3765,6 @@ weston_output_repaint(struct weston_output *output)
 	struct wl_list frame_callback_list;
 	int r;
 	uint32_t frame_time_msec;
-	enum weston_hdcp_protection highest_requested = WESTON_HDCP_DISABLE;
 
 	weston_output_latch(output);
 
@@ -3771,25 +3792,6 @@ weston_output_repaint(struct weston_output *output)
 		assert(pnode->output == output);
 	}
 
-	/* Find the highest protection desired for an output */
-	wl_list_for_each(pnode, &output->paint_node_z_order_list,
-			 z_order_link) {
-		/*
-		 * The desired_protection of the output should be the
-		 * maximum of the desired_protection of the surfaces,
-		 * that are displayed on that output, to avoid
-		 * reducing the protection for existing surfaces.
-		 */
-		if (pnode->surface->desired_protection > highest_requested)
-			highest_requested = pnode->surface->desired_protection;
-	}
-
-	/* If we're changing our protection characteristics, we need to go
-	 * through a full repaint. */
-	if (output->desired_protection != highest_requested)
-		output->full_repaint_needed = true;
-	output->desired_protection = highest_requested;
-
 	wl_list_for_each(pnode, &output->paint_node_z_order_list,
 			 z_order_link) {
 
@@ -3808,7 +3810,11 @@ weston_output_repaint(struct weston_output *output)
 		paint_node_update_early(pnode);
 	}
 
-	output_update_visibility(output);
+	if (output->paint_node_changes &
+	    (WESTON_PAINT_NODE_VIEW_DIRTY | WESTON_PAINT_NODE_OUTPUT_DIRTY |
+	     WESTON_PAINT_NODE_BUFFER_PARAMS_DIRTY)) {
+		output_update_visibility(output);
+	}
 
 	output_assign_planes(output);
 
@@ -6599,13 +6605,19 @@ weston_output_iterate_heads(struct weston_output *output,
 	return container_of(node, struct weston_head, output_link);
 }
 
-static void
+void
 weston_output_compute_protection(struct weston_output *output)
 {
 	struct weston_head *head;
 	enum weston_hdcp_protection op_protection;
 	bool op_protection_valid = false;
 	struct weston_compositor *wc = output->compositor;
+
+	if (output->disable_planes > 0 ||
+	    weston_output_has_any_capture_tasks(output)) {
+		op_protection = WESTON_HDCP_DISABLE;
+		op_protection_valid = true;
+	}
 
 	wl_list_for_each(head, &output->head_list, output_link) {
 		if (!op_protection_valid) {
@@ -6620,9 +6632,18 @@ weston_output_compute_protection(struct weston_output *output)
 		op_protection = WESTON_HDCP_DISABLE;
 
 	if (output->current_protection != op_protection) {
+		struct weston_paint_node *pnode;
+
 		output->current_protection = op_protection;
 		weston_output_damage(output);
 		weston_schedule_surface_protection_update(wc);
+
+		wl_list_for_each(pnode, &output->paint_node_list,
+				 output_link) {
+			if (pnode->view->surface->desired_protection >
+			    WESTON_HDCP_DISABLE)
+				pnode->status |= WESTON_PAINT_NODE_VIEW_DIRTY;
+		}
 	}
 }
 
@@ -10968,6 +10989,7 @@ WL_EXPORT void
 weston_output_disable_planes_incr(struct weston_output *output)
 {
 	output->disable_planes++;
+
 	/*
 	 * If disable_planes changes from 0 to non-zero, it means some type of
 	 * recording of content has started, and therefore protection level of
@@ -10976,12 +10998,16 @@ weston_output_disable_planes_incr(struct weston_output *output)
 	 */
 	if (output->disable_planes == 1)
 		weston_schedule_surface_protection_update(output->compositor);
+
+	weston_output_compute_protection(output);
+	weston_output_damage(output);
 }
 
 WL_EXPORT void
 weston_output_disable_planes_decr(struct weston_output *output)
 {
 	output->disable_planes--;
+
 	/*
 	 * If disable_planes changes from non-zero to 0, it means no content
 	 * recording is going on any more, and the protected and surfaces can be
@@ -10990,6 +11016,8 @@ weston_output_disable_planes_decr(struct weston_output *output)
 	if (output->disable_planes == 0)
 		weston_schedule_surface_protection_update(output->compositor);
 
+	weston_output_compute_protection(output);
+	weston_output_damage(output);
 }
 
 /** Tell the renderer that the target framebuffer size has changed

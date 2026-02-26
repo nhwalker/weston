@@ -2840,8 +2840,6 @@ vulkan_renderer_flush_damage(struct weston_paint_node *pnode)
 	struct vulkan_renderer *vr = get_renderer(ec);
 
 	struct weston_surface *surface = pnode->surface;
-	const struct weston_testsuite_quirks *quirks =
-		&surface->compositor->test_data.test_quirks;
 	struct weston_buffer *buffer = surface->buffer_ref.buffer;
 	struct vulkan_surface_state *vs = get_surface_state(surface);
 	struct vulkan_buffer_state *vb = vs->buffer;
@@ -2872,7 +2870,7 @@ vulkan_renderer_flush_damage(struct weston_paint_node *pnode)
 
 	data = wl_shm_buffer_get_data(buffer->shm_buffer);
 
-	if (vb->needs_full_upload || quirks->force_full_upload) {
+	if (vb->needs_full_upload) {
 		wl_shm_buffer_begin_access(buffer->shm_buffer);
 
 		for (int j = 0; j < vb->num_textures; j++) {

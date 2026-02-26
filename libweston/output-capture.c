@@ -394,6 +394,9 @@ weston_capture_task_destroy(struct weston_capture_task *ct)
 	ct->owner->pending = NULL;
 	wl_list_remove(&ct->link);
 	wl_list_remove(&ct->buffer_resource_destroy_listener.link);
+
+	weston_output_compute_protection(ct->owner->output);
+
 	free(ct);
 }
 
@@ -431,6 +434,8 @@ weston_capture_task_create(struct weston_capture_source *csrc,
 
 	if (ct->owner->pixel_source != WESTON_OUTPUT_CAPTURE_SOURCE_WRITEBACK)
 		weston_output_disable_planes_incr(ct->owner->output);
+
+	weston_output_compute_protection(ct->owner->output);
 
 	wl_signal_init(&ct->destroy_signal);
 
@@ -530,6 +535,15 @@ weston_output_pull_capture_task(struct weston_output *output,
 	}
 
 	return NULL;
+}
+
+/** Check if any capture tasks are waiting on the output */
+WL_EXPORT bool
+weston_output_has_any_capture_tasks(struct weston_output *output)
+{
+	struct weston_output_capture_info *ci = output->capture_info;
+
+	return ci && !wl_list_empty(&ci->pending_capture_list);
 }
 
 /** Check if any renderer-based capture tasks are waiting on the output */
@@ -645,7 +659,6 @@ weston_capture_source_v1_capture(struct wl_client *client,
 	}
 
 	csrc->pending = weston_capture_task_create(csrc, buffer);
-	weston_output_schedule_repaint(csrc->output);
 }
 
 static const struct weston_capture_source_v1_interface weston_capture_source_v1_impl = {

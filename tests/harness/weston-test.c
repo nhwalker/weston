@@ -90,7 +90,8 @@ struct weston_test_output {
 static void
 maybe_breakpoint(struct weston_test *test,
 		 enum weston_test_breakpoint breakpoint,
-		 void *resource)
+		 void *resource,
+		 void *data)
 {
 	struct wet_test_pending_breakpoint *bp, *tmp;
 	struct wet_testsuite_data *tsd = weston_compositor_get_test_data(test->compositor);
@@ -113,6 +114,7 @@ maybe_breakpoint(struct weston_test *test,
 		active_bp->compositor = test->compositor;
 		active_bp->resource = resource;
 		active_bp->template_ = bp;
+		active_bp->data = data;
 
 		/* Wake the client with the active breakpoint, and wait for it
 		 * to return control */
@@ -135,7 +137,7 @@ output_repaint_listener(struct wl_listener *listener, void *data)
 
 	wl_list_for_each(head, &to->output->head_list, output_link) {
 		maybe_breakpoint(to->test, WESTON_TEST_BREAKPOINT_POST_REPAINT,
-				 head);
+				 head, data);
 	}
 }
 
@@ -149,7 +151,7 @@ output_post_latch_listener(struct wl_listener *listener, void *data)
 
 	wl_list_for_each(head, &to->output->head_list, output_link) {
 		maybe_breakpoint(to->test, WESTON_TEST_BREAKPOINT_POST_LATCH,
-				 head);
+				 head, NULL);
 	}
 }
 

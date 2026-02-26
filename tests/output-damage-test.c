@@ -106,48 +106,7 @@ fixture_setup(struct weston_test_harness *harness, const struct setup_args *arg)
 	setup.shell = SHELL_TEST_DESKTOP;
 	setup.refresh = HIGHEST_OUTPUT_REFRESH;
 
-	/*
-	 * The test here works by swapping the whole wl_surface into a
-	 * different color but lying that there is only a small damage area.
-	 * Then the test checks that only the damage area gets the new color
-	 * on screen.
-	 *
-	 * The following quirk forces GL-renderer and Vulkan-renderer to update
-	 * the whole texture even for partial damage. Otherwise, they would
-	 * only copy the damaged area from the wl_shm buffer into a texture.
-	 *
-	 * Those output_damage tests where the surface is scaled up by the
-	 * compositor will use bilinear texture sampling due to the policy
-	 * in the renderers.
-	 *
-	 * Pixman renderer never makes copies of wl_shm buffers, so bilinear
-	 * sampling there will always produce the expected result. However,
-	 * with GL-renderer and Vulkan-renderer if the texture is not updated
-	 * beyond the strict damage region, bilinear sampling will result in a
-	 * blend of the old and new colors at the edges of the damage
-	 * rectangles. This blend would be detrimental to testing the damage
-	 * regions and would cause test failures due to reference image
-	 * mismatch. What we actually want to see is the crisp outline of the
-	 * damage rectangles.
-	 */
-	setup.test_quirks.force_full_upload = true;
-
 	if (arg->gl_shadow_fb) {
-		/*
-		 * A second case for GL-renderer: the shadow framebuffer
-		 *
-		 * This tests blit_shadow_to_output() specifically. The quirk
-		 * forces the shadow framebuffer to be redrawn completely, which
-		 * means the test surface will be completely filled with a new
-		 * color regardless of damage. The blit uses damage too, and
-		 * the damage pattern that is tested for needs to appear in
-		 * that step.
-		 *
-		 * The quirk also ensures the shadow framebuffer is created
-		 * even if not needed.
-		 */
-		setup.test_quirks.gl_force_full_redraw_of_shadow_fb = true;
-
 		/* To skip instead of fail the test if shadow not available */
 		setup.test_quirks.required_capabilities = WESTON_CAP_COLOR_OPS;
 	}
@@ -155,6 +114,38 @@ fixture_setup(struct weston_test_harness *harness, const struct setup_args *arg)
 	return weston_test_harness_execute_as_client(harness, &setup);
 }
 DECLARE_FIXTURE_SETUP_WITH_ARG(fixture_setup, my_setup_args, meta);
+
+static void
+verify_damage(struct client *client, struct wet_testsuite_data *suite_data,
+	      struct rectangle expected, int offset_x, int offset_y)
+{
+
+	RUN_INSIDE_BREAKPOINT(client, suite_data) {
+		struct weston_compositor *compositor = breakpoint->compositor;
+		struct weston_output *output = next_output(compositor, NULL);
+		pixman_region32_t *damage = breakpoint->data;
+		pixman_box32_t *extents = pixman_region32_extents(damage);
+		int x1 = MAX(expected.x + offset_x, 0);
+		int y1 = MAX(expected.y + offset_y, 0);
+		int x2 = MIN(x1 + expected.width, output->width);
+		int y2 = MIN(y1 + expected.height, output->height);
+
+		testlog("have (%d, %d) -> (%d, %d); wanted to see (%d, %d) -> (%d, %d)\n",
+			extents->x1, extents->y1, extents->x2, extents->y2,
+			expected.x + offset_x, expected.y + offset_y,
+			expected.x + offset_x + expected.width,
+			expected.y + offset_y + expected.height);
+
+		test_assert_enum(breakpoint->template_->breakpoint,
+				 WESTON_TEST_BREAKPOINT_POST_REPAINT);
+		assert_output_matches(suite_data, output, client->output);
+		test_assert_int_eq(pixman_region32_n_rects(damage), 1);
+		test_assert_int_eq(extents->x1, x1);
+		test_assert_int_eq(extents->y1, y1);
+		test_assert_int_eq(extents->x2, x2);
+		test_assert_int_eq(extents->y2, y2);
+	}
+}
 
 static void
 commit_buffer_with_damage(struct surface *surface,
@@ -177,6 +168,7 @@ commit_buffer_with_damage(struct surface *surface,
 TEST(output_damage)
 {
 #define COUNT_BUFS 3
+	struct wet_testsuite_data *suite_data = TEST_GET_SUITE_DATA();
 	const struct setup_args *oargs;
 	struct client *client;
 	bool match = true;
@@ -221,11 +213,11 @@ TEST(output_damage)
 	 * should color just the box on the output.
 	 */
 	for (i = 1; i < COUNT_BUFS; i++) {
+		client_push_breakpoint(client, suite_data,
+				       WESTON_TEST_BREAKPOINT_POST_REPAINT,
+				       (struct wl_proxy *) client->output->wl_output);
 		commit_buffer_with_damage(client->surface, buf[i], damages[i]);
-		if (!verify_screen_content(client, refname, i, NULL, i, NULL,
-					   NO_DECORATIONS)) {
-			match = false;
-		}
+		verify_damage(client, suite_data, damages[i], 19, 19);
 	}
 
 	test_assert_true(match);
