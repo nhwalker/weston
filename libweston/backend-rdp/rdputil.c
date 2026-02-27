@@ -46,34 +46,22 @@ static int cached_tm_mday = -1;
 void rdp_debug_print(struct weston_log_scope *log_scope, bool cont, char *fmt, ...)
 {
 	char timestr[128];
-	int len_va;
-	char *str;
+	va_list ap;
+	FILE *fp;
 
-	if (!log_scope || !weston_log_scope_is_enabled(log_scope))
+	fp = weston_log_scope_print_begin(log_scope);
+	if (!fp)
 		return;
 
-	va_list ap;
+	if (!cont)
+		fprintf(fp, "%s ", weston_log_timestamp(timestr,
+							sizeof(timestr),
+							&cached_tm_mday));
 	va_start(ap, fmt);
-
-	if (cont) {
-		weston_log_scope_vprintf(log_scope, fmt, ap);
-		goto end;
-	}
-
-	weston_log_timestamp(timestr, sizeof(timestr), &cached_tm_mday);
-	len_va = vasprintf(&str, fmt, ap);
-	if (len_va >= 0) {
-		weston_log_scope_printf(log_scope, "%s %s",
-					timestr, str);
-		free(str);
-	} else {
-		const char *oom = "Out of memory";
-
-		weston_log_scope_printf(log_scope, "%s %s",
-					timestr, oom);
-	}
-end:
+	vfprintf(fp, fmt, ap);
 	va_end(ap);
+
+	weston_log_scope_print_end(log_scope);
 }
 
 void

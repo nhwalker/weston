@@ -49,25 +49,25 @@ round_segment_break_value(float value)
 }
 
 static void
-segment_print(const cmsCurveSegment *seg, struct weston_log_scope *scope)
+segment_print(const cmsCurveSegment *seg, FILE *fp)
 {
 	float g, a, b, c, d, e, f;
 	float x0 = round_segment_break_value(seg->x0);
 	float x1 = round_segment_break_value(seg->x1);
 
-	weston_log_scope_printf(scope, "%*s(%.4f, %.4f] ", 12, "", x0, x1);
+	fprintf(fp, "%*s(%.4f, %.4f] ", 12, "", x0, x1);
 
 	if (seg->Type == 0) {
 		/* Not much to print as this is a sampled curve. We have only
 		 * the samples in such case, but that would flood the debug
 		 * scope and wouldn't be very useful. */
-		weston_log_scope_printf(scope, "sampled curve with %u samples\n",
-					seg->nGridPoints);
+		fprintf(fp, "sampled curve with %u samples\n",
+			seg->nGridPoints);
 		return;
 	}
 
-	weston_log_scope_printf(scope, "parametric type %d%s", seg->Type,
-				(seg->Type > 0) ? "\n" : ", inverse of\n");
+	fprintf(fp, "parametric type %d%s", seg->Type,
+		(seg->Type > 0) ? "\n" : ", inverse of\n");
 
 	/* These types are the built-in ones supported by LCMS. Some of them are
 	 * defined by the ICC spec, but LCMS also accepts creating custom
@@ -82,7 +82,7 @@ segment_print(const cmsCurveSegment *seg, struct weston_log_scope *scope)
 		 * y = x ^ g
 		 */
 		g = seg->Params[0];
-		weston_log_scope_printf(scope, "%*sy = x ^ %.2f\n", 15, "", g);
+		fprintf(fp, "%*sy = x ^ %.2f\n", 15, "", g);
 		break;
 	case 2:
 	case -2:
@@ -94,10 +94,9 @@ segment_print(const cmsCurveSegment *seg, struct weston_log_scope *scope)
 		g = seg->Params[0];
 		a = seg->Params[1];
 		b = seg->Params[2];
-		weston_log_scope_printf(scope, "%*sy = (%.2f * x + %.2f) ^ %.2f, for x >= %.2f\n",
-					15, "", a, b, g, -b/a);
-		weston_log_scope_printf(scope, "%*sy = 0, for x < %.2f\n",
-					15, "", -b/a);
+		fprintf(fp, "%*sy = (%.2f * x + %.2f) ^ %.2f, for x >= %.2f\n",
+			15, "", a, b, g, -b/a);
+		fprintf(fp, "%*sy = 0, for x < %.2f\n", 15, "", -b/a);
 		break;
 	case 3:
 	case -3:
@@ -110,10 +109,9 @@ segment_print(const cmsCurveSegment *seg, struct weston_log_scope *scope)
 		a = seg->Params[1];
 		b = seg->Params[2];
 		c = seg->Params[3];
-		weston_log_scope_printf(scope, "%*sy = (%.2f * x + %.2f) ^ %.2f + %.2f, for x <= %.2f\n",
-					15, "", a, b, g, c, -b/a);
-		weston_log_scope_printf(scope, "%*sy = %.2f, for x > %.2f\n",
-					15, "", c, -b/a);
+		fprintf(fp, "%*sy = (%.2f * x + %.2f) ^ %.2f + %.2f, for x <= %.2f\n",
+			15, "", a, b, g, c, -b/a);
+		fprintf(fp, "%*sy = %.2f, for x > %.2f\n", 15, "", c, -b/a);
 		break;
 	case 4:
 	case -4:
@@ -127,10 +125,9 @@ segment_print(const cmsCurveSegment *seg, struct weston_log_scope *scope)
 		b = seg->Params[2];
 		c = seg->Params[3];
 		d = seg->Params[4];
-		weston_log_scope_printf(scope, "%*sy = (%.2f * x + %.2f) ^ %.2f, for x >= %.2f\n",
-					15, "", a, b, g, d);
-		weston_log_scope_printf(scope, "%*sy = %.2f * x, for x < %.2f\n",
-					15, "", c, d);
+		fprintf(fp, "%*sy = (%.2f * x + %.2f) ^ %.2f, for x >= %.2f\n",
+			15, "", a, b, g, d);
+		fprintf(fp, "%*sy = %.2f * x, for x < %.2f\n", 15, "", c, d);
 		break;
 	case 5:
 	case -5:
@@ -146,10 +143,10 @@ segment_print(const cmsCurveSegment *seg, struct weston_log_scope *scope)
 		d = seg->Params[4];
 		e = seg->Params[5];
 		f = seg->Params[6];
-		weston_log_scope_printf(scope, "%*sy = (%.2f * x + %.2f) ^ %.2f + %.2f, for x >= %.2f\n",
-					15, "", a, b, g, e, d);
-		weston_log_scope_printf(scope, "%*sy = %.2f * x + %.2f, for x < %.2f\n",
-					15, "", c, f, d);
+		fprintf(fp, "%*sy = (%.2f * x + %.2f) ^ %.2f + %.2f, for x >= %.2f\n",
+			15, "", a, b, g, e, d);
+		fprintf(fp, "%*sy = %.2f * x + %.2f, for x < %.2f\n",
+			15, "", c, f, d);
 		break;
 	case 6:
 	case -6:
@@ -164,13 +161,13 @@ segment_print(const cmsCurveSegment *seg, struct weston_log_scope *scope)
 
 		if (a == 0) {
 			/* Special case in which we have a constant value */
-			weston_log_scope_printf(scope, "%*sconstant %.2f\n",
-						15, "", pow(b, g) + c);
+			fprintf(fp, "%*sconstant %.2f\n",
+				15, "", pow(b, g) + c);
 			break;
 		}
 
-		weston_log_scope_printf(scope, "%*sy = (%.2f * x + %.2f) ^ %.2f + %.2f\n",
-					15, "", a, b, g, c);
+		fprintf(fp, "%*sy = (%.2f * x + %.2f) ^ %.2f + %.2f\n",
+			15, "", a, b, g, c);
 		break;
 	case 7:
 	case -7:
@@ -183,8 +180,8 @@ segment_print(const cmsCurveSegment *seg, struct weston_log_scope *scope)
 		b = seg->Params[2];
 		c = seg->Params[3];
 		d = seg->Params[4];
-		weston_log_scope_printf(scope, "%*sy = %.2f * log (%.2f * x ^ %.2f + %.2f) + %.2f\n",
-					15, "", a, b, g, c, d);
+		fprintf(fp, "%*sy = %.2f * log (%.2f * x ^ %.2f + %.2f) + %.2f\n",
+			15, "", a, b, g, c, d);
 		break;
 	case 8:
 	case -8:
@@ -197,8 +194,8 @@ segment_print(const cmsCurveSegment *seg, struct weston_log_scope *scope)
 		c = seg->Params[2];
 		d = seg->Params[3];
 		e = seg->Params[4];
-		weston_log_scope_printf(scope, "%*sy = %.2f * %.2f ^ (%.2f * x + %.2f) + %.2f\n",
-					15, "", a, b, c, d, e);
+		fprintf(fp, "%*sy = %.2f * %.2f ^ (%.2f * x + %.2f) + %.2f\n",
+			15, "", a, b, c, d, e);
 		break;
 	case 108:
 	case -108:
@@ -207,18 +204,17 @@ segment_print(const cmsCurveSegment *seg, struct weston_log_scope *scope)
 		 * y = (1 - (1 - x) ^ 1 / g) ^ 1 / g
 		 */
 		g = seg->Params[0];
-		weston_log_scope_printf(scope, "%*sy = (1 - (1 - x) ^ 1 / %.2f) ^ 1 / %.2f\n",
-					15, "", g, g);
+		fprintf(fp, "%*sy = (1 - (1 - x) ^ 1 / %.2f) ^ 1 / %.2f\n",
+			15, "", g, g);
 		break;
 	default:
-		weston_log_scope_printf(scope, "%*sunknown curve type\n",
-					15, "");
+		fprintf(fp, "%*sunknown curve type\n", 15, "");
 		break;
 	}
 }
 
 static void
-curve_print(const cmsToneCurve *curve, struct weston_log_scope *scope)
+curve_print(const cmsToneCurve *curve, FILE *fp)
 {
 	const cmsCurveSegment *seg;
 	cmsUInt32Number n_entries;
@@ -230,9 +226,9 @@ curve_print(const cmsToneCurve *curve, struct weston_log_scope *scope)
 			break;
 
 		if (i == 0)
-			weston_log_scope_printf(scope, "%*sSegments\n", 9, "");
+			fprintf(fp, "%*sSegments\n", 9, "");
 
-		segment_print(seg, scope);
+		segment_print(seg, fp);
 	}
 	if (i > 0)
 		return;
@@ -242,14 +238,14 @@ curve_print(const cmsToneCurve *curve, struct weston_log_scope *scope)
 	/* We have a curve with 0 segments and 0 entries... we are not expecting
 	 * seeing this case. */
 	if (n_entries <= 0) {
-		weston_log_scope_printf(scope, "%*sNo segments\n", 12, "");
+		fprintf(fp, "%*sNo segments\n", 12, "");
 		return;
 	}
 
 	/* We have a curve with 0 segments but n_entries > 0. That's a 16-bit
 	 * sampled curve. */
-	weston_log_scope_printf(scope, "%*sNo segments, 16-bit sampled curve " \
-				       "with %u samples\n", 12, "", n_entries);
+	fprintf(fp, "%*sNo segments, 16-bit sampled curve with %u samples\n",
+		12, "", n_entries);
 }
 
 static bool
@@ -535,7 +531,7 @@ join_powerlaw_curvesets(cmsContext context_id,
 }
 
 void
-curveset_print(cmsStage *stage, struct weston_log_scope *scope)
+curveset_print(cmsStage *stage, FILE *fp)
 {
 	const _cmsStageToneCurvesData *data;
 	uint32_t already_printed = 0;
@@ -545,7 +541,7 @@ curveset_print(cmsStage *stage, struct weston_log_scope *scope)
 	data = cmsStageData(stage);
 
 	if (data->nCurves == 0) {
-		weston_log_scope_printf(scope, "%*sNo curves in the set\n", 6, "");
+		fprintf(fp, "%*sNo curves in the set\n", 6, "");
 		return;
 	}
 
@@ -555,7 +551,7 @@ curveset_print(cmsStage *stage, struct weston_log_scope *scope)
 		if (((already_printed >> i) & 1) == 1)
 			continue;
 
-		weston_log_scope_printf(scope, "%*sCurve(s) %u", 6, "", i);
+		fprintf(fp, "%*sCurve(s) %u", 6, "", i);
 		already_printed |= (1 << i);
 
 		for (j = i + 1; j < data->nCurves; j++) {
@@ -564,12 +560,12 @@ curveset_print(cmsStage *stage, struct weston_log_scope *scope)
 			if (!are_curves_equal(data->TheCurves[i], data->TheCurves[j]))
 				continue;
 
-			weston_log_scope_printf(scope, ", %u", j);
+			fprintf(fp, ", %u", j);
 			already_printed |= (1 << j);
 		}
 
-		weston_log_scope_printf(scope, "\n");
-		curve_print(data->TheCurves[i], scope);
+		fprintf(fp, "\n");
+		curve_print(data->TheCurves[i], fp);
 	}
 }
 

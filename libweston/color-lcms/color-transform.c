@@ -1079,7 +1079,7 @@ cmlcms_stage_type_to_str(cmsStage *stage)
 }
 
 static void
-matrix_print(cmsStage *stage, struct weston_log_scope *scope)
+matrix_print(cmsStage *stage, FILE *fp)
 {
 	const _cmsStageMatrixData *data;
 	const unsigned int SIZE = 3;
@@ -1091,34 +1091,30 @@ matrix_print(cmsStage *stage, struct weston_log_scope *scope)
 	data = cmsStageData(stage);
 
 	for (row = 0; row < SIZE; row++) {
-		weston_log_scope_printf(scope, "      ");
+		fprintf(fp, "      ");
 
 		for (col = 0, sep = ""; col < SIZE; col++) {
 			elem = data->Double[row * SIZE + col];
-			weston_log_scope_printf(scope, "%s% .4f", sep, elem);
+			fprintf(fp, "%s% .4f", sep, elem);
 			sep = " ";
 		}
 
 		/* We print offset after the last column of the matrix. */
 		if (data->Offset)
-			weston_log_scope_printf(scope, " % .4f", data->Offset[row]);
+			fprintf(fp, " % .4f", data->Offset[row]);
 
-		weston_log_scope_printf(scope, "\n");
+		fprintf(fp, "\n");
 	}
 }
 
 static void
-pipeline_print(cmsPipeline **lut, cmsContext context_id,
-	       struct weston_log_scope *scope)
+pipeline_print(cmsPipeline **lut, cmsContext context_id, FILE *fp)
 {
 	cmsStage *stage = cmsPipelineGetPtrToFirstStage(*lut);
 	const char *type_str;
 
-	if (!weston_log_scope_is_enabled(scope))
-		return;
-
 	if (!stage) {
-		weston_log_scope_printf(scope, "    no elements\n");
+		fprintf(fp, "    no elements\n");
 		return;
 	}
 
@@ -1126,17 +1122,17 @@ pipeline_print(cmsPipeline **lut, cmsContext context_id,
 		type_str = cmlcms_stage_type_to_str(stage);
 		/* Unknown type, just print the hex */
 		if (!type_str)
-			weston_log_scope_printf(scope, "    unknown type 0x%x\n",
-						cmsStageType(stage));
+			fprintf(fp, "    unknown type 0x%x\n",
+				cmsStageType(stage));
 		else
-			weston_log_scope_printf(scope, "    %s\n", type_str);
+			fprintf(fp, "    %s\n", type_str);
 
 		switch(cmsStageType(stage)) {
 		case cmsSigMatrixElemType:
-			matrix_print(stage, scope);
+			matrix_print(stage, fp);
 			break;
 		case cmsSigCurveSetElemType:
-			curveset_print(stage, scope);
+			curveset_print(stage, fp);
 			break;
 		default:
 			break;
@@ -1198,6 +1194,7 @@ transform_factory(_cmsTransform2Fn *xform_fn,
 	struct weston_color_manager_lcms *cm;
 	struct cmlcms_color_transform *xform;
 	cmsContext context_id;
+	FILE *fp;
 
 	if (T_CHANNELS(*input_format) != 3) {
 		weston_log("color-lcms debug: input format is not 3-channel.");
@@ -1222,18 +1219,26 @@ transform_factory(_cmsTransform2Fn *xform_fn,
 
 	cm = to_cmlcms(xform->base.cm);
 
+	fp = weston_log_scope_print_begin(cm->optimizer_scope);
+
 	/* Print pipeline before optimization */
-	weston_log_scope_printf(cm->optimizer_scope,
-				"  ICC-to-ICC transform pipeline before optimization:\n");
-	pipeline_print(lut, context_id, cm->optimizer_scope);
+	if (fp) {
+		fprintf(fp, "  ICC-to-ICC transform pipeline before "
+			"optimization:\n");
+		pipeline_print(lut, context_id, fp);
+	}
 
 	/* Optimize pipeline */
 	optimize_float_pipeline(lut, context_id, xform);
 
 	/* Print pipeline after optimization */
-	weston_log_scope_printf(cm->optimizer_scope,
-				"  ICC-to-ICC transform pipeline after optimization:\n");
-	pipeline_print(lut, context_id, cm->optimizer_scope);
+	if (fp) {
+		fprintf(fp, "  ICC-to-ICC transform pipeline after "
+			"optimization:\n");
+		pipeline_print(lut, context_id, fp);
+	}
+
+	weston_log_scope_print_end(cm->optimizer_scope);
 
 	return FALSE;
 }

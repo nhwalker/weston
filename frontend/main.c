@@ -175,11 +175,16 @@ static void
 custom_handler(const char *fmt, va_list arg)
 {
 	char timestr[512];
+	FILE *fp;
 
-	weston_log_scope_printf(log_scope, "%s libwayland: ",
-				weston_log_timestamp(timestr,
-				sizeof(timestr), &cached_tm_mday));
-	weston_log_scope_vprintf(log_scope, fmt, arg);
+	fp = weston_log_scope_print_begin(log_scope);
+
+	fprintf(fp, "%s libwayland: ",
+		weston_log_timestamp(timestr, sizeof(timestr),
+				     &cached_tm_mday));
+	vfprintf(fp, fmt, arg);
+
+	weston_log_scope_print_end(log_scope);
 }
 
 static bool
@@ -216,26 +221,19 @@ weston_log_file_close(void)
 static int
 vlog(const char *fmt, va_list ap)
 {
-	const char *oom = "Out of memory";
 	char timestr[128];
-	int len = 0;
-	char *str;
+	FILE *fp;
+	int len;
 
-	if (weston_log_scope_is_enabled(log_scope)) {
-		int len_va;
-		char *log_timestamp = weston_log_timestamp(timestr,
-							   sizeof(timestr),
-							   &cached_tm_mday);
-		len_va = vasprintf(&str, fmt, ap);
-		if (len_va >= 0) {
-			len = weston_log_scope_printf(log_scope, "%s %s",
-						      log_timestamp, str);
-			free(str);
-		} else {
-			len = weston_log_scope_printf(log_scope, "%s %s",
-						      log_timestamp, oom);
-		}
-	}
+	fp = weston_log_scope_print_begin(log_scope);
+	if (!fp)
+		return 0;
+
+	len = fprintf(fp, "%s ", weston_log_timestamp(timestr, sizeof(timestr),
+						      &cached_tm_mday));
+	len += vfprintf(fp, fmt, ap);
+
+	weston_log_scope_print_end(log_scope);
 
 	return len;
 }
@@ -273,8 +271,6 @@ protocol_log_fn(void *user_data,
 		const struct wl_protocol_logger_message *message)
 {
 	FILE *fp;
-	char *logstr;
-	size_t logsize;
 	char timestr[128];
 	struct wl_resource *res = message->resource;
 	struct wl_client *client = wl_resource_get_client(res);
@@ -283,10 +279,7 @@ protocol_log_fn(void *user_data,
 	int i;
 	char type;
 
-	if (!weston_log_scope_is_enabled(protocol_scope))
-		return;
-
-	fp = open_memstream(&logstr, &logsize);
+	fp = weston_log_scope_print_begin(protocol_scope);
 	if (!fp)
 		return;
 
@@ -354,10 +347,7 @@ protocol_log_fn(void *user_data,
 
 	fprintf(fp, ")\n");
 
-	if (fclose(fp) == 0)
-		weston_log_scope_write(protocol_scope, logstr, logsize);
-
-	free(logstr);
+	weston_log_scope_print_end(protocol_scope);
 }
 
 static struct wet_compositor *
