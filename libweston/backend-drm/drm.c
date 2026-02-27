@@ -565,6 +565,12 @@ drm_output_render(struct drm_output_state *state)
 	pixman_box32_t *rects;
 	int n_rects;
 
+	/* If we have a planes only state with no primary at all, then we don't
+	 * want to render.
+	 */
+	if (state->disabled_primary)
+		return;
+
 	/* If we already have a client buffer promoted to scanout, then we don't
 	 * want to render. */
 	scanout_state = drm_output_state_get_plane(state, scanout_plane);
@@ -957,6 +963,9 @@ drm_output_repaint(struct weston_output *output_base)
 
 	if (device->atomic_modeset)
 		drm_output_pick_writeback_capture_task(output);
+
+	if (state->disabled_primary)
+		return 0;
 
 	drm_output_render(state);
 	scanout_state = drm_output_state_get_plane(state,

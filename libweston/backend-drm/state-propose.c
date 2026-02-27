@@ -746,7 +746,8 @@ drm_output_find_plane_for_view(struct drm_output_state *state,
 
 	/* if the view covers the whole output, put it in the scanout plane,
 	 * not overlay */
-	if (mode == DRM_OUTPUT_PROPOSE_STATE_PLANES_ONLY) {
+	if (mode == DRM_OUTPUT_PROPOSE_STATE_PLANES_ONLY &&
+	    !state->disabled_primary) {
 		bool scanout_has_view_assigned;
 		bool view_matches_entire_output;
 		bool scanout_plane_possible;
@@ -777,13 +778,15 @@ drm_output_find_plane_for_view(struct drm_output_state *state,
 			ps = drm_output_try_paint_node_on_plane(output->scanout_handle,
 								state, pnode, mode,
 								fb, zpos);
-		}
+			if (ps) {
+				drm_fb_unref(fb);
+				return ps;
+			}
 
-		if (!ps)
-			pnode->try_view_on_plane_failure_reasons |=
-				FAILURE_REASONS_PLANES_REJECTED;
-		drm_fb_unref(fb);
-		return ps;
+			/* Maybe we can still build planes only with just a scanout
+			 * plane and no primary at all.
+			 */
+		}
 	}
 
 	/* assemble a list with possible candidates */
@@ -813,8 +816,6 @@ drm_output_find_plane_for_view(struct drm_output_state *state,
 			continue;
 		case WDRM_PLANE_TYPE_OVERLAY:
 			assert(mode != DRM_OUTPUT_PROPOSE_STATE_RENDERER_AND_CURSOR);
-			if (use_scanout_plane)
-				continue;
 			/* for alpha views, avoid placing them on the HW planes that
 			 * are below the primary plane. */
 			if (mm_underlay_only && !pnode->is_fully_opaque)
@@ -864,6 +865,9 @@ drm_output_find_plane_for_view(struct drm_output_state *state,
 	if (!any_candidate_picked)
 		pnode->try_view_on_plane_failure_reasons |=
 			FAILURE_REASONS_NO_PLANES_AVAILABLE;
+
+	if (ps && use_scanout_plane)
+		state->disabled_primary = true;
 
 	/* if we have a plane state, it has its own ref to the fb; if not then
 	 * we drop ours here */

@@ -409,6 +409,9 @@ drm_output_state_duplicate(struct drm_output_state *src,
 	 * state. */
 	*dst = *src;
 
+	if (plane_mode == DRM_OUTPUT_STATE_CLEAR_PLANES)
+		dst->disabled_primary = false;
+
 	dst->pending_state = pending_state;
 	if (pending_state)
 		wl_list_insert(&pending_state->output_list, &dst->link);
