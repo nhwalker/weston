@@ -183,6 +183,7 @@ struct drm_device {
 		int id;
 		int fd;
 		char *filename;
+		char *syspath;
 		dev_t devnum;
 	} drm;
 

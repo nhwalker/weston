@@ -39,6 +39,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <xf86drmMode.h>
+#include <libudev.h>
 
 #include "libbacklight.h"
 
@@ -111,12 +112,17 @@ set_backlight(struct udev_device *drm_device, int connector_id, int blight)
 	long max_brightness, brightness, actual_brightness;
 	struct backlight *backlight;
 	long new_blight;
+	const char *syspath;
 
 	connector_type = get_drm_connector_type(drm_device, connector_id);
 	if (connector_type < 0)
 		return;
 
-	backlight = backlight_init(drm_device, connector_type);
+	syspath = udev_device_get_syspath(drm_device);
+	if (!syspath)
+		return;
+
+	backlight = backlight_init(syspath, connector_type);
 	if (!backlight) {
 		printf("backlight adjust failed\n");
 		return;

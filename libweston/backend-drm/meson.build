@@ -7,7 +7,6 @@ lib_backlight = static_library(
 	'libbacklight.c',
 	dependencies: [
 		dep_libdrm_headers,
-		dependency('libudev')
 	],
 	include_directories: common_inc,
 	install: false

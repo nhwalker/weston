@@ -3210,14 +3210,12 @@ drm_writeback_update_info(struct drm_writeback *writeback, drmModeConnector *con
  *
  * @param device DRM device structure
  * @param conn DRM connector object
- * @param drm_device udev device pointer
  * @returns 0 on success, -1 on failure
  *
  * Takes ownership of @c connector on success, not on failure.
  */
 static int
-drm_head_create(struct drm_device *device, drmModeConnector *conn,
-		struct udev_device *drm_device)
+drm_head_create(struct drm_device *device, drmModeConnector *conn)
 {
 	struct drm_backend *backend = device->backend;
 	struct drm_head *head;
@@ -3245,7 +3243,8 @@ drm_head_create(struct drm_device *device, drmModeConnector *conn,
 	if (ret < 0)
 		goto err_update;
 
-	head->backlight = backlight_init(drm_device, conn->connector_type);
+	head->backlight = backlight_init(device->drm.syspath,
+					 conn->connector_type);
 	if (head->backlight && head->backlight->max_brightness == 0) {
 		weston_log("Failed to retreive a valid value for max_brightness"
 			   " from connector %d. Backlight disabled\n",
@@ -3642,12 +3641,10 @@ drm_writeback_destroy(struct drm_writeback *writeback)
  *
  * @param device The DRM device structure
  * @param conn The DRM connector object
- * @param drm_device udev device pointer
  * @return 0 on success, -1 on failure
  */
 static int
-drm_backend_add_connector(struct drm_device *device, drmModeConnector *conn,
-			  struct udev_device *drm_device)
+drm_backend_add_connector(struct drm_device *device, drmModeConnector *conn)
 {
 	int ret;
 
@@ -3657,7 +3654,7 @@ drm_backend_add_connector(struct drm_device *device, drmModeConnector *conn,
 			weston_log("DRM: failed to create writeback for connector %d.\n",
 				   conn->connector_id);
 	} else {
-		ret = drm_head_create(device, conn, drm_device);
+		ret = drm_head_create(device, conn);
 		if (ret < 0)
 			weston_log("DRM: failed to create head for connector %d.\n",
 				   conn->connector_id);
@@ -3672,13 +3669,11 @@ drm_backend_add_connector(struct drm_device *device, drmModeConnector *conn,
  * These objects are added to the DRM-backend lists of heads and writebacks.
  *
  * @param device The DRM device structure
- * @param drm_device udev device pointer
  * @param resources The DRM resources, it is taken with drmModeGetResources
  * @return 0 on success, -1 on failure
  */
 static int
 drm_backend_discover_connectors(struct drm_device *device,
-				struct udev_device *drm_device,
 				drmModeRes *resources)
 {
 	drmModeConnector *conn;
@@ -3696,7 +3691,7 @@ drm_backend_discover_connectors(struct drm_device *device,
 		if (!conn)
 			continue;
 
-		ret = drm_backend_add_connector(device, conn, drm_device);
+		ret = drm_backend_add_connector(device, conn);
 		if (ret < 0)
 			drmModeFreeConnector(conn);
 	}
@@ -3717,7 +3712,6 @@ resources_has_connector(drmModeRes *resources, uint32_t connector_id)
 
 static void
 drm_backend_update_connector(struct drm_device *device,
-			     struct udev_device *drm_device,
 			     uint32_t connector_id)
 {
 	struct drm_backend *b = device->backend;
@@ -3762,7 +3756,7 @@ drm_backend_update_connector(struct drm_device *device,
 	} else if (writeback) {
 		ret = drm_writeback_update_info(writeback, conn);
 	} else {
-		ret = drm_backend_add_connector(device, conn, drm_device);
+		ret = drm_backend_add_connector(device, conn);
 	}
 
 	if (ret < 0)
@@ -3819,7 +3813,6 @@ drm_backend_update_connectors_post_destroy(struct drm_device *device,
 
 static void
 drm_backend_update_connectors(struct drm_device *device,
-			      struct udev_device *drm_device,
 			      drmModeRes *resources)
 {
 	int i;
@@ -3828,7 +3821,7 @@ drm_backend_update_connectors(struct drm_device *device,
 
 	for (i = 0; i < resources->count_connectors; i++) {
 		uint32_t connector_id = resources->connectors[i];
-		drm_backend_update_connector(device, drm_device, connector_id);
+		drm_backend_update_connector(device, connector_id);
 	}
 
 	drm_backend_update_connectors_post_destroy(device, resources);
@@ -3951,10 +3944,10 @@ udev_drm_event(int fd, uint32_t mask, void *data)
 		if (conn_id > 0 && prop_id > 0) {
 			drm_backend_update_conn_props(b, device, conn_id, prop_id);
 		} else if (conn_id > 0) {
-			drm_backend_update_connector(device, event, conn_id);
+			drm_backend_update_connector(device, conn_id);
 			drm_backend_update_connectors_post_destroy(device, resources);
 		} else {
-			drm_backend_update_connectors(device, event, resources);
+			drm_backend_update_connectors(device, resources);
 		}
 		drmModeFreeResources(resources);
 	}
@@ -3974,10 +3967,10 @@ udev_drm_event(int fd, uint32_t mask, void *data)
 		if (conn_id && prop_id > 0) {
 			drm_backend_update_conn_props(b, device_iter, conn_id, prop_id);
 		} else if (conn_id > 0) {
-			drm_backend_update_connector(device_iter, event, conn_id);
+			drm_backend_update_connector(device_iter, conn_id);
 			drm_backend_update_connectors_post_destroy(device_iter, resources);
 		} else {
-			drm_backend_update_connectors(device_iter, event, resources);
+			drm_backend_update_connectors(device_iter, resources);
 		}
 		drmModeFreeResources(resources);
 	}
@@ -4075,6 +4068,7 @@ drm_destroy(struct weston_backend *backend)
 	hash_table_destroy(device->gem_handle_refcnt);
 
 	free(device->drm.filename);
+	free(device->drm.syspath);
 	free(device);
 	free(b);
 }
@@ -4151,6 +4145,7 @@ drm_device_is_kms(struct drm_backend *b, struct drm_device *device,
 	struct weston_compositor *compositor = b->compositor;
 	const char *filename = udev_device_get_devnode(udev_device);
 	const char *sysnum = udev_device_get_sysnum(udev_device);
+	const char *syspath = udev_device_get_syspath(udev_device);
 	dev_t devnum = udev_device_get_devnum(udev_device);
 	drmModeRes *res;
 	int id = -1, fd;
@@ -4182,10 +4177,12 @@ drm_device_is_kms(struct drm_backend *b, struct drm_device *device,
 	if (device->drm.fd >= 0)
 		weston_launcher_close(compositor->launcher, device->drm.fd);
 	free(device->drm.filename);
+	free(device->drm.syspath);
 
 	device->drm.fd = fd;
 	device->drm.id = id;
 	device->drm.filename = strdup(filename);
+	device->drm.syspath = syspath ? strdup(syspath) : NULL;
 	device->drm.devnum = devnum;
 
 	drmModeFreeResources(res);
@@ -4209,28 +4206,29 @@ out_fd:
  * rather than pure render nodes (GPU with no display), or pure
  * memory-allocation devices (VGEM).
  */
-static struct udev_device*
+static int
 find_primary_gpu(struct drm_backend *b, const char *seat)
 {
 	struct drm_device *device = b->drm;
 	struct udev_enumerate *e;
 	struct udev_list_entry *entry;
 	const char *path, *device_seat, *id;
-	struct udev_device *dev, *drm_device, *pci;
+	bool device_found = false;
 
 	e = udev_enumerate_new(b->udev);
 	udev_enumerate_add_match_subsystem(e, "drm");
 	udev_enumerate_add_match_sysname(e, "card[0-9]*");
 
 	udev_enumerate_scan_devices(e);
-	drm_device = NULL;
 	udev_list_entry_foreach(entry, udev_enumerate_get_list_entry(e)) {
+		struct udev_device *dev, *pci;
 		bool is_boot_vga = false;
 
 		path = udev_list_entry_get_name(entry);
 		dev = udev_device_new_from_syspath(b->udev, path);
 		if (!dev)
 			continue;
+
 		device_seat = udev_device_get_property_value(dev, "ID_SEAT");
 		if (!device_seat)
 			device_seat = default_seat;
@@ -4250,7 +4248,7 @@ find_primary_gpu(struct drm_backend *b, const char *seat)
 		/* If we already have a modesetting-capable device, and this
 		 * device isn't our boot-VGA device, we aren't going to use
 		 * it. */
-		if (!is_boot_vga && drm_device) {
+		if (!is_boot_vga && device_found) {
 			udev_device_unref(dev);
 			continue;
 		}
@@ -4258,36 +4256,26 @@ find_primary_gpu(struct drm_backend *b, const char *seat)
 		/* Make sure this device is actually capable of modesetting;
 		 * if this call succeeds, device->drm.{fd,filename} will be set,
 		 * and any old values freed. */
-		if (!drm_device_is_kms(b, b->drm, dev)) {
-			udev_device_unref(dev);
-			continue;
-		}
+		if (drm_device_is_kms(b, b->drm, dev))
+			device_found = true;
+
+		udev_device_unref(dev);
 
 		/* There can only be one boot_vga device, and we try to use it
 		 * at all costs. */
-		if (is_boot_vga) {
-			if (drm_device)
-				udev_device_unref(drm_device);
-			drm_device = dev;
+		if (device_found && is_boot_vga)
 			break;
-		}
-
-		/* Per the (!is_boot_vga && drm_device) test above, we only
-		 * trump existing saved devices with boot-VGA devices, so if
-		 * we end up here, this must be the first device we've seen. */
-		assert(!drm_device);
-		drm_device = dev;
 	}
 
-	/* If we're returning a device to use, we must have an open FD for
-	 * it. */
-	assert(!!drm_device == (device->drm.fd >= 0));
+	/* If we found a device, we must have an open FD for it. */
+	assert(device_found == (device->drm.fd >= 0));
 
 	udev_enumerate_unref(e);
-	return drm_device;
+
+	return device_found ? 0 : -1;
 }
 
-static struct udev_device *
+static int
 open_specific_drm_device(struct drm_backend *b, struct drm_device *device,
 			 const char *name)
 {
@@ -4296,20 +4284,22 @@ open_specific_drm_device(struct drm_backend *b, struct drm_device *device,
 	udev_device = udev_device_new_from_subsystem_sysname(b->udev, "drm", name);
 	if (!udev_device) {
 		weston_log("ERROR: could not open DRM device '%s'\n", name);
-		return NULL;
+		return -1;
 	}
 
 	if (!drm_device_is_kms(b, device, udev_device)) {
 		udev_device_unref(udev_device);
 		weston_log("ERROR: DRM device '%s' is not a KMS device.\n", name);
-		return NULL;
+		return -1;
 	}
+
+	udev_device_unref(udev_device);
 
 	/* If we're returning a device to use, we must have an open FD for
 	 * it. */
 	assert(device->drm.fd >= 0);
 
-	return udev_device;
+	return 0;
 }
 
 static void
@@ -4454,7 +4444,6 @@ static struct drm_device *
 drm_device_create(struct drm_backend *backend, const char *name)
 {
 	struct weston_compositor *compositor = backend->compositor;
-	struct udev_device *udev_device;
 	struct drm_device *device;
 	struct wl_event_loop *loop;
 	drmModeRes *res;
@@ -4467,8 +4456,7 @@ drm_device_create(struct drm_backend *backend, const char *name)
 	device->backend = backend;
 	device->gem_handle_refcnt = hash_table_create();
 
-	udev_device = open_specific_drm_device(backend, device, name);
-	if (!udev_device) {
+	if (open_specific_drm_device(backend, device, name) < 0) {
 		free(device);
 		return NULL;
 	}
@@ -4500,7 +4488,7 @@ drm_device_create(struct drm_backend *backend, const char *name)
 	wl_list_init(&device->drm_colorop_3x1d_lut_list);
 
 	wl_list_init(&device->writeback_connector_list);
-	if (drm_backend_discover_connectors(device, udev_device, res) < 0) {
+	if (drm_backend_discover_connectors(device, res) < 0) {
 		weston_log("Failed to create heads for %s\n", device->drm.filename);
 		goto err;
 	}
@@ -4552,7 +4540,6 @@ drm_backend_create(struct weston_compositor *compositor,
 {
 	struct drm_backend *b;
 	struct drm_device *device;
-	struct udev_device *drm_device;
 	struct wl_event_loop *loop;
 	const char *seat_id = default_seat;
 	const char *session_seat;
@@ -4624,18 +4611,18 @@ drm_backend_create(struct weston_compositor *compositor,
 	wl_signal_add(&compositor->session_signal, &b->session_listener);
 
 	if (config->specific_device)
-		drm_device = open_specific_drm_device(b, device,
-						      config->specific_device);
+		ret = open_specific_drm_device(b, device,
+					       config->specific_device);
 	else
-		drm_device = find_primary_gpu(b, seat_id);
-	if (drm_device == NULL) {
+		ret = find_primary_gpu(b, seat_id);
+	if (ret < 0) {
 		weston_log("no drm device found\n");
 		goto err_udev;
 	}
 
 	if (init_kms_caps(device) < 0) {
 		weston_log("failed to initialize kms\n");
-		goto err_udev_dev;
+		goto err_udev;
 	}
 
 	if (config->additional_devices)
@@ -4658,24 +4645,24 @@ drm_backend_create(struct weston_compositor *compositor,
 	case WESTON_RENDERER_PIXMAN:
 		if (init_pixman(b) < 0) {
 			weston_log("failed to initialize pixman renderer\n");
-			goto err_udev_dev;
+			goto err_udev;
 		}
 		break;
 	case WESTON_RENDERER_GL:
 		if (init_egl(b) < 0) {
 			weston_log("failed to initialize egl\n");
-			goto err_udev_dev;
+			goto err_udev;
 		}
 		break;
 	case WESTON_RENDERER_VULKAN:
 		if (init_vulkan(b) < 0) {
 			weston_log("failed to initialize vulkan\n");
-			goto err_udev_dev;
+			goto err_udev;
 		}
 		break;
 	default:
 		weston_log("unsupported renderer for DRM backend\n");
-		goto err_udev_dev;
+		goto err_udev;
 	}
 
 	b->base.shutdown = drm_shutdown;
@@ -4692,7 +4679,7 @@ drm_backend_create(struct weston_compositor *compositor,
 	res = drmModeGetResources(b->drm->drm.fd);
 	if (!res) {
 		weston_log("Failed to get drmModeRes\n");
-		goto err_udev_dev;
+		goto err_udev;
 	}
 
 	wl_list_init(&b->drm->crtc_list);
@@ -4714,7 +4701,7 @@ drm_backend_create(struct weston_compositor *compositor,
 	}
 
 	wl_list_init(&b->drm->writeback_connector_list);
-	if (drm_backend_discover_connectors(b->drm, drm_device, res) < 0) {
+	if (drm_backend_discover_connectors(b->drm, res) < 0) {
 		weston_log("Failed to create heads for %s\n", b->drm->drm.filename);
 		goto err_udev_input;
 	}
@@ -4750,8 +4737,6 @@ drm_backend_create(struct weston_compositor *compositor,
 		weston_log("failed to enable udev-monitor receiving\n");
 		goto err_udev_monitor;
 	}
-
-	udev_device_unref(drm_device);
 
 	weston_compositor_add_debug_binding(compositor, KEY_O,
 					    planes_binding, b);
@@ -4827,8 +4812,6 @@ err_sprite:
 	destroy_sprites(b->drm);
 err_create_crtc_list:
 	drmModeFreeResources(res);
-err_udev_dev:
-	udev_device_unref(drm_device);
 err_udev:
 	udev_unref(b->udev);
 err_launcher:

@@ -30,7 +30,6 @@
  */
 #ifndef LIBBACKLIGHT_H
 #define LIBBACKLIGHT_H
-#include <libudev.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -51,10 +50,10 @@ struct backlight {
 };
 
 /*
- * Find and set up a backlight for a valid udev connector device, i.e. one
+ * Find and set up a backlight for a valid connector device syspath, i.e. one
  * matching drm subsystem and with status of connected.
  */
-struct backlight *backlight_init(struct udev_device *drm_device,
+struct backlight *backlight_init(const char *syspath,
 				 uint32_t connector_type);
 
 /* Free backlight resources */
