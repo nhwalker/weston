@@ -1215,9 +1215,7 @@ drm_repaint_flush(struct weston_backend *backend)
 		drm_repaint_flush_device(device);
 
 	if (weston_log_scope_is_enabled(b->debug)) {
-		char *dbg = weston_compositor_print_scene_graph(b->compositor);
-		drm_debug(b, "%s", dbg);
-		free(dbg);
+		weston_compositor_print_scene_graph(b->compositor, b->debug);
 	}
 }
 

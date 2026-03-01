@@ -9641,22 +9641,23 @@ output_repaint_status_text(struct weston_output *output)
 }
 
 static void
-debug_scene_view_print_buffer(FILE *fp, struct weston_view *view)
+debug_scene_view_print_buffer(struct weston_view *view, struct weston_log_scope *debug_scope)
 {
 	struct weston_buffer *buffer = view->surface->buffer_ref.buffer;
 
 	if (!buffer) {
-		fprintf(fp, "\t\t[buffer not available]\n");
+		weston_log_scope_printf(debug_scope, "\t\t[buffer not available]\n");
 		return;
 	}
 
-	fputs(weston_cached_str_get(&buffer->scene_graph_record, buffer), fp);
+	weston_log_scope_printf(debug_scope, "%s",
+				weston_cached_str_get(&buffer->scene_graph_record, buffer));
 
 	if (buffer->busy_count > 0) {
-		fprintf(fp, "\t\t\t[%d references may use buffer content]\n",
+		weston_log_scope_printf(debug_scope, "\t\t\t[%d references may use buffer content]\n",
 			buffer->busy_count);
 	} else {
-		fprintf(fp, "\t\t\t[buffer has been released to client]\n");
+		weston_log_scope_printf(debug_scope, "\t\t\t[buffer has been released to client]\n");
 	}
 
 }
@@ -9728,9 +9729,9 @@ weston_plane_failure_reasons_to_str(enum try_view_on_plane_failure_reasons failu
 }
 
 static void
-debug_scene_view_print_paint_node(FILE *fp,
-				  struct weston_view *view,
-				  struct weston_output *output)
+debug_scene_view_print_paint_node(struct weston_view *view,
+				  struct weston_output *output,
+				  struct weston_log_scope *debug_scope)
 {
 	struct weston_paint_node *pnode;
 
@@ -9738,54 +9739,58 @@ debug_scene_view_print_paint_node(FILE *fp,
 	if (!pnode)
 		return;
 
-	fputs(weston_cached_str_get(&pnode->scene_graph_record, pnode), fp);
+	weston_log_scope_printf(debug_scope, "%s",
+				weston_cached_str_get(&pnode->scene_graph_record, pnode));
 
-	fprintf(fp, "\t\t\t\tBuffer to output transform: ");
+	weston_log_scope_printf(debug_scope, "\t\t\t\tBuffer to output transform: ");
 	if (!pnode->valid_transform) {
-		fprintf(fp, "Free form\n");
+		weston_log_scope_printf(debug_scope, "Free form\n");
 	} else {
 		const char *tform;
 
 		tform = weston_transform_to_string(pnode->transform);
-		fprintf(fp, "%s\n", tform);
+		weston_log_scope_printf(debug_scope, "%s\n", tform);
 	}
 
 	if (pnode->try_view_on_plane_failure_reasons) {
-		fprintf(fp, "\t\t\t\tPlane failure reasons: ");
-		bits_to_str_stream(pnode->try_view_on_plane_failure_reasons,
-				   weston_plane_failure_reasons_to_str, fp);
-		fprintf(fp, "\n");
+		weston_log_scope_printf(debug_scope, "\t\t\t\tPlane failure reasons: ");
+		char *bits_str = bits_to_str(pnode->try_view_on_plane_failure_reasons,
+					     weston_plane_failure_reasons_to_str);
+		weston_log_scope_printf(debug_scope, "%s", bits_str);
+		weston_log_scope_printf(debug_scope, "\n");
+		free(bits_str);
 	}
 }
 
 static void
-debug_scene_view_print(FILE *fp, struct weston_view *view)
+debug_scene_view_print(struct weston_view *view, struct weston_log_scope *debug_scope)
 {
 	struct weston_compositor *ec = view->surface->compositor;
 	struct weston_output *output;
 
-	fprintf(fp, "\tView %s %s\n", view->internal_name,
+	weston_log_scope_printf(debug_scope, "\tView %s %s\n", view->internal_name,
 		weston_cached_str_get(&view->surface->scene_graph_record, view->surface));
 
-	fputs(weston_cached_str_get(&view->scene_graph_record, view), fp);
+	weston_log_scope_printf(debug_scope, "%s",
+				weston_cached_str_get(&view->scene_graph_record, view));
 
 	if (view->output_mask != 0) {
-		fprintf(fp, "\t\tpaint nodes:\n");
+		weston_log_scope_printf(debug_scope, "\t\tpaint nodes:\n");
 		wl_list_for_each(output, &ec->output_list, link) {
 			if (!(view->output_mask & (1 << output->id)))
 				continue;
-			debug_scene_view_print_paint_node(fp, view, output);
+			debug_scene_view_print_paint_node(view, output, debug_scope);
 		}
 	} else {
-		fprintf(fp, "\t\t[no paint nodes]");
+		weston_log_scope_printf(debug_scope, "\t\t[no paint nodes]");
 	}
 
-	fprintf(fp, "\n");
+	weston_log_scope_printf(debug_scope, "\n");
 
-	debug_scene_view_print_buffer(fp, view);
+	debug_scene_view_print_buffer(view, debug_scope);
 
 	if (weston_surface_is_mapped(view->surface)) {
-		fprintf(fp, "\t\tCommit frame rate: %2.2f, Painted frame "
+		weston_log_scope_printf(debug_scope, "\t\tCommit frame rate: %2.2f, Painted frame "
 			     "rate: %2.2f (sampled interval: %dsec)\n",
 			     view->surface->frame_commit_fps_counter,
 			     view->surface->painted_frame_fps_counter,
@@ -9795,7 +9800,7 @@ debug_scene_view_print(FILE *fp, struct weston_view *view)
 }
 
 static void
-debug_scene_view_print_tree(struct weston_view *view, FILE *fp)
+debug_scene_view_print_tree(struct weston_view *view, struct weston_log_scope *debug_scope)
 {
 	struct weston_subsurface *sub;
 	struct weston_view *ev;
@@ -9804,7 +9809,7 @@ debug_scene_view_print_tree(struct weston_view *view, FILE *fp)
 	 * print the view first, then we recursively go on printing
 	 * sub-surfaces. We bail out once no more sub-surfaces are available.
 	 */
-	debug_scene_view_print(fp, view);
+	debug_scene_view_print(view, debug_scope);
 
 	/* no more sub-surfaces */
 	if (wl_list_empty(&view->surface->subsurface_list))
@@ -9816,8 +9821,55 @@ debug_scene_view_print_tree(struct weston_view *view, FILE *fp)
 			if (ev->parent_view != view)
 				continue;
 
-			debug_scene_view_print_tree(ev, fp);
+			debug_scene_view_print_tree(ev, debug_scope);
 		}
+	}
+}
+
+static void
+weston_compositor_print_output_scene_graph(struct weston_output *output, struct weston_log_scope *debug_scope)
+{
+	struct weston_head *head;
+	int head_idx = 0;
+	int x, y;
+
+	weston_log_scope_printf(debug_scope, "Output %d (%s):\n", output->id, output->name);
+	assert(output->enabled);
+
+	x = output->pos.c.x;
+	y = output->pos.c.y;
+
+	weston_log_scope_printf(debug_scope, "\tposition: (%d, %d) -> (%d, %d)\n",
+		x, y, x + output->width, y + output->height);
+	weston_log_scope_printf(debug_scope, "\tmode: %dx%d@%.3fHz\n",
+				output->current_mode->width,
+				output->current_mode->height,
+				output->current_mode->refresh / 1000.0);
+	weston_log_scope_printf(debug_scope, "\tscale: %d\n", output->current_scale);
+
+	weston_log_scope_printf(debug_scope, "\trepaint status: %s\n", output_repaint_status_text(output));
+
+	if (output->repaint_status == REPAINT_SCHEDULED) {
+		weston_log_scope_printf(debug_scope, "\tnext repaint scheduled for: %" PRId64 ".%09ld\n",
+					(int64_t)output->next_repaint.tv_sec,
+					output->next_repaint.tv_nsec);
+		weston_log_scope_printf(debug_scope, "\tto be presented at: %" PRId64 ".%09ld\n",
+					(int64_t)output->next_present.tv_sec,
+					output->next_present.tv_nsec);
+	} else if (output->repaint_status == REPAINT_AWAITING_COMPLETION) {
+		weston_log_scope_printf(debug_scope, "\twaiting for repaint that occurred at: %" PRId64 ".%09ld\n",
+					(int64_t)output->next_repaint.tv_sec,
+					output->next_repaint.tv_nsec);
+		weston_log_scope_printf(debug_scope, "\tto be presented at: %" PRId64 ".%09ld\n",
+					(int64_t)output->next_present.tv_sec,
+					output->next_present.tv_nsec);
+	} else  if (output->repaint_status == REPAINT_DEFERRED) {
+		weston_log_scope_printf(debug_scope, "\tDeferred pending backend recovery\n");
+	}
+	wl_list_for_each(head, &output->head_list, output_link) {
+		weston_log_scope_printf(debug_scope, "\tHead %d (%s): %sconnected\n",
+					head_idx++, head->name,
+					(head->connected) ? "" : "not ");
 	}
 }
 
@@ -9827,99 +9879,45 @@ debug_scene_view_print_tree(struct weston_view *view, FILE *fp)
  *
  * \ingroup compositor
  */
-WL_EXPORT char *
-weston_compositor_print_scene_graph(struct weston_compositor *ec)
+WL_EXPORT void
+weston_compositor_print_scene_graph(struct weston_compositor *ec, struct weston_log_scope *debug_scope)
 {
 	struct weston_output *output;
 	struct weston_layer *layer;
 	struct timespec now;
 	int layer_idx = 0;
-	FILE *fp;
-	char *ret;
-	size_t len;
-	int err;
 
 	WESTON_TRACE_FUNC();
 
-	fp = open_memstream(&ret, &len);
-	assert(fp);
-
 	weston_compositor_read_presentation_clock(ec, &now);
-	fprintf(fp, "Weston scene graph at %" PRId64 ".%09ld:\n\n",
+	weston_log_scope_printf(debug_scope, "Weston scene graph at %" PRId64 ".%09ld:\n\n",
 		(int64_t)now.tv_sec, now.tv_nsec);
 
-	wl_list_for_each(output, &ec->output_list, link) {
-		struct weston_head *head;
-		int head_idx = 0;
-		int x, y;
+	wl_list_for_each(output, &ec->output_list, link)
+		weston_compositor_print_output_scene_graph(output, debug_scope);
 
-		fprintf(fp, "Output %d (%s):\n", output->id, output->name);
-		assert(output->enabled);
-
-		x = output->pos.c.x;
-		y = output->pos.c.y;
-
-		fprintf(fp, "\tposition: (%d, %d) -> (%d, %d)\n",
-			x, y, x + output->width, y + output->height);
-		fprintf(fp, "\tmode: %dx%d@%.3fHz\n",
-			output->current_mode->width,
-			output->current_mode->height,
-			output->current_mode->refresh / 1000.0);
-		fprintf(fp, "\tscale: %d\n", output->current_scale);
-
-		fprintf(fp, "\trepaint status: %s\n",
-			output_repaint_status_text(output));
-		if (output->repaint_status == REPAINT_SCHEDULED) {
-			fprintf(fp, "\tnext repaint scheduled for: %" PRId64 ".%09ld\n",
-				(int64_t)output->next_repaint.tv_sec,
-				output->next_repaint.tv_nsec);
-			fprintf(fp, "\tto be presented at: %" PRId64 ".%09ld\n",
-				(int64_t)output->next_present.tv_sec,
-				output->next_present.tv_nsec);
-		} else if (output->repaint_status == REPAINT_AWAITING_COMPLETION) {
-			fprintf(fp, "\twaiting for repaint that occurred at: %" PRId64 ".%09ld\n",
-				(int64_t)output->next_repaint.tv_sec,
-				output->next_repaint.tv_nsec);
-			fprintf(fp, "\tto be presented at: %" PRId64 ".%09ld\n",
-				(int64_t)output->next_present.tv_sec,
-				output->next_present.tv_nsec);
-		} else  if (output->repaint_status == REPAINT_DEFERRED) {
-			fprintf(fp, "\tDeferred pending backend recovery\n");
-		}
-		wl_list_for_each(head, &output->head_list, output_link) {
-			fprintf(fp, "\tHead %d (%s): %sconnected\n",
-				head_idx++, head->name,
-				(head->connected) ? "" : "not ");
-		}
-	}
-
-	fprintf(fp, "\n");
+	weston_log_scope_printf(debug_scope, "\n");
 
 	wl_list_for_each(layer, &ec->layer_list, link) {
 		struct weston_view *view;
 
-		fprintf(fp, "Layer %d (pos 0x%lx):\n", layer_idx++,
+		weston_log_scope_printf(debug_scope, "Layer %d (pos 0x%lx):\n", layer_idx++,
 			(unsigned long) layer->position);
 
 		if (!weston_layer_mask_is_infinite(layer)) {
-			fprintf(fp, "\t[mask: (%d, %d) -> (%d,%d)]\n\n",
+			weston_log_scope_printf(debug_scope, "\t[mask: (%d, %d) -> (%d,%d)]\n\n",
 				layer->mask.x1, layer->mask.y1,
 				layer->mask.x2, layer->mask.y2);
 		}
 
 		wl_list_for_each(view, &layer->view_list.link, layer_link.link)
-			debug_scene_view_print_tree(view, fp);
+			debug_scene_view_print_tree(view, debug_scope);
 
 		if (wl_list_empty(&layer->view_list.link))
-			fprintf(fp, "\t[no views]\n");
+			weston_log_scope_printf(debug_scope, "\t[no views]\n");
 
-		fprintf(fp, "\n");
+		weston_log_scope_printf(debug_scope, "\n");
 	}
-
-	err = fclose(fp);
-	assert(err == 0);
-
-	return ret;
 }
 
 static void
@@ -9957,7 +9955,6 @@ static void
 debug_scene_graph_cb(struct weston_log_subscription *sub, void *data)
 {
 	struct weston_compositor *ec = data;
-	char *str;
 
 	/* If the presentation_clock is CLOCK_REALTIME, then it is
 	 * uninitialized.  This means no back-end is loaded yet, so we can't
@@ -9965,10 +9962,7 @@ debug_scene_graph_cb(struct weston_log_subscription *sub, void *data)
 	if (ec->presentation_clock == CLOCK_REALTIME)
 		return;
 
-	str = weston_compositor_print_scene_graph(ec);
-
-	weston_log_subscription_printf(sub, "%s", str);
-	free(str);
+	weston_compositor_print_scene_graph(ec, ec->debug_scene);
 	weston_log_subscription_complete(sub);
 }
 
