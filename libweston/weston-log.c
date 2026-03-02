@@ -122,6 +122,7 @@ struct weston_log_subscription {
 	struct wl_list source_link;     /**< weston_log_scope::subscription_list  or
 					  weston_log_context::pending_subscription_list */
 
+	struct weston_stream *stream;
 	void *data;
 };
 
@@ -201,30 +202,6 @@ weston_log_subscription_write(struct weston_log_subscription *sub,
 {
 	if (sub->owner && sub->owner->write)
 		sub->owner->write(sub->owner, data, len);
-}
-
-/** Write a formatted string to the stream's subscription
- *
- * @memberof weston_log_subscription
- */
-static void
-weston_log_subscription_vprintf(struct weston_log_subscription *sub,
-				const char *fmt, va_list ap)
-{
-	static const char oom[] = "Out of memory";
-	char *str;
-	int len;
-
-	if (!weston_log_scope_is_enabled(sub->source))
-		return;
-
-	len = vasprintf(&str, fmt, ap);
-	if (len >= 0) {
-		weston_log_subscription_write(sub, str, len);
-		free(str);
-	} else {
-		weston_log_subscription_write(sub, oom, sizeof oom - 1);
-	}
 }
 
 void
@@ -560,7 +537,7 @@ weston_log_scope_to_be_advertised(struct weston_log_context *ctx, const char *na
 }
 
 static ssize_t
-stream_flush_cb(const char *buffer, size_t size, void *user_data)
+scope_stream_flush_cb(const char *buffer, size_t size, void *user_data)
 {
 	struct weston_log_scope *scope = (struct weston_log_scope *)user_data;
 	struct weston_log_subscription *sub;
@@ -657,7 +634,7 @@ weston_log_ctx_add_log_scope(struct weston_log_context *log_ctx,
 	scope->desc = strdup(description);
 	scope->stream = weston_stream_create(WESTON_LOG_SCOPE_BUFFER_SIZE,
 					     WESTON_STREAM_FULLY_BUFFERED,
-					     stream_flush_cb, scope);
+					     scope_stream_flush_cb, scope);
 	scope->file = weston_stream_get_file(scope->stream);
 	scope->new_subscription = new_subscription;
 	scope->destroy_subscription = destroy_subscription;
@@ -911,25 +888,38 @@ weston_log_scope_printf(struct weston_log_scope *scope,
 	return len;
 }
 
-/** Write a formatted string for a subscription
- *
- * \param sub The subscription to write for; may be NULL, in which case
- *              nothing will be written.
- * \param fmt Printf-style format string and arguments.
- *
- * Writes to formatted string to the stream that created the subscription.
- *
- * @ingroup log
- */
-WL_EXPORT void
-weston_log_subscription_printf(struct weston_log_subscription *sub,
-			       const char *fmt, ...)
+static ssize_t
+subscription_stream_flush_cb(const char *buffer, size_t size, void *user_data)
 {
-	va_list ap;
+	struct weston_log_subscription *sub =
+		(struct weston_log_subscription *)user_data;
 
-	va_start(ap, fmt);
-	weston_log_subscription_vprintf(sub, fmt, ap);
-	va_end(ap);
+	weston_log_subscription_write(sub, buffer, size);
+
+	return size;
+}
+
+WL_EXPORT FILE *
+weston_log_subscription_print_begin(struct weston_log_subscription *sub)
+{
+	if (!sub || !weston_log_scope_is_enabled(sub->source))
+		return NULL;
+
+	assert(!sub->stream);
+	sub->stream = weston_stream_create(WESTON_LOG_SCOPE_BUFFER_SIZE,
+					   WESTON_STREAM_FULLY_BUFFERED,
+					   subscription_stream_flush_cb, sub);
+
+	return sub->stream ? weston_stream_get_file(sub->stream) : NULL;
+}
+
+WL_EXPORT void
+weston_log_subscription_print_end(struct weston_log_subscription *sub)
+{
+	assert(sub->stream);
+
+	weston_stream_destroy(sub->stream);
+	sub->stream = NULL;
 }
 
 /** Write debug scope name and current time into string

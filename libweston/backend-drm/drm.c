@@ -1213,16 +1213,17 @@ drm_repaint_flush(struct weston_backend *backend)
 {
 	struct drm_backend *b = container_of(backend, struct drm_backend, base);
 	struct drm_device *device;
+	FILE *fp;
 
 	drm_repaint_flush_device(b->drm);
 
 	wl_list_for_each(device, &b->kms_list, link)
 		drm_repaint_flush_device(device);
 
-	if (weston_log_scope_is_enabled(b->debug)) {
-		char *dbg = weston_compositor_print_scene_graph(b->compositor);
-		drm_debug(b, "%s", dbg);
-		free(dbg);
+	fp = weston_log_scope_print_begin(b->debug);
+	if (fp) {
+		weston_compositor_print_scene_graph(b->compositor, fp);
+		weston_log_scope_print_end(b->debug);
 	}
 }
 
