@@ -4293,29 +4293,30 @@ void
 gl_renderer_log_extensions(struct gl_renderer *gr,
 			   const char *name, const char *extensions)
 {
+	FILE *fp;
 	const char *p, *end;
 	int l;
 	int len;
 
-	if (!weston_log_scope_is_enabled(gr->renderer_scope))
+	fp = weston_log_scope_print_begin(gr->renderer_scope);
+	if (!fp)
 		return;
 
-	l = weston_log_scope_printf(gr->renderer_scope, "%s:", name);
+	l = fprintf(fp, "%s:", name);
 	p = extensions;
 	while (*p) {
 		end = strchrnul(p, ' ');
 		len = end - p;
-		if (l + len > 78) {
-			l = weston_log_scope_printf(gr->renderer_scope,
-						    "\n  %.*s", len, p);
-		} else {
-			l += weston_log_scope_printf(gr->renderer_scope,
-						     " %.*s", len, p);
-		}
+		if (l + len > 78)
+			l = fprintf(fp, "\n  %.*s", len, p);
+		else
+			l += fprintf(fp, " %.*s", len, p);
 		for (p = end; isspace(*p); p++)
 			;
 	}
-	weston_log_scope_printf(gr->renderer_scope, "\n");
+	fprintf(fp, "\n");
+
+	weston_log_scope_print_end(gr->renderer_scope);
 }
 
 static void

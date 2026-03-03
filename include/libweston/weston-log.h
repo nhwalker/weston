@@ -84,22 +84,27 @@ weston_log_scope_destroy(struct weston_log_scope *scope);
 bool
 weston_log_scope_is_enabled(struct weston_log_scope *scope);
 
+FILE *
+weston_log_scope_print_begin(struct weston_log_scope *scope);
+
 void
-weston_log_scope_write(struct weston_log_scope *scope,
-			 const char *data, size_t len);
+weston_log_scope_print_end(struct weston_log_scope *scope);
 
 int
 weston_log_scope_vprintf(struct weston_log_scope *scope,
 			   const char *fmt, va_list ap);
 
+FILE *
+weston_log_subscription_print_begin(struct weston_log_subscription *sub);
+
+void
+weston_log_subscription_print_end(struct weston_log_subscription *sub);
+
 int
 weston_log_scope_printf(struct weston_log_scope *scope,
 			  const char *fmt, ...)
 			  __attribute__ ((format (printf, 2, 3)));
-void
-weston_log_subscription_printf(struct weston_log_subscription *sub,
-				const char *fmt, ...)
-			  __attribute__ ((format (printf, 2, 3)));
+
 void
 weston_log_scope_complete(struct weston_log_scope *scope);
 

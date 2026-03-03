@@ -568,30 +568,33 @@ gl_shader_scope_new_subscription(struct weston_log_subscription *subs,
 	int msecs;
 	int count = 0;
 	char *desc;
+	FILE *fp;
 
 	if (!wl_list_empty(&gr->shader_list))
 		weston_compositor_read_presentation_clock(gr->compositor, &now);
 
-	weston_log_subscription_printf(subs,
-				       "Vertex shader body:\n"
-				       "%s\n%s\n"
-				       "Fragment shader body:\n"
-				       "%s\n%s\n%s\n",
-				       bar, vertex_shader,
-				       bar, fragment_shader, bar);
+	fp = weston_log_subscription_print_begin(subs);
+	if (!fp)
+		return;
 
-	weston_log_subscription_printf(subs,
-		"Cached GLSL programs:\n    id: (used secs ago) description +/-flags\n");
+	fprintf(fp, "Vertex shader body:\n"
+		"%s\n%s\n"
+		"Fragment shader body:\n"
+		"%s\n%s\n%s\n",
+		bar, vertex_shader, bar, fragment_shader, bar);
+
+	fprintf(fp, "Cached GLSL programs:\n"
+		"id: (used secs ago) description +/-flags\n");
 	wl_list_for_each(shader, &gr->shader_list, link) {
 		count++;
 		msecs = timespec_sub_to_msec(&now, &shader->last_used);
 		desc = create_shader_description_string(&shader->key);
-		weston_log_subscription_printf(subs,
-					       "%6u: (%.1f) %s\n",
-					       shader->program,
-					       msecs / 1000.0, desc);
+		fprintf(fp, "%6u: (%.1f) %s\n",
+			shader->program, msecs / 1000.0, desc);
 	}
-	weston_log_subscription_printf(subs, "Total: %d programs.\n", count);
+	fprintf(fp, "Total: %d programs.\n", count);
+
+	weston_log_subscription_print_end(subs);
 }
 
 struct weston_log_scope *

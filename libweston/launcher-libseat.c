@@ -197,20 +197,16 @@ log_libseat_info_err(const char *fmt, va_list ap)
 static void
 log_libseat_debug(const char *fmt, va_list ap)
 {
-	int len_va;
-	char *str;
-	const char *oom = "Out of memory";
+	FILE *fp;
 
-	if (!weston_log_scope_is_enabled(libseat_debug_scope))
+	fp = weston_log_scope_print_begin(libseat_debug_scope);
+	if (!fp)
 		return;
 
-	len_va = vasprintf(&str, fmt, ap);
-	if (len_va >= 0) {
-		weston_log_scope_printf(libseat_debug_scope, "%s\n", str);
-		free(str);
-	} else {
-		weston_log_scope_printf(libseat_debug_scope, "%s\n", oom);
-	}
+	fprintf(fp, fmt, ap);
+	fprintf(fp, "\n");
+
+	weston_log_scope_print_end(libseat_debug_scope);
 }
 
 static void log_libseat(enum libseat_log_level level,

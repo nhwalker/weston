@@ -376,15 +376,16 @@ vnc_log_desktop_layout(struct vnc_backend *backend,
 {
 	uint8_t num_displays = nvnc_desktop_layout_get_display_count(layout);
 	char timestr[128];
+	FILE *fp;
 
-	if (!weston_log_scope_is_enabled(backend->debug))
+	fp = weston_log_scope_print_begin(backend->debug);
+	if (!fp)
 		return;
 
-	weston_log_scope_timestamp(backend->debug, timestr, sizeof timestr);
-
-	weston_log_scope_printf(backend->debug,
-				"%s desktop size event, %u displays:",
-				timestr, num_displays);
+	fprintf(fp, "%s desktop size event, %u displays:",
+		weston_log_scope_timestamp(backend->debug, timestr,
+					   sizeof timestr),
+		num_displays);
 	for (int i = 0; i < num_displays; i++) {
 		uint16_t x = nvnc_desktop_layout_get_display_x_pos(layout, i);
 		uint16_t y = nvnc_desktop_layout_get_display_y_pos(layout, i);
@@ -392,11 +393,12 @@ vnc_log_desktop_layout(struct vnc_backend *backend,
 		uint16_t height = nvnc_desktop_layout_get_display_height(layout, i);
 		struct nvnc_display *display = nvnc_desktop_layout_get_display(layout, i);
 
-		weston_log_scope_printf(backend->debug, " %ux%u(%u,%u)%s",
-					width, height, x, y,
-					display ? "" : "*");
+		fprintf(fp, " %ux%u(%u,%u)%s", width, height, x, y,
+			display ? "" : "*");
 	}
-	weston_log_scope_printf(backend->debug, "\n");
+	fprintf(fp, "\n");
+
+	weston_log_scope_print_end(backend->debug);
 }
 
 static bool
@@ -641,7 +643,7 @@ vnc_region32_to_region16(pixman_region16_t *dst, pixman_region32_t *src)
 }
 
 static void
-vnc_log_scope_print_region(struct weston_log_scope *log, pixman_region32_t *region)
+vnc_log_scope_print_region(FILE *fp, pixman_region32_t *region)
 {
 	struct pixman_box32 *rects;
 	int n_rects = 0;
@@ -649,7 +651,7 @@ vnc_log_scope_print_region(struct weston_log_scope *log, pixman_region32_t *regi
 
 	rects = pixman_region32_rectangles(region, &n_rects);
 	if (!n_rects) {
-		weston_log_scope_printf(log, " empty");
+		fprintf(fp, " empty");
 		return;
 	}
 
@@ -657,8 +659,8 @@ vnc_log_scope_print_region(struct weston_log_scope *log, pixman_region32_t *regi
 		int width = rects[i].x2 - rects[i].x1;
 		int height = rects[i].y2 - rects[i].y1;
 
-		weston_log_scope_printf(log, " %dx%d(%d,%d)", width, height,
-					rects[i].x1, rects[i].y1);
+		fprintf(fp, " %dx%d(%d,%d)", width, height,
+			rects[i].x1, rects[i].y1);
 	}
 }
 
@@ -666,15 +668,19 @@ static void
 vnc_log_damage(struct vnc_backend *backend, pixman_region32_t *damage)
 {
 	char timestr[128];
+	FILE *fp;
 
-	if (!weston_log_scope_is_enabled(backend->debug))
+	fp = weston_log_scope_print_begin(backend->debug);
+	if (!fp)
 		return;
 
-	weston_log_scope_timestamp(backend->debug, timestr, sizeof timestr);
+	fprintf(fp, "%s damage:",
+		weston_log_scope_timestamp(backend->debug, timestr,
+					   sizeof timestr));
+	vnc_log_scope_print_region(fp, damage);
+	fprintf(fp, "\n\n");
 
-	weston_log_scope_printf(backend->debug, "%s damage:", timestr);
-	vnc_log_scope_print_region(backend->debug, damage);
-	weston_log_scope_printf(backend->debug, "\n\n");
+	weston_log_scope_print_end(backend->debug);
 }
 
 static bool

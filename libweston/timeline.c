@@ -37,6 +37,9 @@
 #include "timeline.h"
 #include "weston-log-internal.h"
 #include "weston-trace.h"
+#include "stream.h"
+
+#define TIMELINE_DEFERRED_BUFFER_SIZE 512
 
 /**
  * Timeline itself is not a subscriber but a scope (a producer of data), and it
@@ -65,15 +68,19 @@
  * modification). Data written to a subscription will be flushed before the
  * data written to the FILE *.
  *
- * @param cur a FILE *
+ * @param direct a FILE pointer for direct logging into the subscription
+ * @param deferred a FILE pointer for deferred logging into the subscription
  * @param subscription a pointer to an already created subscription
  *
  * @ingroup internal-log
  * @sa weston_timeline_point
  */
 struct timeline_emit_context {
-	FILE *cur;
+	FILE *direct, *deferred;
 	struct weston_log_subscription *subscription;
+#if !defined(NDEBUG)
+	bool parsing;
+#endif
 };
 
 /** Create a timeline subscription and hang it off the subscription
@@ -223,28 +230,29 @@ weston_timeline_subscription_surface_ensure(struct weston_timeline_subscription 
 }
 
 static void
-fprint_quoted_string(struct weston_log_subscription *sub, const char *str)
+fprint_quoted_string(FILE *fp, const char *str)
 {
 	if (!str) {
-		weston_log_subscription_printf(sub, "null");
+		fprintf(fp, "null");
 		return;
 	}
 
-	weston_log_subscription_printf(sub, "\"%s\"", str);
+	fprintf(fp, "\"%s\"", str);
 }
 
 static void
-emit_weston_output_print_id(struct weston_log_subscription *sub,
+emit_weston_output_print_id(struct timeline_emit_context *ctx,
+			    struct weston_log_subscription *sub,
 			    struct weston_timeline_subscription_object *sub_obj,
 			    const char *name)
 {
 	if (!weston_timeline_check_object_refresh(sub_obj))
 		return;
 
-	weston_log_subscription_printf(sub, "{ \"id\":%u, "
-			"\"type\":\"weston_output\", \"name\":", sub_obj->id);
-	fprint_quoted_string(sub, name);
-	weston_log_subscription_printf(sub, " }\n");
+	fprintf(ctx->direct, "{ \"id\":%u, \"type\":\"weston_output\", "
+		"\"name\":", sub_obj->id);
+	fprint_quoted_string(ctx->direct, name);
+	fprintf(ctx->direct, " }\n");
 }
 
 static int
@@ -257,17 +265,18 @@ emit_weston_output(struct timeline_emit_context *ctx, void *obj)
 
 	tl_sub = weston_log_subscription_get_data(sub);
 	sub_obj = weston_timeline_subscription_output_ensure(tl_sub, output);
-	emit_weston_output_print_id(sub, sub_obj, output->name);
+	emit_weston_output_print_id(ctx, sub, sub_obj, output->name);
 
 	assert(sub_obj->id != 0);
-	fprintf(ctx->cur, "\"wo\":%u", sub_obj->id);
+	fprintf(ctx->deferred, "\"wo\":%u", sub_obj->id);
 
 	return 1;
 }
 
 
 static struct weston_timeline_subscription_object *
-check_weston_surface_description(struct weston_log_subscription *sub,
+check_weston_surface_description(struct timeline_emit_context *ctx,
+				 struct weston_log_subscription *sub,
 				 struct weston_surface *s,
 				 struct weston_timeline_subscription *tm_sub)
 {
@@ -280,7 +289,8 @@ check_weston_surface_description(struct weston_log_subscription *sub,
 	mains = weston_surface_get_main_surface(s);
 
 	if (mains != s)
-		parent_obj = check_weston_surface_description(sub, mains, tm_sub);
+		parent_obj = check_weston_surface_description(ctx, sub, mains,
+							      tm_sub);
 
 	sub_obj = weston_timeline_subscription_surface_ensure(tm_sub, s);
 	assert(sub_obj->id != 0);
@@ -300,11 +310,10 @@ check_weston_surface_description(struct weston_log_subscription *sub,
 	if (!s->get_label || s->get_label(s, d, sizeof(d)) < 0)
 		d[0] = '\0';
 
-	weston_log_subscription_printf(sub, "{ \"id\":%u, "
-				       "\"type\":\"weston_surface\", \"desc\":",
-				       sub_obj->id);
-	fprint_quoted_string(sub, d[0] ? d : NULL);
-	weston_log_subscription_printf(sub, "%s }\n", mainstr);
+	fprintf(ctx->direct, "{ \"id\":%u, \"type\":\"weston_surface\", "
+		"\"desc\":", sub_obj->id);
+	fprint_quoted_string(ctx->direct, d[0] ? d : NULL);
+	fprintf(ctx->direct, "%s }\n", mainstr);
 
 	return sub_obj;
 }
@@ -318,9 +327,9 @@ emit_weston_surface(struct timeline_emit_context *ctx, void *obj)
 	struct weston_timeline_subscription_object *sub_obj;
 
 	tl_sub = weston_log_subscription_get_data(sub);
-	sub_obj = check_weston_surface_description(sub, surface, tl_sub);
+	sub_obj = check_weston_surface_description(ctx, sub, surface, tl_sub);
 
-	fprintf(ctx->cur, "\"ws\":%u", sub_obj->id);
+	fprintf(ctx->deferred, "\"ws\":%u", sub_obj->id);
 	return 1;
 }
 
@@ -329,7 +338,7 @@ emit_vblank_timestamp(struct timeline_emit_context *ctx, void *obj)
 {
 	struct timespec *ts = obj;
 
-	fprintf(ctx->cur, "\"vblank_monotonic\":[%" PRId64 ", %ld]",
+	fprintf(ctx->deferred, "\"vblank_monotonic\":[%" PRId64 ", %ld]",
 		(int64_t)ts->tv_sec, ts->tv_nsec);
 
 	return 1;
@@ -340,7 +349,7 @@ emit_gpu_timestamp(struct timeline_emit_context *ctx, void *obj)
 {
 	struct timespec *ts = obj;
 
-	fprintf(ctx->cur, "\"gpu\":[%" PRId64 ", %ld]",
+	fprintf(ctx->deferred, "\"gpu\":[%" PRId64 ", %ld]",
 		(int64_t)ts->tv_sec, ts->tv_nsec);
 
 	return 1;
@@ -428,6 +437,20 @@ tlp_to_string(enum timeline_point_name tlp)
 	assert(!"not reached");
 }
 
+static ssize_t
+deferred_stream_flush_cb(const char *buffer, size_t size, void *user_data)
+{
+	struct timeline_emit_context *ctx =
+		(struct timeline_emit_context *)user_data;
+
+	/* Consider increasing TIMELINE_DEFERRED_BUFFER_SIZE if ever hit. */
+	assert(!ctx->parsing);
+
+	fwrite(buffer, size, 1, ctx->direct);
+
+	return size;
+}
+
 /** Disseminates the message to all subscriptions of the scope \c
  * timeline_scope
  *
@@ -447,30 +470,46 @@ weston_timeline_point(struct weston_log_scope *timeline_scope,
 	struct timespec ts;
 	enum timeline_type otype;
 	void *obj;
-	char buf[512];
+	struct timeline_emit_context ctx;
 	struct weston_log_subscription *sub = NULL;
 	const char *name = tlp_to_string(tlp_name);
+	struct weston_stream *deferred_stream;
 
 	if (!weston_log_scope_is_enabled(timeline_scope))
 		return;
 
 	clock_gettime(CLOCK_MONOTONIC, &ts);
 
+	/* Stream used to store the timeline point string for which printing is
+	 * deferred to the end of the variable argument list parsing. */
+	deferred_stream = weston_stream_create(TIMELINE_DEFERRED_BUFFER_SIZE,
+					       WESTON_STREAM_FULLY_BUFFERED,
+					       deferred_stream_flush_cb, &ctx);
+	if (!deferred_stream) {
+		weston_log("Timeline error in deferred stream creation, "
+			   "closing.\n");
+		return;
+	}
+
 	while ((sub = weston_log_subscription_iterate(timeline_scope, sub))) {
 		va_list argp;
-		struct timeline_emit_context ctx = {};
 
-		memset(buf, 0, sizeof(buf));
-		ctx.cur = fmemopen(buf, sizeof(buf), "w");
+		ctx.direct = weston_log_subscription_print_begin(sub);
+		ctx.deferred = weston_stream_get_file(deferred_stream);
 		ctx.subscription = sub;
+#if !defined(NDEBUG)
+		ctx.parsing = true;
+#endif
 
-		if (!ctx.cur) {
-			weston_log("Timeline error in fmemopen, closing.\n");
-			return;
+		if (!ctx.direct) {
+			weston_log("Timeline error in direct stream creation, "
+				   "closing.\n");
+			break;
 		}
 
-		fprintf(ctx.cur, "{ \"T\":[%" PRId64 ", %ld], \"N\":\"%s\"",
-				(int64_t)ts.tv_sec, ts.tv_nsec, name);
+		fprintf(ctx.deferred,
+			"{ \"T\":[%" PRId64 ", %ld], \"N\":\"%s\"",
+			(int64_t)ts.tv_sec, ts.tv_nsec, name);
 
 		va_start(argp, tlp_name);
 		while (1) {
@@ -480,23 +519,23 @@ weston_timeline_point(struct weston_log_scope *timeline_scope,
 
 			obj = va_arg(argp, void *);
 			if (type_dispatch[otype]) {
-				fprintf(ctx.cur, ", ");
+				fprintf(ctx.deferred, ", ");
 				type_dispatch[otype](&ctx, obj);
 			}
 		}
 		va_end(argp);
 
-		fprintf(ctx.cur, " }\n");
-		fflush(ctx.cur);
-		if (ferror(ctx.cur)) {
-			weston_log("Timeline error in constructing entry, closing.\n");
-		} else {
-			weston_log_subscription_printf(ctx.subscription, "%s", buf);
-		}
+#if !defined(NDEBUG)
+		ctx.parsing = false;
+#endif
 
-		fclose(ctx.cur);
+		fprintf(ctx.deferred, " }\n");
+		fflush(ctx.deferred);
 
+		weston_log_subscription_print_end(sub);
 	}
+
+	weston_stream_destroy(deferred_stream);
 }
 
 /** Check if weston is tracing performance events

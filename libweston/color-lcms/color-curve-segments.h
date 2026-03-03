@@ -40,7 +40,7 @@ get_parametric_curveset_params(struct weston_compositor *compositor,
 			       bool *clamped_input);
 
 void
-curveset_print(cmsStage *stage, struct weston_log_scope *scope);
+curveset_print(cmsStage *stage, FILE *fp);
 
 bool
 are_curvesets_inverse(cmsStage *set_A, cmsStage *set_B);
@@ -65,10 +65,10 @@ get_parametric_curveset_params(struct weston_compositor *compositor,
 }
 
 static inline void
-curveset_print(cmsStage *stage, struct weston_log_scope *scope)
+curveset_print(cmsStage *stage, FILE *fp)
 {
-	weston_log_scope_printf(scope, "%*scmsGetToneCurveSegment() symbol not " \
-				       "found, so can't print curve set\n", 6, "");
+	fprintf(fp, "%*scmsGetToneCurveSegment() symbol not found, so can't "
+		"print curve set\n", 6, "");
 }
 
 static inline bool

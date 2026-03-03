@@ -121,14 +121,9 @@ pipewire_debug_impl(struct pipewire_backend *pipewire,
 		    const char *fmt, va_list ap)
 {
 	FILE *fp;
-	char *logstr;
-	size_t logsize;
 	char timestr[128];
 
-	if (!weston_log_scope_is_enabled(pipewire->debug))
-		return;
-
-	fp = open_memstream(&logstr, &logsize);
+	fp = weston_log_scope_print_begin(pipewire->debug);
 	if (!fp)
 		return;
 
@@ -142,10 +137,7 @@ pipewire_debug_impl(struct pipewire_backend *pipewire,
 	vfprintf(fp, fmt, ap);
 	fprintf(fp, "\n");
 
-	if (fclose(fp) == 0)
-		weston_log_scope_write(pipewire->debug, logstr, logsize);
-
-	free(logstr);
+	weston_log_scope_print_end(pipewire->debug);
 }
 
 static void

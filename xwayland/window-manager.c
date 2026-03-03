@@ -231,16 +231,21 @@ wm_printf(struct weston_wm *wm, const char *fmt, ...)
 {
 	va_list ap;
 	char timestr[128];
+	FILE *fp;
 
-	if (wm_debug_is_enabled(wm))
-		weston_log_scope_printf(wm->server->wm_debug, "%s ",
-				weston_log_scope_timestamp(wm->server->wm_debug,
-				timestr, sizeof timestr));
+	fp = weston_log_scope_print_begin(wm->server->wm_debug);
+	if (!fp)
+		return;
 
+	fprintf(fp, "%s ", weston_log_scope_timestamp(wm->server->wm_debug,
+						      timestr, sizeof timestr));
 	va_start(ap, fmt);
-	weston_log_scope_vprintf(wm->server->wm_debug, fmt, ap);
+	vfprintf(fp, fmt, ap);
 	va_end(ap);
+
+	weston_log_scope_print_end(wm->server->wm_debug);
 }
+
 static void
 weston_output_weak_ref_init(struct weston_output_weak_ref *ref)
 {
@@ -1548,9 +1553,7 @@ weston_wm_handle_property_notify(struct weston_wm *wm, xcb_generic_event_t *even
 	xcb_property_notify_event_t *property_notify =
 		(xcb_property_notify_event_t *) event;
 	struct weston_wm_window *window;
-	FILE *fp = NULL;
-	char *logstr;
-	size_t logsize;
+	FILE *fp;
 	char timestr[128];
 
 	if (!wm_lookup_window(wm, property_notify->window, &window))
@@ -1587,9 +1590,7 @@ weston_wm_handle_property_notify(struct weston_wm *wm, xcb_generic_event_t *even
 
 	window->properties_dirty = 1;
 
-	if (wm_debug_is_enabled(wm))
-		fp = open_memstream(&logstr, &logsize);
-
+	fp = weston_log_scope_print_begin(wm->server->wm_debug);
 	if (fp) {
 		fprintf(fp, "%s XCB_PROPERTY_NOTIFY: window %d, ",
 			weston_log_scope_timestamp(wm->server->wm_debug,
@@ -1597,15 +1598,11 @@ weston_wm_handle_property_notify(struct weston_wm *wm, xcb_generic_event_t *even
 			property_notify->window);
 		if (property_notify->state == XCB_PROPERTY_DELETE)
 			fprintf(fp, "deleted %s\n",
-					get_atom_name(wm->conn, property_notify->atom));
+				get_atom_name(wm->conn, property_notify->atom));
 		else
 			read_and_dump_property(fp, wm, property_notify->window,
 					       property_notify->atom);
-
-		if (fclose(fp) == 0)
-			weston_log_scope_write(wm->server->wm_debug,
-						 logstr, logsize);
-		free(logstr);
+		weston_log_scope_print_end(wm->server->wm_debug);
 	} else {
 		/* read_and_dump_property() is a X11 roundtrip.
 		 * Mimic it to maintain ordering semantics between debug

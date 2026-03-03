@@ -324,34 +324,41 @@ transforms_scope_new_sub(struct weston_log_subscription *subs, void *data)
 	struct weston_color_manager_lcms *cm = data;
 	struct cmlcms_color_transform *xform;
 	char *str;
+	FILE *fp;
 
 	if (wl_list_empty(&cm->color_transform_list))
 		return;
 
-	weston_log_subscription_printf(subs, "Existent:\n");
+	fp = weston_log_subscription_print_begin(subs);
+	if (!fp)
+		return;
+
+	fprintf(fp, "Existent:\n");
 	wl_list_for_each(xform, &cm->color_transform_list, link) {
-		weston_log_subscription_printf(subs, "Color transformation t%u:\n", xform->base.id);
+		fprintf(fp, "Color transformation t%u:\n", xform->base.id);
 
 		str = cmlcms_color_transform_recipe_string(&xform->search_key);
-		weston_log_subscription_printf(subs, "%s", str);
+		fprintf(fp, "%s", str);
 		free(str);
 
 		str = weston_color_transform_string(&xform->base);
-		weston_log_subscription_printf(subs, "  %s", str);
+		fprintf(fp, "  %s", str);
 		free(str);
 
 		str = weston_color_transform_details_string(4, &xform->base);
 		if (str) {
-			weston_log_subscription_printf(subs, "%s", str);
+			fprintf(fp, "%s", str);
 			free(str);
 		}
 
 		str = cmlcms_color_transformer_string(4, &xform->transformer);
 		if (str) {
-			weston_log_subscription_printf(subs, "%s", str);
+			fprintf(fp, "%s", str);
 			free(str);
 		}
 	}
+
+	weston_log_subscription_print_end(subs);
 }
 
 static void
@@ -360,18 +367,25 @@ profiles_scope_new_sub(struct weston_log_subscription *subs, void *data)
 	struct weston_color_manager_lcms *cm = data;
 	struct cmlcms_color_profile *cprof;
 	char *str;
+	FILE *fp;
 
 	if (wl_list_empty(&cm->color_profile_list))
 		return;
 
-	weston_log_subscription_printf(subs, "Existent:\n");
+	fp = weston_log_subscription_print_begin(subs);
+	if (!fp)
+		return;
+
+	fprintf(fp, "Existent:\n");
 	wl_list_for_each(cprof, &cm->color_profile_list, link) {
-		weston_log_subscription_printf(subs, "Color profile p%u:\n", cprof->base.id);
+		fprintf(fp, "Color profile p%u:\n", cprof->base.id);
 
 		str = cmlcms_color_profile_print(cprof);
-		weston_log_subscription_printf(subs, "%s", str);
+		fprintf(fp, "%s", str);
 		free(str);
 	}
+
+	weston_log_subscription_print_end(subs);
 }
 
 static char *
