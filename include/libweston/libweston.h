@@ -224,6 +224,8 @@ struct weston_testsuite_quirks {
 	bool gl_force_full_redraw_of_shadow_fb;
 	/** Force GL-renderer to use the internal YUV->RGB shader */
 	bool gl_force_import_yuv_fallback;
+	/** Force GL-renderer to consider glBlitFramebuffer unsupported */
+	bool gl_force_blit_fb_unsupported;
 	/** Required enum weston_capability bit mask, otherwise skip run. */
 	uint32_t required_capabilities;
 };
@@ -1563,18 +1565,19 @@ struct weston_solid_buffer_values {
 	float r, g, b, a;
 };
 
+enum weston_buffer_type {
+	WESTON_BUFFER_SHM = 0,
+	WESTON_BUFFER_DMABUF,
+	WESTON_BUFFER_RENDERER_OPAQUE,
+	WESTON_BUFFER_SOLID,
+};
+
 struct weston_buffer {
 	struct wl_resource *resource;
 	struct wl_signal destroy_signal;
 	struct wl_listener destroy_listener;
 
-	enum {
-		WESTON_BUFFER_SHM,
-		WESTON_BUFFER_DMABUF,
-		WESTON_BUFFER_RENDERER_OPAQUE,
-		WESTON_BUFFER_SOLID,
-	} type;
-
+	enum weston_buffer_type type;
 	union {
 		struct wl_shm_buffer *shm_buffer;
 		void *dmabuf;

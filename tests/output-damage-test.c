@@ -51,6 +51,14 @@
 		.meta.name = "GL no-shadow " #s " " #t,			\
 	},								\
 	{								\
+		.renderer = WESTON_RENDERER_GL,                         \
+		.scale = s,                                             \
+		.transform = WL_OUTPUT_TRANSFORM_ ## t,                 \
+		.transform_name = #t,                                   \
+		.gl_shadow_fb = true,                                   \
+		.meta.name = "GL shadow " #s " " #t,                    \
+	},								\
+	{								\
 		.renderer = WESTON_RENDERER_VULKAN,			\
 		.scale = s,						\
 		.transform = WL_OUTPUT_TRANSFORM_ ## t,			\

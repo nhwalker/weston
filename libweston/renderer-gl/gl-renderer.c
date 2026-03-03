@@ -177,6 +177,11 @@ struct gl_output_state {
 	/* struct timeline_render_point::link */
 	struct wl_list timeline_render_point_list;
 
+	/**
+	 * We redirect drawing to shadow when we have color-management enabled,
+	 * when gl_force_full_redraw_of_shadow_fb is set or when we have dma-buf
+	 * screenshot tasks and glBlitFramebuffer is unsupported.
+	 */
 	const struct pixel_format_info *shadow_format;
 	struct gl_texture_parameters shadow_param;
 	GLuint shadow_tex;
@@ -188,18 +193,26 @@ struct gl_output_state {
 
 struct gl_renderer;
 
+struct gl_capture_task_shm_state {
+	GLuint pbo;
+	int stride;
+	int height;
+	bool reverse;
+};
+
 struct gl_capture_task {
 	struct weston_capture_task *task;
 	struct wl_listener destroy_listener;
 	struct wl_event_source *source;
 	struct gl_renderer *gr;
 	struct wl_list link;
-	GLuint pbo;
-	int stride;
-	int height;
-	bool reverse;
+
 	EGLSyncKHR sync;
 	int fd;
+
+	/* shm_state is valid when buffer_type == WESTON_BUFFER_SHM */
+	enum weston_buffer_type buffer_type;
+	struct gl_capture_task_shm_state shm_state;
 };
 
 #ifndef HAVE_GBM
@@ -392,6 +405,41 @@ static bool
 shadow_exists(const struct gl_output_state *go)
 {
 	return go->shadow_fb != 0;
+}
+
+static bool
+is_glBlitFramebuffer_supported(struct gl_renderer *gr)
+{
+	const struct weston_testsuite_quirks *quirks =
+		&gr->compositor->test_data.test_quirks;
+
+	if (quirks->gl_force_blit_fb_unsupported)
+		return false;
+
+	return gr->gl_version >= gl_version(3, 0);
+}
+
+static bool
+should_repaint_to_shadow(struct weston_output *output)
+{
+	struct gl_renderer *gr = get_renderer(output->compositor);
+	const struct weston_testsuite_quirks *quirks =
+		&output->compositor->test_data.test_quirks;
+
+	if (output->color_outcome->from_blend_to_output != NULL &&
+	    output->from_blend_to_output_by_backend == false)
+		return true;
+
+	if (quirks->gl_force_full_redraw_of_shadow_fb)
+		return true;
+
+	if (weston_output_has_renderer_capture_tasks(output) &&
+	    weston_output_has_capture_tasks_of_buffer_type(output,
+							   WESTON_BUFFER_DMABUF) &&
+	    !is_glBlitFramebuffer_supported(gr))
+		return true;
+
+	return false;
 }
 
 static bool
@@ -1078,7 +1126,9 @@ destroy_capture_task(struct gl_capture_task *gl_task)
 	wl_event_source_remove(gl_task->source);
 	wl_list_remove(&gl_task->link);
 	wl_list_remove(&gl_task->destroy_listener.link);
-	glDeleteBuffers(1, &gl_task->pbo);
+
+	if (gl_task->buffer_type == WESTON_BUFFER_SHM)
+		glDeleteBuffers(1, &gl_task->shm_state.pbo);
 
 	if (gl_task->sync != EGL_NO_SYNC_KHR)
 		gl_task->gr->destroy_sync(gl_task->gr->egl_display,
@@ -1098,56 +1148,50 @@ capture_task_parent_destroy_handler(struct wl_listener *l, void *data)
 	destroy_capture_task(gl_task);
 }
 
-static struct gl_capture_task*
-create_capture_task(struct weston_capture_task *task,
-		    struct gl_renderer *gr,
-		    const struct weston_geometry *rect)
+static struct gl_capture_task_shm_state
+create_capture_task_shm_state(struct gl_renderer *gr,
+			      const struct weston_geometry *rect)
 {
-	struct gl_capture_task *gl_task = xzalloc(sizeof *gl_task);
+	struct gl_capture_task_shm_state shm_state = { 0 };
 
-	gl_task->task = task;
-	gl_task->gr = gr;
-	glGenBuffers(1, &gl_task->pbo);
-	gl_task->stride = (gr->compositor->read_format->bpp / 8) * rect->width;
-	gl_task->height = rect->height;
-	gl_task->reverse =
-		!gl_extensions_has(gr, EXTENSION_ANGLE_PACK_REVERSE_ROW_ORDER);
-	gl_task->sync = EGL_NO_SYNC_KHR;
-	gl_task->fd = EGL_NO_NATIVE_FENCE_FD_ANDROID;
+	glGenBuffers(1, &shm_state.pbo);
 
-	gl_task->destroy_listener.notify = capture_task_parent_destroy_handler;
-	weston_capture_task_add_destroy_listener(task, &gl_task->destroy_listener);
+	shm_state.stride = (gr->compositor->read_format->bpp / 8) * rect->width;
+	shm_state.height = rect->height;
+	shm_state.reverse = !gl_extensions_has(gr, EXTENSION_ANGLE_PACK_REVERSE_ROW_ORDER);
 
-	return gl_task;
+	return shm_state;
 }
 
 static void
-copy_capture(struct gl_capture_task *gl_task)
+copy_capture_shm(struct gl_capture_task *gl_task)
 {
 	struct weston_buffer *buffer =
 		weston_capture_task_get_buffer(gl_task->task);
 	struct wl_shm_buffer *shm = buffer->shm_buffer;
 	struct gl_renderer *gr = gl_task->gr;
+	struct weston_compositor *compositor = gr->compositor;
 	uint8_t *src, *dst;
 	int i;
 
-	assert(shm);
+	weston_assert_enum(compositor, gl_task->buffer_type, WESTON_BUFFER_SHM);
+	weston_assert_ptr_not_null(compositor, shm);
 
-	glBindBuffer(GL_PIXEL_PACK_BUFFER, gl_task->pbo);
+	glBindBuffer(GL_PIXEL_PACK_BUFFER, gl_task->shm_state.pbo);
 	src = gr->map_buffer_range(GL_PIXEL_PACK_BUFFER, 0,
-				   gl_task->stride * gl_task->height,
+				   gl_task->shm_state.stride * gl_task->shm_state.height,
 				   GL_MAP_READ_BIT);
 	dst = wl_shm_buffer_get_data(shm);
 	wl_shm_buffer_begin_access(shm);
 
-	if (!gl_task->reverse) {
-		memcpy(dst, src, gl_task->stride * gl_task->height);
+	if (!gl_task->shm_state.reverse) {
+		memcpy(dst, src, gl_task->shm_state.stride * gl_task->shm_state.height);
 	} else {
-		src += (gl_task->height - 1) * gl_task->stride;
-		for (i = 0; i < gl_task->height; i++) {
-			memcpy(dst, src, gl_task->stride);
-			dst += gl_task->stride;
-			src -= gl_task->stride;
+		src += (gl_task->shm_state.height - 1) * gl_task->shm_state.stride;
+		for (i = 0; i < gl_task->shm_state.height; i++) {
+			memcpy(dst, src, gl_task->shm_state.stride);
+			dst += gl_task->shm_state.stride;
+			src -= gl_task->shm_state.stride;
 		}
 	}
 
@@ -1166,11 +1210,46 @@ async_capture_handler(void *data)
 	wl_list_remove(&gl_task->destroy_listener.link);
 	wl_list_init(&gl_task->destroy_listener.link);
 
-	copy_capture(gl_task);
+	if (gl_task->buffer_type == WESTON_BUFFER_SHM)
+		copy_capture_shm(gl_task);
+
 	weston_capture_task_retire_complete(gl_task->task);
 	destroy_capture_task(gl_task);
 
 	return 0;
+}
+
+static void
+create_capture_task_timer(struct weston_capture_task *task,
+			  struct gl_renderer *gr,
+			  enum weston_buffer_type buffer_type,
+			  const struct gl_capture_task_shm_state *shm_state,
+			  uint32_t time_ms)
+{
+	struct wl_event_loop *loop =
+		wl_display_get_event_loop(gr->compositor->wl_display);
+	struct gl_capture_task *gl_task;
+
+	gl_task = xzalloc(sizeof *gl_task);
+
+	gl_task->task = task;
+	gl_task->gr = gr;
+	gl_task->buffer_type = buffer_type;
+	if (buffer_type == WESTON_BUFFER_SHM)
+		gl_task->shm_state = *shm_state;
+
+	gl_task->sync = EGL_NO_SYNC_KHR;
+	gl_task->fd = EGL_NO_NATIVE_FENCE_FD_ANDROID;
+
+	gl_task->source = wl_event_loop_add_timer(loop,
+						  async_capture_handler,
+						  gl_task);
+	wl_event_source_timer_update(gl_task->source, time_ms);
+
+	gl_task->destroy_listener.notify = capture_task_parent_destroy_handler;
+	weston_capture_task_add_destroy_listener(task, &gl_task->destroy_listener);
+
+	wl_list_insert(&gr->pending_capture_list, &gl_task->link);
 }
 
 static int
@@ -1185,7 +1264,9 @@ async_capture_handler_fd(int fd, uint32_t mask, void *data)
 	wl_list_init(&gl_task->destroy_listener.link);
 
 	if (mask & WL_EVENT_READABLE) {
-		copy_capture(gl_task);
+		if (gl_task->buffer_type == WESTON_BUFFER_SHM)
+			copy_capture_shm(gl_task);
+
 		weston_capture_task_retire_complete(gl_task->task);
 	} else {
 		weston_capture_task_retire_failed(gl_task->task,
@@ -1194,6 +1275,58 @@ async_capture_handler_fd(int fd, uint32_t mask, void *data)
 	destroy_capture_task(gl_task);
 
 	return 0;
+}
+
+static bool
+create_capture_task_fence(struct weston_capture_task *task,
+			  struct gl_renderer *gr,
+			  enum weston_buffer_type buffer_type,
+			  const struct gl_capture_task_shm_state *shm_state)
+{
+	struct wl_event_loop *loop =
+		wl_display_get_event_loop(gr->compositor->wl_display);
+	struct gl_capture_task *gl_task;
+
+	gl_task = xzalloc(sizeof *gl_task);
+
+	gl_task->task = task;
+	gl_task->gr = gr;
+	gl_task->buffer_type = buffer_type;
+	if (buffer_type == WESTON_BUFFER_SHM)
+		gl_task->shm_state = *shm_state;
+
+	gl_task->sync = create_render_sync(gr);
+	if (gl_task->sync == EGL_NO_SYNC_KHR) {
+		free(gl_task);
+		return false;
+	}
+
+	/* Make sure GPU requests are flushed. Doing so right between fence sync
+	 * object creation and native fence fd duplication ensures the fd is
+	 * created as stated by EGL_ANDROID_native_fence_sync: "the next Flush()
+	 * operation performed by the current client API causes a new native
+	 * fence object to be created". */
+	glFlush();
+
+	gl_task->fd = gr->dup_native_fence_fd(gr->egl_display,
+					      gl_task->sync);
+	if (gl_task->fd == EGL_NO_NATIVE_FENCE_FD_ANDROID) {
+		gr->destroy_sync(gr->egl_display, gl_task->sync);
+		free(gl_task);
+		return false;
+	}
+
+	gl_task->source = wl_event_loop_add_fd(loop, gl_task->fd,
+					       WL_EVENT_READABLE,
+					       async_capture_handler_fd,
+					       gl_task);
+
+	gl_task->destroy_listener.notify = capture_task_parent_destroy_handler;
+	weston_capture_task_add_destroy_listener(task, &gl_task->destroy_listener);
+
+	wl_list_insert(&gr->pending_capture_list, &gl_task->link);
+
+	return true;
 }
 
 static void
@@ -1205,8 +1338,7 @@ gl_renderer_do_read_pixels_async(struct gl_renderer *gr,
 {
 	struct weston_buffer *buffer = weston_capture_task_get_buffer(task);
 	const struct pixel_format_info *fmt = buffer->pixel_format;
-	struct gl_capture_task *gl_task;
-	struct wl_event_loop *loop;
+	struct gl_capture_task_shm_state shm_state;
 	int refresh_mhz, refresh_msec;
 
 	assert(gl_features_has(gr, FEATURE_ASYNC_READBACK));
@@ -1219,55 +1351,154 @@ gl_renderer_do_read_pixels_async(struct gl_renderer *gr,
 	    is_y_flipped(go))
 		glPixelStorei(GL_PACK_REVERSE_ROW_ORDER_ANGLE, GL_TRUE);
 
-	gl_task = create_capture_task(task, gr, rect);
+	shm_state = create_capture_task_shm_state(gr, rect);
 
-	glBindBuffer(GL_PIXEL_PACK_BUFFER, gl_task->pbo);
-	glBufferData(GL_PIXEL_PACK_BUFFER, gl_task->stride * gl_task->height,
+	glBindBuffer(GL_PIXEL_PACK_BUFFER, shm_state.pbo);
+	glBufferData(GL_PIXEL_PACK_BUFFER, shm_state.stride * shm_state.height,
 		     NULL, gr->pbo_usage);
 	glReadPixels(rect->x, rect->y, rect->width, rect->height,
 		     fmt->gl_format, fmt->gl_type, 0);
 	glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
 
-	loop = wl_display_get_event_loop(gr->compositor->wl_display);
-	gl_task->sync = create_render_sync(gr);
-
-	/* Make sure the read back request is flushed. Doing so right between
-	 * fence sync object creation and native fence fd duplication ensures
-	 * the fd is created as stated by EGL_ANDROID_native_fence_sync: "the
-	 * next Flush() operation performed by the current client API causes a
-	 * new native fence object to be created". */
-	glFlush();
-
-	if (gl_task->sync != EGL_NO_SYNC_KHR)
-		gl_task->fd = gr->dup_native_fence_fd(gr->egl_display,
-						      gl_task->sync);
-
-	if (gl_task->fd != EGL_NO_NATIVE_FENCE_FD_ANDROID) {
-		gl_task->source = wl_event_loop_add_fd(loop, gl_task->fd,
-						       WL_EVENT_READABLE,
-						       async_capture_handler_fd,
-						       gl_task);
-	} else {
-		/* We guess here an async read back doesn't take more than 5
-		 * frames on most platforms. */
-		gl_task->source = wl_event_loop_add_timer(loop,
-							  async_capture_handler,
-							  gl_task);
-		refresh_mhz = output->current_mode->refresh;
-		refresh_msec = millihz_to_nsec(refresh_mhz) / 1000000;
-		wl_event_source_timer_update(gl_task->source, 5 * refresh_msec);
-	}
-
-	wl_list_insert(&gr->pending_capture_list, &gl_task->link);
-
 	if (gl_extensions_has(gr, EXTENSION_ANGLE_PACK_REVERSE_ROW_ORDER) &&
 	    is_y_flipped(go))
 		glPixelStorei(GL_PACK_REVERSE_ROW_ORDER_ANGLE, GL_FALSE);
+
+	/* Create capture task that gets triggered once the GPU tasks are done. */
+	if (create_capture_task_fence(task, gr, buffer->type, &shm_state))
+		return;
+
+	/* Failed to get sync fence or fd to poll. For SHM capture tasks we use
+	 * async read back. We guess it doesn't take more than 5 frames on most
+	 * platforms, so let's complete the capture task in such time. */
+	refresh_mhz = output->current_mode->refresh;
+	refresh_msec = millihz_to_nsec(refresh_mhz) / 1000000;
+	create_capture_task_timer(task, gr, buffer->type, &shm_state, 5 * refresh_msec);
+}
+
+static bool
+blit_rb_to_dmabuf(struct gl_renderbuffer *rb, EGLImageKHR image,
+		  const struct weston_geometry *rect, bool invert_y)
+{
+	struct gl_renderer *gr = get_renderer(rb->output->compositor);
+	GLuint fbo_dst, rb_dst;
+	int32_t src_x0, src_y0, src_x1, src_y1;
+	int32_t dst_x0, dst_y0, dst_x1, dst_y1;
+
+	if (!gl_fbo_image_init(gr, image, &fbo_dst, &rb_dst))
+		return false;
+
+	src_x0 = dst_x0 = rect->x;
+	src_y0 = dst_y0 = rect->y;
+	src_x1 = dst_x1 = rect->x + rect->width;
+	src_y1 = dst_y1 = rect->y + rect->height;
+
+	glBindFramebuffer(GL_READ_FRAMEBUFFER, rb->fb);
+	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fbo_dst);
+
+	if (invert_y) {
+		/**
+		 * Renderbuffer from which we are blitting and the destination
+		 * dma-buf have different buffer origin, so we need to flip y.
+		 */
+		glBlitFramebuffer(src_x0, src_y1, src_x1, src_y0,
+				  dst_x0, dst_y0, dst_x1, dst_y1,
+				  GL_COLOR_BUFFER_BIT, GL_NEAREST);
+	} else {
+		glBlitFramebuffer(src_x0, src_y0, src_x1, src_y1,
+				  dst_x0, dst_y0, dst_x1, dst_y1,
+				  GL_COLOR_BUFFER_BIT, GL_NEAREST);
+	}
+
+	gl_fbo_fini(&fbo_dst, &rb_dst);
+
+	return true;
+}
+
+static void
+set_blend_state(struct gl_renderer *gr,
+		bool state)
+{
+	if (gr->blend_state == state)
+		return;
+
+	if (state)
+		glEnable(GL_BLEND);
+	else
+		glDisable(GL_BLEND);
+	gr->blend_state = state;
+}
+
+static bool
+blit_shadow_to_dmabuf(struct weston_output *output, EGLImageKHR image,
+		      bool invert_y)
+{
+	struct gl_output_state *go = get_output_state(output);
+	struct gl_renderer *gr = get_renderer(output->compositor);
+	GLuint fbo, rbo;
+	float y_flip = invert_y ? -1.0f : 1.0f;
+	struct gl_shader_config sconf = {
+		.req = {
+			.variant = SHADER_VARIANT_RGBA,
+			.input_is_premult = true,
+		},
+		.projection = {
+			.M = WESTON_MAT4F(
+				2.0,          0.0, 0.0,    -1.0,
+				0.0, y_flip * 2.0, 0.0, -y_flip,
+				0.0,          0.0, 1.0,     0.0,
+				0.0,          0.0, 0.0,     1.0
+			),
+			.type = WESTON_MATRIX_TRANSFORM_SCALE |
+				WESTON_MATRIX_TRANSFORM_TRANSLATE,
+		},
+		.view_alpha = 1.0f,
+		.input_tex = &go->shadow_tex,
+		.input_param = &go->shadow_param,
+		.input_num = 1,
+	};
+	static const GLfloat verts[4 * 2] = {
+		0.0f, 0.0f,
+		1.0f, 0.0f,
+		1.0f, 1.0f,
+		0.0f, 1.0f
+	};
+	double width = go->area.width;
+	double height = go->area.height;
+
+	if (!gl_fbo_image_init(gr, image, &fbo, &rbo))
+		return false;
+
+	glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+	glViewport(0, 0, width, height);
+
+	gl_renderer_use_program(gr, &sconf);
+	set_blend_state(gr, false);
+
+	glEnableVertexAttribArray(SHADER_ATTRIB_LOC_POSITION);
+	glEnableVertexAttribArray(SHADER_ATTRIB_LOC_TEXCOORD);
+
+	glVertexAttribPointer(SHADER_ATTRIB_LOC_POSITION, 2, GL_FLOAT,
+			      GL_FALSE, 0, verts);
+	glVertexAttribPointer(SHADER_ATTRIB_LOC_TEXCOORD, 2, GL_FLOAT,
+			      GL_FALSE, 0, verts);
+
+	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+
+	glDisableVertexAttribArray(SHADER_ATTRIB_LOC_TEXCOORD);
+	glDisableVertexAttribArray(SHADER_ATTRIB_LOC_POSITION);
+
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+	gl_fbo_fini(&fbo, &rbo);
+
+	return true;
 }
 
 static void
 gl_renderer_do_capture_tasks(struct gl_renderer *gr,
 			     struct weston_output *output,
+			     struct gl_renderbuffer *rb,
 			     enum weston_output_capture_source source)
 {
 	struct gl_output_state *go = get_output_state(output);
@@ -1304,26 +1535,76 @@ gl_renderer_do_capture_tasks(struct gl_renderer *gr,
 		assert(buffer->height == rect.height);
 		assert(buffer->pixel_format->format == format->format);
 
-		if (buffer->type != WESTON_BUFFER_SHM ||
-		    buffer->buffer_origin != ORIGIN_TOP_LEFT) {
+		if (buffer->type == WESTON_BUFFER_DMABUF) {
+			struct linux_dmabuf_buffer *dmabuf = buffer->dmabuf;
+			const struct pixel_format_info *info;
+			EGLImageKHR image;
+			bool invert_y;
+			bool ok;
+
+			if (dmabuf->attributes.n_planes > 1) {
+				weston_capture_task_retire_failed(ct, "GL: multi-planar formats not supported");
+				continue;
+			}
+
+			info = pixel_format_get_info(dmabuf->attributes.format);
+			if (info->color_model == COLOR_MODEL_YUV) {
+				weston_capture_task_retire_failed(ct, "GL: YUV not supported");
+				continue;
+			}
+
+			image = import_simple_dmabuf(gr, &dmabuf->attributes, NULL);
+			if (image == EGL_NO_IMAGE_KHR) {
+				weston_capture_task_retire_failed(ct, "GL: failed to import dma-buf buffer");
+				continue;
+			}
+
+			/**
+			 * Flipped y means bottom-left origin; if destination
+			 * dma-buf has a different y origin we need to blit
+			 * considering that.
+			 */
+			invert_y = is_y_flipped(go) ^ (buffer->buffer_origin == ORIGIN_BOTTOM_LEFT);
+
+			if (is_glBlitFramebuffer_supported(gr))
+				ok = blit_rb_to_dmabuf(rb, image, &rect, invert_y);
+			else
+				ok = blit_shadow_to_dmabuf(output, image, invert_y);
+
+			gr->destroy_image(gr->egl_display, image);
+
+			if (!ok) {
+				weston_capture_task_retire_failed(ct, "GL: failed to blit to dma-buf");
+				continue;
+			}
+
+			if (!create_capture_task_fence(ct, gr, buffer->type,
+						       NULL /* shm state */)) {
+				weston_capture_task_retire_failed(ct, "GL: create_capture_task_fence() failed");
+			}
+		} else if (buffer->type == WESTON_BUFFER_SHM) {
+			if (buffer->buffer_origin != ORIGIN_TOP_LEFT) {
+				weston_capture_task_retire_failed(ct, "GL: unsupported buffer");
+				continue;
+			}
+
+			if (buffer->stride % 4 != 0) {
+				weston_capture_task_retire_failed(ct, "GL: buffer stride not multiple of 4");
+				continue;
+			}
+
+			if (gl_features_has(gr, FEATURE_ASYNC_READBACK)) {
+				gl_renderer_do_read_pixels_async(gr, go, output, ct, &rect);
+				continue;
+			}
+
+			if (gl_renderer_do_capture(gr, go, buffer, &rect))
+				weston_capture_task_retire_complete(ct);
+			else
+				weston_capture_task_retire_failed(ct, "GL: capture failed");
+		} else {
 			weston_capture_task_retire_failed(ct, "GL: unsupported buffer");
-			continue;
 		}
-
-		if (buffer->stride % 4 != 0) {
-			weston_capture_task_retire_failed(ct, "GL: buffer stride not multiple of 4");
-			continue;
-		}
-
-		if (gl_features_has(gr, FEATURE_ASYNC_READBACK)) {
-			gl_renderer_do_read_pixels_async(gr, go, output, ct, &rect);
-			continue;
-		}
-
-		if (gl_renderer_do_capture(gr, go, buffer, &rect))
-			weston_capture_task_retire_complete(ct);
-		else
-			weston_capture_task_retire_failed(ct, "GL: capture failed");
 	}
 }
 
@@ -2055,20 +2336,6 @@ set_debug_mode(struct gl_renderer *gr,
 }
 
 static void
-set_blend_state(struct gl_renderer *gr,
-		bool state)
-{
-	if (gr->blend_state == state)
-		return;
-
-	if (state)
-		glEnable(GL_BLEND);
-	else
-		glDisable(GL_BLEND);
-	gr->blend_state = state;
-}
-
-static void
 draw_mesh(struct gl_renderer *gr,
 	  struct weston_paint_node *pnode,
 	  struct gl_shader_config *sconf,
@@ -2797,7 +3064,7 @@ gl_renderer_repaint_output(struct weston_output *output,
 			    go->y_flip * 2.0 / go->area.height, 1);
 
 	/* If using shadow, redirect all drawing to it first. */
-	if (shadow_exists(go)) {
+	if (should_repaint_to_shadow(output)) {
 		glBindFramebuffer(GL_FRAMEBUFFER, go->shadow_fb);
 		glViewport(0, 0, go->area.width, go->area.height);
 	} else {
@@ -2845,9 +3112,10 @@ gl_renderer_repaint_output(struct weston_output *output,
 		free(egl_rects);
 	}
 
-	if (shadow_exists(go)) {
+	if (should_repaint_to_shadow(output)) {
 		/* Repaint into shadow. */
-		if (compositor->test_data.test_quirks.gl_force_full_redraw_of_shadow_fb)
+		if (compositor->test_data.test_quirks.gl_force_full_redraw_of_shadow_fb ||
+		    weston_output_has_renderer_capture_tasks(output))
 			repaint_views(output, &output->region);
 		else
 			repaint_views(output, output_damage);
@@ -2863,9 +3131,9 @@ gl_renderer_repaint_output(struct weston_output *output,
 
 	draw_output_borders(output, rb->border_status);
 
-	gl_renderer_do_capture_tasks(gr, output,
+	gl_renderer_do_capture_tasks(gr, output, rb,
 				     WESTON_OUTPUT_CAPTURE_SOURCE_FRAMEBUFFER);
-	gl_renderer_do_capture_tasks(gr, output,
+	gl_renderer_do_capture_tasks(gr, output, rb,
 				     WESTON_OUTPUT_CAPTURE_SOURCE_FULL_FRAMEBUFFER);
 	wl_signal_emit(&output->frame_signal, output_damage);
 
@@ -4465,6 +4733,7 @@ gl_renderer_output_create(struct weston_output *output,
 	struct gl_output_state *go;
 	struct gl_renderer *gr = get_renderer(output->compositor);
 	const struct weston_testsuite_quirks *quirks;
+	bool is_shadow_for_cm = false;
 	int i;
 
 	assert(!get_output_state(output));
@@ -4494,12 +4763,16 @@ gl_renderer_output_create(struct weston_output *output,
 	go->render_sync = EGL_NO_SYNC_KHR;
 
 	if ((output->color_outcome->from_blend_to_output != NULL &&
-	     output->from_blend_to_output_by_backend == false) ||
-	    quirks->gl_force_full_redraw_of_shadow_fb) {
+	     output->from_blend_to_output_by_backend == false)) {
 		assert(gl_features_has(gr, FEATURE_COLOR_TRANSFORMS));
-
+		is_shadow_for_cm = true;
 		go->shadow_format =
 			pixel_format_get_info(DRM_FORMAT_ABGR16161616F);
+	} else if (!is_glBlitFramebuffer_supported(gr) ||
+		   quirks->gl_force_full_redraw_of_shadow_fb) {
+		/* This is enough when the shadow is not for color-management. */
+		go->shadow_format =
+			pixel_format_get_info(DRM_FORMAT_ARGB8888);
 	}
 
 	wl_list_init(&go->renderbuffer_list);
@@ -4514,7 +4787,7 @@ gl_renderer_output_create(struct weston_output *output,
 		return -1;
 	}
 
-	if (shadow_exists(go)) {
+	if (shadow_exists(go) && is_shadow_for_cm) {
 		weston_log("Output %s uses 16F shadow.\n",
 			   output->name);
 	}
