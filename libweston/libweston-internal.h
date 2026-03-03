@@ -329,8 +329,9 @@ weston_compositor_dmabuf_can_scanout(struct weston_compositor *compositor,
 void
 weston_compositor_offscreen(struct weston_compositor *compositor);
 
-char *
-weston_compositor_print_scene_graph(struct weston_compositor *ec);
+void
+weston_compositor_print_scene_graph(struct weston_compositor *ec,
+				    struct weston_log_scope *debug_scope);
 
 void
 weston_compositor_read_presentation_clock(
@@ -768,6 +769,8 @@ struct weston_paint_node {
 	 */
 	bool need_hole;
 	uint32_t psf_flags; /* presentation-feedback flags */
+
+	struct weston_cached_string scene_graph_record;
 };
 
 struct weston_paint_node *

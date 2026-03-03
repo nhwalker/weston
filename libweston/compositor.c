@@ -104,6 +104,9 @@
 
 #define DEFAULT_REPAINT_WINDOW 7 /* milliseconds */
 
+static struct weston_layer *
+get_view_layer(struct weston_view *view);
+
 static void
 weston_output_transform_scale_init(struct weston_output *output,
 				   uint32_t transform, uint32_t scale);
@@ -380,6 +383,29 @@ paint_node_update_late(struct weston_paint_node *pnode)
 	paint_node_validate_ready(pnode);
 }
 
+static void
+weston_paint_node_debug_string_regenerate(FILE *fp, void *data)
+{
+	struct weston_paint_node *pnode = data;
+	struct weston_view *view = NULL;
+	struct weston_output *output = NULL;
+
+	if (!pnode) {
+		fprintf(fp, "\t\t\tpaint node [pending repaint]:\n");
+		return;
+	}
+
+	fprintf(fp, "\t\t\tpaint node %p:\n", pnode);
+
+	view = pnode->view;
+	output = pnode->output;
+
+	fprintf(fp, "\t\t\t\toutput: %d (%s)%s\n",
+		output->id, output->name,
+		(view->output == output) ? " (primary)" : "");
+
+}
+
 static struct weston_paint_node *
 weston_paint_node_create(struct weston_surface *surface,
 			 struct weston_view *view,
@@ -435,6 +461,9 @@ weston_paint_node_create(struct weston_surface *surface,
 	pnode->status =
 		WESTON_PAINT_NODE_ALL_DIRTY & ~WESTON_PAINT_NODE_PLANE_DIRTY;
 
+	pnode->scene_graph_record.regen =
+		weston_paint_node_debug_string_regenerate;
+
 	return pnode;
 }
 
@@ -487,6 +516,7 @@ weston_paint_node_destroy(struct weston_paint_node *pnode)
 	pixman_region32_fini(&pnode->visible_previous);
 	pixman_region32_fini(&pnode->clipped_view);
 	free(pnode->internal_name);
+	free(pnode->scene_graph_record.cached_str);
 	free(pnode);
 }
 
@@ -740,6 +770,39 @@ weston_output_mode_switch_to_temporary(struct weston_output *output,
 	return 0;
 }
 
+static void
+weston_view_debug_string_regenerate(FILE *fp, void *data)
+{
+	struct weston_view *ev = data;
+	pixman_box32_t *box;
+
+	if (!weston_view_is_mapped(ev))
+		fprintf(fp, "\t[view is not mapped!]\n");
+	if (wl_list_empty(&ev->layer_link.link)) {
+		if (!get_view_layer(ev))
+			fprintf(fp, "\t[view is not part of any layer]\n");
+		else
+			fprintf(fp, "\t[view is under parent view layer]\n");
+	}
+
+	box = pixman_region32_extents(&ev->transform.boundingbox);
+	fprintf(fp, "\t\tposition: (%d, %d) -> (%d, %d)\n",
+		box->x1, box->y1, box->x2, box->y2);
+	box = pixman_region32_extents(&ev->transform.opaque);
+
+	if (weston_view_is_opaque(ev, &ev->transform.boundingbox)) {
+		fprintf(fp, "\t\t[fully opaque]\n");
+	} else if (!pixman_region32_not_empty(&ev->transform.opaque)) {
+		fprintf(fp, "\t\t[not opaque]\n");
+	} else {
+		fprintf(fp, "\t\t[opaque: (%d, %d) -> (%d, %d)]\n",
+			box->x1, box->y1, box->x2, box->y2);
+	}
+
+	if (ev->alpha < 1.0)
+		fprintf(fp, "\t\talpha: %f\n", ev->alpha);
+}
+
 static struct weston_view *
 weston_view_create_internal(struct weston_surface *surface)
 {
@@ -776,6 +839,9 @@ weston_view_create_internal(struct weston_surface *surface)
 	pixman_region32_init(&view->geometry.scissor);
 	pixman_region32_init(&view->transform.boundingbox);
 	view->transform.dirty = 1;
+
+	view->scene_graph_record.regen =
+		weston_view_debug_string_regenerate;
 	weston_view_update_transform(view);
 
 	return view;
@@ -973,6 +1039,31 @@ weston_surface_update_preferred_color_profile(struct weston_surface *surface)
 	weston_surface_send_preferred_image_description_changed(surface);
 }
 
+static void
+weston_surface_debug_string_regenerate(FILE *fp, void *data)
+{
+	struct weston_surface *surface = data;
+	pid_t pid = 0;
+	char desc[512];
+
+	if (surface->resource) {
+		struct wl_resource *resource = surface->resource;
+		wl_client_get_credentials(wl_resource_get_client(resource),
+					  &pid, NULL, NULL);
+	}
+
+	if (!surface->get_label ||
+	    surface->get_label(surface, desc, sizeof(desc)) < 0) {
+		strcpy(desc, "[no description available]");
+	}
+
+	fprintf(fp, "(role %s, PID %d, '%s'):",
+		 weston_surface_get_role(surface), pid, desc);
+
+	if (!weston_surface_is_mapped(surface))
+		fprintf(fp, "\t[surface is not mapped!]\n");
+}
+
 WL_EXPORT struct weston_surface *
 weston_surface_create(struct weston_compositor *compositor,
 		      struct weston_client *client)
@@ -1044,6 +1135,9 @@ weston_surface_create(struct weston_compositor *compositor,
 	weston_reset_color_representation(&surface->color_representation);
 
 	wl_list_init(&surface->fifo_barrier_link);
+
+	surface->scene_graph_record.regen =
+		weston_surface_debug_string_regenerate;
 
 	return surface;
 }
@@ -1987,6 +2081,8 @@ weston_view_update_transform_internal(struct weston_view *view)
 			 geometry.parent_link) {
 		weston_view_update_transform(child);
 	}
+
+	weston_cached_str_invalidate(&view->scene_graph_record);
 }
 
 WL_EXPORT void
@@ -2623,6 +2719,7 @@ weston_view_unmap(struct weston_view *view)
 	}
 
 	weston_view_destroy_paint_nodes(view);
+	weston_cached_str_invalidate(&view->scene_graph_record);
 
 	wl_signal_emit_mutable(&view->unmap_signal, view);
 	view->surface->compositor->view_list_needs_rebuild = true;
@@ -2635,6 +2732,8 @@ static void weston_surface_start_mapping(struct weston_surface *surface)
 	surface->is_mapping = true;
 	surface->is_mapped = true;
 	surface->compositor->view_list_needs_rebuild = true;
+
+	weston_cached_str_invalidate(&surface->scene_graph_record);
 	wl_signal_emit_mutable(&surface->map_signal, surface);
 }
 
@@ -2658,6 +2757,8 @@ weston_surface_unmap(struct weston_surface *surface)
 	wl_list_for_each(view, &surface->views, surface_link)
 		weston_view_unmap(view);
 	surface->output = NULL;
+
+	weston_cached_str_invalidate(&surface->scene_graph_record);
 	wl_signal_emit_mutable(&surface->unmap_signal, surface);
 }
 
@@ -2691,6 +2792,7 @@ weston_view_destroy(struct weston_view *view)
 	wl_list_remove(&view->surface_link);
 
 	free(view->internal_name);
+	free(view->scene_graph_record.cached_str);
 	free(view);
 }
 
@@ -2779,6 +2881,7 @@ weston_surface_unref(struct weston_surface *surface)
 	wl_list_remove(&surface->fifo_barrier_link);
 
 	free(surface->internal_name);
+	free(surface->scene_graph_record.cached_str);
 	free(surface);
 }
 
@@ -2840,8 +2943,59 @@ weston_buffer_destroy_handler(struct wl_listener *listener, void *data)
 		return;
 
 	wl_signal_emit_mutable(&buffer->destroy_signal, buffer);
+	free(buffer->scene_graph_record.cached_str);
 	free(buffer);
 }
+
+static void
+weston_buffer_debug_string_regenerate(FILE *fp, void *data)
+{
+	struct weston_buffer *buffer = data;
+	char *modifier_name;
+
+	switch (buffer->type) {
+	case WESTON_BUFFER_SHM:
+		fprintf(fp, "\t\tSHM buffer\n");
+		break;
+	case WESTON_BUFFER_DMABUF:
+		fprintf(fp, "\t\tdmabuf buffer\n");
+		break;
+	case WESTON_BUFFER_SOLID:
+		fprintf(fp, "\t\tsolid-colour buffer\n");
+		fprintf(fp, "\t\t\t[R %f, G %f, B %f, A %f]\n",
+			buffer->solid.r, buffer->solid.g, buffer->solid.b,
+			buffer->solid.a);
+		break;
+	case WESTON_BUFFER_RENDERER_OPAQUE:
+		fprintf(fp, "\t\tEGL buffer:\n");
+		fprintf(fp, "\t\t\t[format may be inaccurate]\n");
+		break;
+	}
+
+
+	if (buffer->pixel_format) {
+		fprintf(fp, "\t\t\tformat: 0x%lx %s\n",
+			(unsigned long) buffer->pixel_format->format,
+			buffer->pixel_format->drm_format_name);
+	} else {
+		fprintf(fp, "\t\t\t[unknown format]\n");
+	}
+
+	modifier_name = pixel_format_get_modifier(buffer->format_modifier);
+	fprintf(fp, "\t\t\tmodifier: %s\n",
+		modifier_name ?
+			modifier_name : "Failed to convert to a modifier name");
+	free(modifier_name);
+
+	fprintf(fp, "\t\t\twidth: %d, height: %d\n",
+		buffer->width, buffer->height);
+	if (buffer->buffer_origin == ORIGIN_BOTTOM_LEFT)
+		fprintf(fp, "\t\t\tbottom-left origin\n");
+
+	if (buffer->direct_display)
+		fprintf(fp, "\t\t\tdirect-display buffer (no renderer access)\n");
+}
+
 
 WL_EXPORT struct weston_buffer *
 weston_buffer_from_resource(struct weston_compositor *ec,
@@ -2865,6 +3019,8 @@ weston_buffer_from_resource(struct weston_compositor *ec,
 		return NULL;
 
 	buffer->resource = resource;
+	buffer->scene_graph_record.regen =
+		weston_buffer_debug_string_regenerate;
 	wl_signal_init(&buffer->destroy_signal);
 	buffer->destroy_listener.notify = weston_buffer_destroy_handler;
 	wl_resource_add_destroy_listener(resource, &buffer->destroy_listener);
@@ -2933,6 +3089,7 @@ weston_buffer_from_resource(struct weston_compositor *ec,
 
 fail:
 	wl_list_remove(&buffer->destroy_listener.link);
+	free(buffer->scene_graph_record.cached_str);
 	free(buffer);
 	return NULL;
 }
@@ -2990,6 +3147,7 @@ weston_buffer_reference(struct weston_buffer_reference *ref,
 	    !old_ref.buffer->resource) {
 		wl_signal_emit_mutable(&old_ref.buffer->destroy_signal,
 					   old_ref.buffer);
+		free(old_ref.buffer->scene_graph_record.cached_str);
 		free(old_ref.buffer);
 	}
 }
@@ -3081,6 +3239,8 @@ weston_buffer_create_solid_rgba(struct weston_compositor *compositor,
 	buffer->solid.g = g;
 	buffer->solid.b = b;
 	buffer->solid.a = a;
+	buffer->scene_graph_record.regen =
+		weston_buffer_debug_string_regenerate;
 
 	if (a == 1.0) {
 		buffer->pixel_format =
@@ -5435,7 +5595,7 @@ weston_surface_set_role(struct weston_surface *surface,
 WL_EXPORT const char *
 weston_surface_get_role(struct weston_surface *surface)
 {
-	return surface->role_name;
+	return surface->role_name ?: "none";
 }
 
 WL_EXPORT void
@@ -5446,6 +5606,8 @@ weston_surface_set_label_func(struct weston_surface *surface,
 	surface->get_label = desc;
 	weston_timeline_refresh_subscription_objects(surface->compositor,
 						     surface);
+
+	weston_cached_str_invalidate(&surface->scene_graph_record);
 }
 
 /** Get the size of surface contents
@@ -9479,63 +9641,25 @@ output_repaint_status_text(struct weston_output *output)
 }
 
 static void
-debug_scene_view_print_buffer(FILE *fp, struct weston_view *view)
+debug_scene_view_print_buffer(struct weston_view *view, struct weston_log_scope *debug_scope)
 {
 	struct weston_buffer *buffer = view->surface->buffer_ref.buffer;
-	char *modifier_name;
 
 	if (!buffer) {
-		fprintf(fp, "\t\t[buffer not available]\n");
+		weston_log_scope_printf(debug_scope, "\t\t[buffer not available]\n");
 		return;
 	}
 
-	switch (buffer->type) {
-	case WESTON_BUFFER_SHM:
-		fprintf(fp, "\t\tSHM buffer\n");
-		break;
-	case WESTON_BUFFER_DMABUF:
-		fprintf(fp, "\t\tdmabuf buffer\n");
-		break;
-	case WESTON_BUFFER_SOLID:
-		fprintf(fp, "\t\tsolid-colour buffer\n");
-		fprintf(fp, "\t\t\t[R %f, G %f, B %f, A %f]\n",
-			buffer->solid.r, buffer->solid.g, buffer->solid.b,
-			buffer->solid.a);
-		break;
-	case WESTON_BUFFER_RENDERER_OPAQUE:
-		fprintf(fp, "\t\tEGL buffer:\n");
-		fprintf(fp, "\t\t\t[format may be inaccurate]\n");
-		break;
-	}
+	weston_log_scope_printf(debug_scope, "%s",
+				weston_cached_str_get(&buffer->scene_graph_record, buffer));
 
 	if (buffer->busy_count > 0) {
-		fprintf(fp, "\t\t\t[%d references may use buffer content]\n",
+		weston_log_scope_printf(debug_scope, "\t\t\t[%d references may use buffer content]\n",
 			buffer->busy_count);
 	} else {
-		fprintf(fp, "\t\t\t[buffer has been released to client]\n");
+		weston_log_scope_printf(debug_scope, "\t\t\t[buffer has been released to client]\n");
 	}
 
-	if (buffer->pixel_format) {
-		fprintf(fp, "\t\t\tformat: 0x%lx %s\n",
-			(unsigned long) buffer->pixel_format->format,
-			buffer->pixel_format->drm_format_name);
-	} else {
-		fprintf(fp, "\t\t\t[unknown format]\n");
-	}
-
-	modifier_name = pixel_format_get_modifier(buffer->format_modifier);
-	fprintf(fp, "\t\t\tmodifier: %s\n",
-		modifier_name ?
-			modifier_name : "Failed to convert to a modifier name");
-	free(modifier_name);
-
-	fprintf(fp, "\t\t\twidth: %d, height: %d\n",
-		buffer->width, buffer->height);
-	if (buffer->buffer_origin == ORIGIN_BOTTOM_LEFT)
-		fprintf(fp, "\t\t\tbottom-left origin\n");
-
-	if (buffer->direct_display)
-		fprintf(fp, "\t\t\tdirect-display buffer (no renderer access)\n");
 }
 
 static const struct weston_enum_map transforms[] = {
@@ -9605,113 +9729,68 @@ weston_plane_failure_reasons_to_str(enum try_view_on_plane_failure_reasons failu
 }
 
 static void
-debug_scene_view_print_paint_node(FILE *fp,
-				  struct weston_view *view,
-				  struct weston_output *output)
+debug_scene_view_print_paint_node(struct weston_view *view,
+				  struct weston_output *output,
+				  struct weston_log_scope *debug_scope)
 {
 	struct weston_paint_node *pnode;
 
 	pnode = weston_view_find_paint_node(view, output);
 	if (!pnode)
-		fprintf(fp, "\t\t\tpaint node [pending repaint]:\n");
-	else
-		fprintf(fp, "\t\t\tpaint node %s:\n", pnode->internal_name);
-
-	fprintf(fp, "\t\t\t\toutput: %d (%s)%s\n",
-		output->id, output->name,
-		(view->output == output) ? " (primary)" : "");
-
-	if (!pnode)
 		return;
 
-	fprintf(fp, "\t\t\t\tBuffer to output transform: ");
-	if (!pnode->valid_transform)
-		fprintf(fp, "Free form\n");
-	else {
+	weston_log_scope_printf(debug_scope, "%s",
+				weston_cached_str_get(&pnode->scene_graph_record, pnode));
+
+	weston_log_scope_printf(debug_scope, "\t\t\t\tBuffer to output transform: ");
+	if (!pnode->valid_transform) {
+		weston_log_scope_printf(debug_scope, "Free form\n");
+	} else {
 		const char *tform;
 
 		tform = weston_transform_to_string(pnode->transform);
-		fprintf(fp, "%s\n", tform);
+		weston_log_scope_printf(debug_scope, "%s\n", tform);
 	}
 
 	if (pnode->try_view_on_plane_failure_reasons) {
-		char *fr_str = bits_to_str(pnode->try_view_on_plane_failure_reasons,
-					   weston_plane_failure_reasons_to_str);
-		fprintf(fp, "\t\t\t\tPlane failure reasons: %s\n", fr_str);
-
-		free(fr_str);
+		weston_log_scope_printf(debug_scope, "\t\t\t\tPlane failure reasons: ");
+		char *bits_str = bits_to_str(pnode->try_view_on_plane_failure_reasons,
+					     weston_plane_failure_reasons_to_str);
+		weston_log_scope_printf(debug_scope, "%s", bits_str);
+		weston_log_scope_printf(debug_scope, "\n");
+		free(bits_str);
 	}
 }
 
 static void
-debug_scene_view_print(FILE *fp, struct weston_view *view)
+debug_scene_view_print(struct weston_view *view, struct weston_log_scope *debug_scope)
 {
 	struct weston_compositor *ec = view->surface->compositor;
 	struct weston_output *output;
-	char desc[512];
-	pixman_box32_t *box;
-	pid_t pid = 0;
 
-	if (view->surface->resource) {
-		struct wl_resource *resource = view->surface->resource;
-		wl_client_get_credentials(wl_resource_get_client(resource),
-					  &pid, NULL, NULL);
-	}
+	weston_log_scope_printf(debug_scope, "\tView %s %s\n", view->internal_name,
+		weston_cached_str_get(&view->surface->scene_graph_record, view->surface));
 
-	if (!view->surface->get_label ||
-	    view->surface->get_label(view->surface, desc, sizeof(desc)) < 0) {
-		strcpy(desc, "[no description available]");
-	}
-	fprintf(fp, "\tView %s (role %s, PID %d, '%s'):\n",
-		view->internal_name,
-		view->surface->role_name ?: "none",
-		pid, desc);
-
-	if (!weston_view_is_mapped(view))
-		fprintf(fp, "\t[view is not mapped!]\n");
-	if (!weston_surface_is_mapped(view->surface))
-		fprintf(fp, "\t[surface is not mapped!]\n");
-	if (wl_list_empty(&view->layer_link.link)) {
-		if (!get_view_layer(view))
-			fprintf(fp, "\t[view is not part of any layer]\n");
-		else
-			fprintf(fp, "\t[view is under parent view layer]\n");
-	}
-
-	box = pixman_region32_extents(&view->transform.boundingbox);
-	fprintf(fp, "\t\tposition: (%d, %d) -> (%d, %d)\n",
-		box->x1, box->y1, box->x2, box->y2);
-	box = pixman_region32_extents(&view->transform.opaque);
-
-	if (weston_view_is_opaque(view, &view->transform.boundingbox)) {
-		fprintf(fp, "\t\t[fully opaque]\n");
-	} else if (!pixman_region32_not_empty(&view->transform.opaque)) {
-		fprintf(fp, "\t\t[not opaque]\n");
-	} else {
-		fprintf(fp, "\t\t[opaque: (%d, %d) -> (%d, %d)]\n",
-			box->x1, box->y1, box->x2, box->y2);
-	}
-
-	if (view->alpha < 1.0)
-		fprintf(fp, "\t\talpha: %f\n", view->alpha);
+	weston_log_scope_printf(debug_scope, "%s",
+				weston_cached_str_get(&view->scene_graph_record, view));
 
 	if (view->output_mask != 0) {
-		fprintf(fp, "\t\tpaint nodes:\n");
+		weston_log_scope_printf(debug_scope, "\t\tpaint nodes:\n");
 		wl_list_for_each(output, &ec->output_list, link) {
 			if (!(view->output_mask & (1 << output->id)))
 				continue;
-			debug_scene_view_print_paint_node(fp, view, output);
+			debug_scene_view_print_paint_node(view, output, debug_scope);
 		}
 	} else {
-		fprintf(fp, "\t\t[no paint nodes]");
+		weston_log_scope_printf(debug_scope, "\t\t[no paint nodes]");
 	}
 
-	fprintf(fp, "\n");
+	weston_log_scope_printf(debug_scope, "\n");
 
-	debug_scene_view_print_buffer(fp, view);
+	debug_scene_view_print_buffer(view, debug_scope);
 
 	if (weston_surface_is_mapped(view->surface)) {
-		fprintf(fp, "\t\tCommit frame rate: %2.2f, Painted frame "
+		weston_log_scope_printf(debug_scope, "\t\tCommit frame rate: %2.2f, Painted frame "
 			     "rate: %2.2f (sampled interval: %dsec)\n",
 			     view->surface->frame_commit_fps_counter,
 			     view->surface->painted_frame_fps_counter,
@@ -9721,7 +9800,7 @@ debug_scene_view_print(FILE *fp, struct weston_view *view)
 }
 
 static void
-debug_scene_view_print_tree(struct weston_view *view, FILE *fp)
+debug_scene_view_print_tree(struct weston_view *view, struct weston_log_scope *debug_scope)
 {
 	struct weston_subsurface *sub;
 	struct weston_view *ev;
@@ -9730,7 +9809,7 @@ debug_scene_view_print_tree(struct weston_view *view, FILE *fp)
 	 * print the view first, then we recursively go on printing
 	 * sub-surfaces. We bail out once no more sub-surfaces are available.
 	 */
-	debug_scene_view_print(fp, view);
+	debug_scene_view_print(view, debug_scope);
 
 	/* no more sub-surfaces */
 	if (wl_list_empty(&view->surface->subsurface_list))
@@ -9742,8 +9821,55 @@ debug_scene_view_print_tree(struct weston_view *view, FILE *fp)
 			if (ev->parent_view != view)
 				continue;
 
-			debug_scene_view_print_tree(ev, fp);
+			debug_scene_view_print_tree(ev, debug_scope);
 		}
+	}
+}
+
+static void
+weston_compositor_print_output_scene_graph(struct weston_output *output, struct weston_log_scope *debug_scope)
+{
+	struct weston_head *head;
+	int head_idx = 0;
+	int x, y;
+
+	weston_log_scope_printf(debug_scope, "Output %d (%s):\n", output->id, output->name);
+	assert(output->enabled);
+
+	x = output->pos.c.x;
+	y = output->pos.c.y;
+
+	weston_log_scope_printf(debug_scope, "\tposition: (%d, %d) -> (%d, %d)\n",
+		x, y, x + output->width, y + output->height);
+	weston_log_scope_printf(debug_scope, "\tmode: %dx%d@%.3fHz\n",
+				output->current_mode->width,
+				output->current_mode->height,
+				output->current_mode->refresh / 1000.0);
+	weston_log_scope_printf(debug_scope, "\tscale: %d\n", output->current_scale);
+
+	weston_log_scope_printf(debug_scope, "\trepaint status: %s\n", output_repaint_status_text(output));
+
+	if (output->repaint_status == REPAINT_SCHEDULED) {
+		weston_log_scope_printf(debug_scope, "\tnext repaint scheduled for: %" PRId64 ".%09ld\n",
+					(int64_t)output->next_repaint.tv_sec,
+					output->next_repaint.tv_nsec);
+		weston_log_scope_printf(debug_scope, "\tto be presented at: %" PRId64 ".%09ld\n",
+					(int64_t)output->next_present.tv_sec,
+					output->next_present.tv_nsec);
+	} else if (output->repaint_status == REPAINT_AWAITING_COMPLETION) {
+		weston_log_scope_printf(debug_scope, "\twaiting for repaint that occurred at: %" PRId64 ".%09ld\n",
+					(int64_t)output->next_repaint.tv_sec,
+					output->next_repaint.tv_nsec);
+		weston_log_scope_printf(debug_scope, "\tto be presented at: %" PRId64 ".%09ld\n",
+					(int64_t)output->next_present.tv_sec,
+					output->next_present.tv_nsec);
+	} else  if (output->repaint_status == REPAINT_DEFERRED) {
+		weston_log_scope_printf(debug_scope, "\tDeferred pending backend recovery\n");
+	}
+	wl_list_for_each(head, &output->head_list, output_link) {
+		weston_log_scope_printf(debug_scope, "\tHead %d (%s): %sconnected\n",
+					head_idx++, head->name,
+					(head->connected) ? "" : "not ");
 	}
 }
 
@@ -9753,97 +9879,45 @@ debug_scene_view_print_tree(struct weston_view *view, FILE *fp)
  *
  * \ingroup compositor
  */
-WL_EXPORT char *
-weston_compositor_print_scene_graph(struct weston_compositor *ec)
+WL_EXPORT void
+weston_compositor_print_scene_graph(struct weston_compositor *ec, struct weston_log_scope *debug_scope)
 {
 	struct weston_output *output;
 	struct weston_layer *layer;
 	struct timespec now;
 	int layer_idx = 0;
-	FILE *fp;
-	char *ret;
-	size_t len;
-	int err;
 
-	fp = open_memstream(&ret, &len);
-	assert(fp);
+	WESTON_TRACE_FUNC();
 
 	weston_compositor_read_presentation_clock(ec, &now);
-	fprintf(fp, "Weston scene graph at %" PRId64 ".%09ld:\n\n",
+	weston_log_scope_printf(debug_scope, "Weston scene graph at %" PRId64 ".%09ld:\n\n",
 		(int64_t)now.tv_sec, now.tv_nsec);
 
-	wl_list_for_each(output, &ec->output_list, link) {
-		struct weston_head *head;
-		int head_idx = 0;
-		int x, y;
+	wl_list_for_each(output, &ec->output_list, link)
+		weston_compositor_print_output_scene_graph(output, debug_scope);
 
-		fprintf(fp, "Output %d (%s):\n", output->id, output->name);
-		assert(output->enabled);
-
-		x = output->pos.c.x;
-		y = output->pos.c.y;
-
-		fprintf(fp, "\tposition: (%d, %d) -> (%d, %d)\n",
-			x, y, x + output->width, y + output->height);
-		fprintf(fp, "\tmode: %dx%d@%.3fHz\n",
-			output->current_mode->width,
-			output->current_mode->height,
-			output->current_mode->refresh / 1000.0);
-		fprintf(fp, "\tscale: %d\n", output->current_scale);
-
-		fprintf(fp, "\trepaint status: %s\n",
-			output_repaint_status_text(output));
-		if (output->repaint_status == REPAINT_SCHEDULED) {
-			fprintf(fp, "\tnext repaint scheduled for: %" PRId64 ".%09ld\n",
-				(int64_t)output->next_repaint.tv_sec,
-				output->next_repaint.tv_nsec);
-			fprintf(fp, "\tto be presented at: %" PRId64 ".%09ld\n",
-				(int64_t)output->next_present.tv_sec,
-				output->next_present.tv_nsec);
-		} else if (output->repaint_status == REPAINT_AWAITING_COMPLETION) {
-			fprintf(fp, "\twaiting for repaint that occurred at: %" PRId64 ".%09ld\n",
-				(int64_t)output->next_repaint.tv_sec,
-				output->next_repaint.tv_nsec);
-			fprintf(fp, "\tto be presented at: %" PRId64 ".%09ld\n",
-				(int64_t)output->next_present.tv_sec,
-				output->next_present.tv_nsec);
-		} else  if (output->repaint_status == REPAINT_DEFERRED) {
-			fprintf(fp, "\tDeferred pending backend recovery\n");
-		}
-		wl_list_for_each(head, &output->head_list, output_link) {
-			fprintf(fp, "\tHead %d (%s): %sconnected\n",
-				head_idx++, head->name,
-				(head->connected) ? "" : "not ");
-		}
-	}
-
-	fprintf(fp, "\n");
+	weston_log_scope_printf(debug_scope, "\n");
 
 	wl_list_for_each(layer, &ec->layer_list, link) {
 		struct weston_view *view;
 
-		fprintf(fp, "Layer %d (pos 0x%lx):\n", layer_idx++,
+		weston_log_scope_printf(debug_scope, "Layer %d (pos 0x%lx):\n", layer_idx++,
 			(unsigned long) layer->position);
 
 		if (!weston_layer_mask_is_infinite(layer)) {
-			fprintf(fp, "\t[mask: (%d, %d) -> (%d,%d)]\n\n",
+			weston_log_scope_printf(debug_scope, "\t[mask: (%d, %d) -> (%d,%d)]\n\n",
 				layer->mask.x1, layer->mask.y1,
 				layer->mask.x2, layer->mask.y2);
 		}
 
 		wl_list_for_each(view, &layer->view_list.link, layer_link.link)
-			debug_scene_view_print_tree(view, fp);
+			debug_scene_view_print_tree(view, debug_scope);
 
 		if (wl_list_empty(&layer->view_list.link))
-			fprintf(fp, "\t[no views]\n");
+			weston_log_scope_printf(debug_scope, "\t[no views]\n");
 
-		fprintf(fp, "\n");
+		weston_log_scope_printf(debug_scope, "\n");
 	}
-
-	err = fclose(fp);
-	assert(err == 0);
-
-	return ret;
 }
 
 static void
@@ -9881,7 +9955,6 @@ static void
 debug_scene_graph_cb(struct weston_log_subscription *sub, void *data)
 {
 	struct weston_compositor *ec = data;
-	char *str;
 
 	/* If the presentation_clock is CLOCK_REALTIME, then it is
 	 * uninitialized.  This means no back-end is loaded yet, so we can't
@@ -9889,10 +9962,7 @@ debug_scene_graph_cb(struct weston_log_subscription *sub, void *data)
 	if (ec->presentation_clock == CLOCK_REALTIME)
 		return;
 
-	str = weston_compositor_print_scene_graph(ec);
-
-	weston_log_subscription_printf(sub, "%s", str);
-	free(str);
+	weston_compositor_print_scene_graph(ec, ec->debug_scene);
 	weston_log_subscription_complete(sub);
 }
 
@@ -11146,4 +11216,78 @@ weston_backend_clear_deferred(struct weston_backend *backend,
 		output->repaint_status = REPAINT_NOT_SCHEDULED;
 		weston_output_schedule_repaint(output);
 	}
+}
+
+/**
+ * Returns a cached string value held up by a pointer to a struct
+ * weston_cached_string or regenerates the string in case the cached value has
+ * been invalidated. This is useful for caching object's properties as a string
+ * value. Users should use weston_cached_str_invalidate in combination with
+ * this function to denote when it is time to regenerate the string cached
+ * value.
+ *
+ * Note that over-invalidation would actually hurt performance so this is ideal
+ * for (object) properties that do *not* change each frame.
+ *
+ * \param s a pointer to struct weston_cached_string
+ * \param data generic pointer to be passed to the regen function
+ * \sa weston_cached_str_invalidate
+ *
+ */
+WL_EXPORT const char *
+weston_cached_str_get(struct weston_cached_string *s, void *data)
+{
+
+#ifdef DEBUG
+	char *tmp_cached = NULL;
+	bool cache_valid = false;
+
+	if (s->is_up_to_date) {
+		cache_valid = true;
+		str_printf(&tmp_cached, "%s", s->cached_str);
+	}
+
+	s->is_up_to_date = false;
+#endif
+
+	if (!s->is_up_to_date) {
+		char *str = NULL;
+		size_t size = 0;
+		FILE *fp;
+
+		free(s->cached_str);
+
+		fp = open_memstream(&str, &size);
+		abort_oom_if_null(fp);
+		s->regen(fp, data);
+		if (fclose(fp) == 0) {
+			s->cached_str = str;
+		} else {
+			free(str);
+			s->cached_str = xstrdup("[error]");
+		}
+		s->is_up_to_date = true;
+	}
+
+#ifdef DEBUG
+	if (cache_valid) {
+		weston_assert_str_eq(NULL, tmp_cached, s->cached_str);
+		free(tmp_cached);
+	}
+#endif
+
+	return s->cached_str;
+}
+
+/** Invalidates the cached string value and forces weston_cached_str_get() to
+ * call the regen callback associated with that particular weston_cached_string
+ *
+ * \param s a pointer to struct weston_cached_string
+ *
+ */
+WL_EXPORT void
+weston_cached_str_invalidate(struct weston_cached_string *s)
+{
+	WESTON_TRACE_FUNC();
+	s->is_up_to_date = false;
 }
