@@ -245,6 +245,20 @@ do {                        \
 #define FALLTHROUGH do {} while(0)
 #endif
 
+/** Return the value with only bit b set. */
+static inline uint64_t
+bit(unsigned b)
+{
+	return ((uint64_t)1) << b;
+}
+
+/** Return whether bit b is set in value. */
+static inline bool
+has_bit(uint64_t value, unsigned b)
+{
+	return value & bit(b);
+}
+
 /**
  * Returns number of bits set in 32-bit value x.
  *
