@@ -4402,6 +4402,7 @@ pipewire_backend_output_configure(struct weston_output *output)
 	struct weston_config *wc = wet_get_config(output->compositor);
 	struct weston_config_section *section;
 	char *gbm_format = NULL;
+	bool transparent_background = false;
 	int width;
 	int height;
 	int framerate = -1;
@@ -4419,6 +4420,13 @@ pipewire_backend_output_configure(struct weston_output *output)
 			  parsed_options);
 
 	weston_config_section_get_string(section, "gbm-format", &gbm_format, NULL);
+	weston_config_section_get_bool(section, "transparent-background",
+				       &transparent_background, false);
+
+	if (transparent_background) {
+		free(gbm_format);
+		gbm_format = strdup("argb8888");
+	}
 
 	wet_output_set_scale(output, section, 1, 0);
 	weston_output_set_transform(output, WL_OUTPUT_TRANSFORM_NORMAL);
