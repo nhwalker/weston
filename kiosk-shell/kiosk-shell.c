@@ -23,6 +23,8 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
+#include "config.h"
+
 #include <assert.h>
 #include <linux/input.h>
 #include <stdbool.h>
@@ -34,6 +36,7 @@
 #include "frontend/weston.h"
 #include "libweston/libweston.h"
 #include "shared/helpers.h"
+#include "shared/xalloc.h"
 #include <libweston/shell-utils.h>
 
 #include <libweston/xwayland-api.h>
@@ -451,6 +454,18 @@ kiosk_shell_surface_reconfigure_for_output(struct kiosk_shell_surface *shsurf)
 }
 
 static void
+desktop_surface_update_label(struct wl_listener *listener, void *data)
+{
+	struct weston_desktop_surface *desktop_surface = data;
+	struct weston_surface *surface =
+		weston_desktop_surface_get_surface(desktop_surface);
+	char *label;
+
+	label = weston_desktop_surface_make_label(desktop_surface);
+	weston_surface_set_label(surface, label);
+}
+
+static void
 kiosk_shell_surface_destroy(struct kiosk_shell_surface *shsurf)
 {
 	wl_signal_emit(&shsurf->destroy_signal, shsurf);
@@ -473,6 +488,8 @@ kiosk_shell_surface_destroy(struct kiosk_shell_surface *shsurf)
 		shsurf->parent_destroy_listener.notify = NULL;
 		shsurf->parent = NULL;
 	}
+
+	wl_list_remove(&shsurf->surface_label_update.link);
 
 	free(shsurf);
 }
@@ -510,6 +527,10 @@ kiosk_shell_surface_create(struct kiosk_shell *shell,
 
 	wl_signal_init(&shsurf->destroy_signal);
 	wl_signal_init(&shsurf->parent_destroy_signal);
+
+	shsurf->surface_label_update.notify = desktop_surface_update_label;
+	weston_desktop_surface_add_metadata_listener(desktop_surface, &shsurf->surface_label_update);
+	desktop_surface_update_label(&shsurf->surface_label_update, desktop_surface);
 
 	/* start life inserting itself as root of its own surface tree list */
 	wl_list_init(&shsurf->surface_tree_list);
@@ -672,13 +693,6 @@ kiosk_shell_output_raise_surface_subtree(struct kiosk_shell_output *shoutput,
 	}
 }
 
-static int
-kiosk_shell_background_surface_get_label(struct weston_surface *surface,
-					 char *buf, size_t len)
-{
-	return snprintf(buf, len, "kiosk shell background surface");
-}
-
 static void
 kiosk_shell_output_recreate_background(struct kiosk_shell_output *shoutput)
 {
@@ -712,7 +726,7 @@ kiosk_shell_output_recreate_background(struct kiosk_shell_output *shoutput)
 
 	curtain_params.capture_input = true;
 
-	curtain_params.get_label = kiosk_shell_background_surface_get_label;
+	curtain_params.label = xstrdup("kiosk shell background surface");
 	curtain_params.surface_committed = NULL;
 	curtain_params.surface_private = NULL;
 
@@ -839,14 +853,11 @@ desktop_surface_added(struct weston_desktop_surface *desktop_surface,
 {
 	struct kiosk_shell *shell = data;
 	struct kiosk_shell_surface *shsurf;
-	struct weston_surface *surface =
-		weston_desktop_surface_get_surface(desktop_surface);
 
 	shsurf = kiosk_shell_surface_create(shell, desktop_surface);
 	if (!shsurf)
 		return;
 
-	weston_surface_set_label_func(surface, weston_shell_utils_surface_get_label);
 	kiosk_shell_surface_set_fullscreen(shsurf, NULL);
 }
 

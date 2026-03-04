@@ -31,7 +31,7 @@ extern "C" {
 
 /* parameter for weston_curtain_create() */
 struct weston_curtain_params {
-	int (*get_label)(struct weston_surface *es, char *buf, size_t len);
+	char *label;
 	void (*surface_committed)(struct weston_surface *es,
 				  struct weston_coord_surface new_origin);
 	void *surface_private;
@@ -60,10 +60,6 @@ void
 weston_shell_utils_subsurfaces_boundingbox(struct weston_surface *surface,
 					   int32_t *x, int32_t *y,
 					   int32_t *w, int32_t *h);
-
-int
-weston_shell_utils_surface_get_label(struct weston_surface *surface,
-				     char *buf, size_t len);
 
 /* helper to create a view w/ a color */
 struct weston_curtain *

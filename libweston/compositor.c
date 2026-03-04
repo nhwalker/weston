@@ -1045,6 +1045,9 @@ weston_surface_create(struct weston_compositor *compositor,
 
 	wl_list_init(&surface->fifo_barrier_link);
 
+	/* Set default label */
+	weston_surface_set_label(surface, NULL);
+
 	return surface;
 }
 
@@ -2779,6 +2782,8 @@ weston_surface_unref(struct weston_surface *surface)
 	wl_list_remove(&surface->fifo_barrier_link);
 
 	free(surface->internal_name);
+
+	free(surface->label_dyn);
 	free(surface);
 }
 
@@ -4127,25 +4132,14 @@ surface_frame_rate_stats(void *data)
 		compositor->perf_surface_stats.frame_counter_interval;
 
 	if (surf->resource) {
-		char surface_desc[512];
 		char p_counter_fc_counter[1024];
 		char p_counter_painted_counter[1024];
-
-		if (surf->get_label)
-			surf->get_label(surf, surface_desc, sizeof(surface_desc));
-		else {
-			uint32_t res_id;
-
-			res_id = wl_resource_get_id(surf->resource);
-			snprintf(surface_desc, sizeof(surface_desc),
-				 "unlabelled surface %d", res_id);
-		}
 
 		surf->frame_commit_fps_counter =
 			(float) (surf->frame_commit_counter / frame_counter_interval);
 
 		snprintf(p_counter_fc_counter, sizeof(p_counter_fc_counter),
-			 "%s #%d", (char *) surface_desc, surf->s_id);
+			 "%s #%d", surf->label, surf->s_id);
 
 		WESTON_TRACE_SET_COUNTER(p_counter_fc_counter,
 					 surf->frame_commit_fps_counter);
@@ -4154,7 +4148,7 @@ surface_frame_rate_stats(void *data)
 			(float) (surf->painted_frame_counter / frame_counter_interval);
 
 		snprintf(p_counter_painted_counter, sizeof(p_counter_painted_counter),
-			 "%s #%d (painted)", (char *) surface_desc, surf->s_id);
+			 "%s #%d (painted)", surf->label, surf->s_id);
 
 		WESTON_TRACE_SET_COUNTER(p_counter_painted_counter,
 					 surf->painted_frame_fps_counter);
@@ -5335,12 +5329,6 @@ static const struct wl_compositor_interface compositor_interface = {
 	compositor_create_region
 };
 
-static int
-subsurface_get_label(struct weston_surface *surface, char *buf, size_t len)
-{
-	return snprintf(buf, len, "sub-surface");
-}
-
 static void
 subsurface_committed(struct weston_surface *surface,
 		     struct weston_coord_surface new_origin)
@@ -5438,14 +5426,45 @@ weston_surface_get_role(struct weston_surface *surface)
 	return surface->role_name;
 }
 
-WL_EXPORT void
-weston_surface_set_label_func(struct weston_surface *surface,
-			      int (*desc)(struct weston_surface *,
-					  char *, size_t))
+static void
+weston_surface_do_set_label(struct weston_surface *surface,
+			    char *label_dyn,
+			    const char *label_static)
 {
-	surface->get_label = desc;
-	weston_timeline_refresh_subscription_objects(surface->compositor,
-						     surface);
+	free(surface->label_dyn);
+	surface->label_dyn = label_dyn;
+
+	if (label_static)
+		surface->label = label_static;
+	else
+		surface->label = "(no label)";
+
+	weston_timeline_refresh_subscription_objects(surface->compositor, surface);
+}
+
+/**
+ * Set a human-readable label on a surface, malloc'd
+ *
+ * \param surface The surface to label.
+ * \param label A malloc'd string. This function takes the ownership of the
+ * string and will free() it as necessary. Can be NULL to remove the label.
+ */
+WL_EXPORT void
+weston_surface_set_label(struct weston_surface *surface, char *label)
+{
+	weston_surface_do_set_label(surface, label, label);
+}
+
+/**
+ * Set a human-readable label on a surface, static
+ *
+ * \param surface The surface to label.
+ * \param label A static string, never free()'d. Can be NULL to remove the label.
+ */
+WL_EXPORT void
+weston_surface_set_label_static(struct weston_surface *surface, const char *label)
+{
+	weston_surface_do_set_label(surface, NULL, label);
 }
 
 /** Get the size of surface contents
@@ -5826,7 +5845,7 @@ weston_subsurface_destroy(struct weston_subsurface *sub)
 
 		sub->surface->committed = NULL;
 		sub->surface->committed_private = NULL;
-		weston_surface_set_label_func(sub->surface, NULL);
+		weston_surface_set_label(sub->surface, NULL);
 	} else {
 		/* the dummy weston_subsurface for the parent itself */
 		assert(sub->parent_destroy_listener.notify == NULL);
@@ -5958,7 +5977,8 @@ subcompositor_get_subsurface(struct wl_client *client,
 
 	surface->committed = subsurface_committed;
 	surface->committed_private = sub;
-	weston_surface_set_label_func(surface, subsurface_get_label);
+
+	weston_surface_set_label_static(surface, "sub-surface");
 }
 
 static void
@@ -9648,7 +9668,6 @@ debug_scene_view_print(FILE *fp, struct weston_view *view)
 {
 	struct weston_compositor *ec = view->surface->compositor;
 	struct weston_output *output;
-	char desc[512];
 	pixman_box32_t *box;
 	pid_t pid = 0;
 
@@ -9658,14 +9677,10 @@ debug_scene_view_print(FILE *fp, struct weston_view *view)
 					  &pid, NULL, NULL);
 	}
 
-	if (!view->surface->get_label ||
-	    view->surface->get_label(view->surface, desc, sizeof(desc)) < 0) {
-		strcpy(desc, "[no description available]");
-	}
 	fprintf(fp, "\tView %s (role %s, PID %d, '%s'):\n",
 		view->internal_name,
 		view->surface->role_name ?: "none",
-		pid, desc);
+		pid, view->surface->label);
 
 	if (!weston_view_is_mapped(view))
 		fprintf(fp, "\t[view is not mapped!]\n");

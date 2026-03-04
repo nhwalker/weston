@@ -57,22 +57,11 @@ weston_perfetto_ensure_output_ids(struct weston_output *output)
 static void
 build_track_name(struct weston_surface *surface, char *name, int size)
 {
-	char surface_label[512];
-
 	/* Make sure we only call this once, so we don't accidentally
 	 * make multiple names for the same surface */
 	assert(surface->damage_track_id == 0);
 
-	if (surface->get_label)
-		surface->get_label(surface, surface_label, sizeof(surface_label));
-	else {
-		uint32_t res_id;
-
-		res_id = wl_resource_get_id(surface->resource);
-		snprintf(surface_label, sizeof(surface_label), "unlabelled surface %d", res_id);
-	}
-
-	snprintf(name, size, "%s #%d", surface_label, surface->s_id);
+	snprintf(name, size, "%s #%d", surface->label, surface->s_id);
 }
 
 static void

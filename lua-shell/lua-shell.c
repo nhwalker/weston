@@ -33,6 +33,7 @@
 #include "lua-shell.h"
 #include "frontend/weston.h"
 #include "shared/helpers.h"
+#include "shared/string-helpers.h"
 #include "shared/weston-assert.h"
 #include "shared/xalloc.h"
 #include "libweston/shell-utils.h"
@@ -518,11 +519,21 @@ lua_shell_output_create(struct lua_shell *shell, struct weston_output *output)
  */
 
 static void
+desktop_surface_update_label(struct wl_listener *listener, void *data)
+{
+	struct weston_desktop_surface *desktop_surface = data;
+	struct weston_surface *surface =
+		weston_desktop_surface_get_surface(desktop_surface);
+	char *label;
+
+	label = weston_desktop_surface_make_label(desktop_surface);
+	weston_surface_set_label(surface, label);
+}
+
+static void
 desktop_surface_added(struct weston_desktop_surface *desktop_surface,
 		      void *data)
 {
-	struct weston_surface *surface =
-		weston_desktop_surface_get_surface(desktop_surface);
 	struct lua_shell *shell = data;
 	struct lua_shell_surface *shsurf;
 
@@ -530,8 +541,9 @@ desktop_surface_added(struct weston_desktop_surface *desktop_surface,
 	if (!shsurf)
 		return;
 
-	weston_surface_set_label_func(surface,
-				      weston_shell_utils_surface_get_label);
+	shsurf->surface_label_update.notify = desktop_surface_update_label;
+	weston_desktop_surface_add_metadata_listener(desktop_surface, &shsurf->surface_label_update);
+	desktop_surface_update_label(&shsurf->surface_label_update, desktop_surface);
 }
 
 static void
@@ -1704,19 +1716,6 @@ lua_shell_env_curtain_set_capture_input(struct lua_State *lua)
 }
 
 static int
-lua_shell_curtain_get_label(struct weston_surface *surface,
-			    char *buf, size_t len)
-{
-	struct lua_shell_curtain *shcurtain = surface->committed_private;
-	const char *name = "unnamed";
-
-	if (shcurtain->name)
-		name = shcurtain->name;
-
-	return snprintf(buf, len, "%s (curtain)", name);
-}
-
-static int
 lua_shell_env_curtain_get_view(struct lua_State *lua)
 {
 	struct lua_shell_curtain *shcurtain = get_curtain_from_arg(lua, 1);
@@ -1727,10 +1726,11 @@ lua_shell_env_curtain_get_view(struct lua_State *lua)
 	if (shview)
 		goto done;
 
-	shcurtain->params.get_label = lua_shell_curtain_get_label;
+	str_printf(&shcurtain->params.label, "%s (curtain)", shcurtain->name ?: "unnamed");
 	shcurtain->params.surface_private = shcurtain;
 	shcurtain->curtain = weston_shell_utils_curtain_create(shell->compositor,
 							       &shcurtain->params);
+	shcurtain->params.label = NULL;
 
 	shview = lxzalloc(lua, sizeof(*shview), "weston.view");
 	shview->view = shcurtain->curtain->view;
