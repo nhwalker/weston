@@ -266,9 +266,6 @@ struct drm_backend {
 
 	uint32_t pageflip_timeout;
 
-	/* True, if underlay planes exist. */
-	bool has_underlay;
-
 	struct weston_log_scope *debug;
 
 	struct {
@@ -393,7 +390,7 @@ struct drm_output_state {
  */
 struct drm_plane_state {
 	struct drm_plane *plane;
-	struct drm_output *output;
+	struct drm_plane_handle *handle;
 	struct drm_output_state *output_state;
 
 	struct drm_fb *fb;
@@ -448,8 +445,6 @@ struct drm_plane {
 	struct drm_device *device;
 
 	enum wdrm_plane_type type;
-	/* Whether this plane supports overlay, underlay, or both */
-	enum drm_plane_subtype subtype;
 
 	uint32_t possible_crtcs;
 	uint32_t plane_id;
@@ -470,6 +465,16 @@ struct drm_plane {
 	struct wl_list link;
 
 	struct weston_drm_format_array formats;
+};
+
+struct drm_plane_handle {
+	struct drm_output *output;
+	struct drm_plane *plane;
+
+	/* Whether this plane supports overlay, underlay, or both */
+	enum drm_plane_subtype subtype;
+
+	struct wl_list link; /* drm_output::plane_handle_list */
 };
 
 struct drm_connector {
@@ -594,9 +599,15 @@ struct drm_output {
 	bool dpms_off_pending;
 	bool mode_switch_pending;
 
+	/* List of hardware planes this output can use */
+	struct wl_list plane_handle_list;
+
+	/* True, if underlay planes exist. */
+	bool has_underlay;
+
 	uint32_t gbm_cursor_handle[2];
 	struct drm_fb *gbm_cursor_fb[2];
-	struct drm_plane *cursor_plane;
+	struct drm_plane_handle *cursor_handle;
 	int current_cursor;
 
 	struct gbm_surface *gbm_surface;
@@ -615,7 +626,7 @@ struct drm_output {
 	struct drm_colorop_3x1d_lut *blend_to_output_xform;
 
 	/* Plane being displayed directly on the CRTC */
-	struct drm_plane *scanout_plane;
+	struct drm_plane_handle *scanout_handle;
 
 	/* The last state submitted to the kernel for this CRTC. */
 	struct drm_output_state *state_cur;
@@ -717,30 +728,47 @@ to_drm_mode(struct weston_mode *base)
 }
 
 static inline const char *
-drm_output_get_plane_type_name(struct drm_plane *p)
+drm_output_get_plane_type_name_internal(struct drm_plane *p, struct drm_plane_handle *h)
 {
+	assert(!p || !h);
+
+	if (h)
+		p = h->plane;
+
 	switch (p->type) {
 	case WDRM_PLANE_TYPE_PRIMARY:
 		return "primary";
 	case WDRM_PLANE_TYPE_CURSOR:
 		return "cursor";
 	case WDRM_PLANE_TYPE_OVERLAY:
-		switch (p->subtype) {
+		if (!h)
+			return "overlay(no subtype)";
+
+		switch (h->subtype) {
 		case PLANE_SUBTYPE_OVERLAY_ONLY:
 			return "overlay";
 		case PLANE_SUBTYPE_UNDERLAY_ONLY:
 			return "underlay";
 		case PLANE_SUBTYPE_BOTH:
 			return "over/underlay";
-		default:
-			assert(0);
-			break;
 		}
 		// fall through
 	default:
 		assert(0);
 		break;
 	}
+}
+
+static inline const char *
+drm_output_get_plane_type_name(struct drm_plane *p)
+{
+	return drm_output_get_plane_type_name_internal(p, NULL);
+}
+
+static inline const char *
+drm_output_get_handle_type_name(struct drm_plane_handle *h)
+{
+	return drm_output_get_plane_type_name_internal(NULL, h);
 }
 
 struct drm_crtc *
@@ -962,6 +990,12 @@ drm_output_render(struct drm_output_state *state);
 int
 parse_gbm_format(const char *s, const struct pixel_format_info *default_format,
 		 const struct pixel_format_info **format);
+
+struct drm_plane_handle *
+drm_plane_create_handle(struct drm_plane *plane, struct drm_output *output);
+
+void
+drm_plane_destroy_handle(struct drm_plane_handle *plane);
 
 #ifdef BUILD_DRM_VIRTUAL
 extern int

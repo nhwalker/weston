@@ -371,7 +371,7 @@ drm_plane_is_available(struct drm_plane *plane, struct drm_output *output)
 		return false;
 
 	/* The plane is still active on another output. */
-	if (plane->state_cur->output && plane->state_cur->output != output)
+	if (plane->state_cur->handle && plane->state_cur->handle->output != output)
 		return false;
 
 	/* Check whether the plane can be used with this CRTC; possible_crtcs
@@ -557,7 +557,7 @@ drm_output_render(struct drm_output_state *state)
 	struct drm_device *device = output->device;
 	struct weston_compositor *c = output->base.compositor;
 	struct drm_plane_state *scanout_state;
-	struct drm_plane *scanout_plane = output->scanout_plane;
+	struct drm_plane *scanout_plane = output->scanout_handle->plane;
 	struct drm_property_info *damage_info =
 		&scanout_plane->props[WDRM_PLANE_FB_DAMAGE_CLIPS];
 	struct drm_fb *fb;
@@ -604,7 +604,7 @@ drm_output_render(struct drm_output_state *state)
 	}
 
 	scanout_state->fb = fb;
-	scanout_state->output = output;
+	scanout_state->handle = output->scanout_handle;
 
 	scanout_state->src_x = 0;
 	scanout_state->src_y = 0;
@@ -892,7 +892,8 @@ drm_output_repaint(struct weston_output *output_base)
 	struct drm_output *output = to_drm_output(output_base);
 	struct drm_output_state *state = NULL;
 	struct drm_plane_state *scanout_state;
-	struct drm_plane_state *cursor_state;
+	struct drm_plane_state *cursor_state = NULL;
+	struct drm_plane *cursor_plane = NULL;
 	struct drm_pending_state *pending_state;
 	struct drm_device *device;
 
@@ -913,19 +914,23 @@ drm_output_repaint(struct weston_output *output_base)
 	state = drm_pending_state_get_output(pending_state, output);
 	weston_assert_ptr_not_null(compositor, state);
 
-	cursor_state = drm_output_state_get_existing_plane(state,
-							   output->cursor_plane);
+	if (output->cursor_handle) {
+		cursor_plane = output->cursor_handle->plane;
+		cursor_state = drm_output_state_get_existing_plane(state,
+								   cursor_plane);
+	}
+
 	if (cursor_state && cursor_state->fb) {
 		pixman_region32_t damage;
 		struct drm_fb *old_fb = cursor_state->fb;
 		struct weston_paint_node *cursor_node;
 
-		assert(cursor_state->plane == output->cursor_plane);
+		assert(cursor_state->handle->plane == cursor_plane);
 		assert(old_fb->type == BUFFER_CURSOR);
 
 		pixman_region32_init(&damage);
 		cursor_node = weston_output_flush_damage_for_plane(&output->base,
-								   &output->cursor_plane->base,
+								   &cursor_plane->base,
 								   &damage);
 		if (pixman_region32_not_empty(&damage)) {
 			output->current_cursor++;
@@ -955,7 +960,7 @@ drm_output_repaint(struct weston_output *output_base)
 
 	drm_output_render(state);
 	scanout_state = drm_output_state_get_plane(state,
-						   output->scanout_plane);
+						   output->scanout_handle->plane);
 	if (!scanout_state || !scanout_state->fb)
 		goto err;
 
@@ -996,7 +1001,7 @@ drm_output_start_repaint_loop(struct weston_output *output_base)
 {
 	struct drm_output *output = to_drm_output(output_base);
 	struct drm_pending_state *pending_state;
-	struct drm_plane *scanout_plane = output->scanout_plane;
+	struct drm_plane *scanout_plane = output->scanout_handle->plane;
 	struct drm_device *device = output->device;
 	struct drm_backend *backend = device->backend;
 	struct weston_compositor *compositor = backend->compositor;
@@ -1033,7 +1038,7 @@ drm_output_start_repaint_loop(struct weston_output *output_base)
 		goto finish_frame;
 	}
 
-	assert(scanout_plane->state_cur->output == output);
+	assert(scanout_plane->state_cur->handle->output == output);
 
 	/* If we're tearing, we've been generating timestamps from the
 	 * presentation clock that don't line up with the msc timestamps,
@@ -1487,8 +1492,9 @@ drm_output_find_special_plane(struct drm_device *device,
 			if (!tmp)
 				continue;
 
-			if (tmp->cursor_plane == plane ||
-			    tmp->scanout_plane == plane) {
+			if ((tmp->cursor_handle &&
+			     tmp->cursor_handle->plane == plane) ||
+			    tmp->scanout_handle->plane == plane) {
 				found_elsewhere = true;
 				break;
 			}
@@ -1536,6 +1542,26 @@ drm_plane_destroy(struct drm_plane *plane)
 	free(plane);
 }
 
+void
+drm_plane_destroy_handle(struct drm_plane_handle *handle)
+{
+	wl_list_remove(&handle->link);
+	free(handle);
+}
+
+struct drm_plane_handle *
+drm_plane_create_handle(struct drm_plane *plane, struct drm_output *output)
+{
+	struct drm_plane_handle *handle = xzalloc(sizeof(*handle));
+
+	handle->output = output;
+	handle->plane = plane;
+
+	wl_list_insert(&output->plane_handle_list, &handle->link);
+
+	return handle;
+}
+
 /**
  * Initialise sprites (overlay planes)
  *
@@ -1548,13 +1574,12 @@ drm_plane_destroy(struct drm_plane *plane)
 static void
 create_sprites(struct drm_device *device)
 {
-	struct drm_backend *b = device->backend;
 	drmModePlaneRes *kplane_res;
 	drmModePlane *kplane;
 	struct drm_plane *drm_plane;
 	uint32_t i;
 	uint32_t next_plane_idx = 0;
-	uint64_t primary_plane_zpos_min = DRM_PLANE_ZPOS_INVALID_PLANE;
+
 	kplane_res = drmModeGetPlaneResources(device->kms_device->fd);
 
 	if (!kplane_res) {
@@ -1570,39 +1595,10 @@ create_sprites(struct drm_device *device)
 
 		drm_plane = drm_plane_create(device, kplane);
 		drmModeFreePlane(kplane);
-		if (!drm_plane)
-			continue;
-
-		if (drm_plane->type == WDRM_PLANE_TYPE_OVERLAY)
-			weston_compositor_stack_plane(b->compositor,
-						      &drm_plane->base,
-						      NULL);
-
-		if (drm_plane->type == WDRM_PLANE_TYPE_PRIMARY)
-			primary_plane_zpos_min = drm_plane->zpos_min;
 	}
 
-	wl_list_for_each (drm_plane, &device->plane_list, link) {
+	wl_list_for_each (drm_plane, &device->plane_list, link)
 		drm_plane->plane_idx = next_plane_idx++;
-
-		if (primary_plane_zpos_min == DRM_PLANE_ZPOS_INVALID_PLANE ||
-		    drm_plane->zpos_max == DRM_PLANE_ZPOS_INVALID_PLANE ||
-		    drm_plane->zpos_min == DRM_PLANE_ZPOS_INVALID_PLANE)
-			continue;
-
-		if (drm_plane->zpos_min < primary_plane_zpos_min &&
-		    drm_plane->zpos_max >= primary_plane_zpos_min) {
-			drm_plane->subtype = PLANE_SUBTYPE_BOTH;
-			b->has_underlay = true;
-		} else if (drm_plane->zpos_min < primary_plane_zpos_min &&
-			   drm_plane->zpos_max < primary_plane_zpos_min) {
-			drm_plane->subtype = PLANE_SUBTYPE_UNDERLAY_ONLY;
-			b->has_underlay = true;
-		} else {
-			drm_plane->subtype = PLANE_SUBTYPE_OVERLAY_ONLY;
-		}
-
-	}
 
 	drmModeFreePlaneResources(kplane_res);
 }
@@ -1874,12 +1870,12 @@ drm_output_pick_format_pixman(struct drm_output *output)
 
 	output->format = b->format;
 
-	if (b->has_underlay && (output->format->bits.a == 0)) {
+	if (output->has_underlay && (output->format->bits.a == 0)) {
 		weston_log("Disabling underlay planes: "
 			   "output '%s' with format %s does not have alpha channel, "
 			   "which is required to support underlay planes.\n",
 			   output->base.name, output->format->drm_format_name);
-		b->has_underlay = false;
+		output->has_underlay = false;
 	}
 
 	return true;
@@ -1954,7 +1950,7 @@ drm_output_fini_pixman(struct drm_output *output)
 
 	/* Destroying the Pixman surface will destroy all our buffers,
 	 * regardless of refcount. */
-	weston_assert_ptr_null(b->compositor, output->scanout_plane);
+	weston_assert_ptr_null(b->compositor, output->scanout_handle);
 
 	for (i = 0; i < ARRAY_LENGTH(output->dumb); i++) {
 		renderer->destroy_renderbuffer(output->renderbuffer[i]);
@@ -2559,34 +2555,60 @@ err:
 static int
 drm_output_init_planes(struct drm_output *output)
 {
-	struct drm_backend *b = output->backend;
 	struct drm_device *device = output->device;
+	struct drm_plane *plane, *scanout_plane, *cursor_plane;
+	struct drm_plane_handle *handle;
+	uint64_t primary_plane_zpos_min;
 
-	output->scanout_plane =
-		drm_output_find_special_plane(device, output,
-					      WDRM_PLANE_TYPE_PRIMARY);
-	if (!output->scanout_plane) {
+	scanout_plane =	drm_output_find_special_plane(device, output,
+						      WDRM_PLANE_TYPE_PRIMARY);
+	if (!scanout_plane) {
 		weston_log("Failed to find primary plane for output %s\n",
 			   output->base.name);
 		return -1;
 	}
-
-	weston_compositor_stack_plane(b->compositor,
-				      &output->scanout_plane->base,
-				      &output->base.primary_plane);
+	primary_plane_zpos_min = scanout_plane->zpos_min;
 
 	/* Failing to find a cursor plane is not fatal, as we'll fall back
 	 * to software cursor. */
-	output->cursor_plane =
+	cursor_plane =
 		drm_output_find_special_plane(device, output,
 					      WDRM_PLANE_TYPE_CURSOR);
 
-	if (output->cursor_plane)
-		weston_compositor_stack_plane(b->compositor,
-					      &output->cursor_plane->base,
-					      NULL);
-	else
-		device->cursors_are_broken = true;
+	wl_list_for_each(plane, &device->plane_list, link) {
+		struct drm_plane_handle *handle;
+
+		if (!(plane->possible_crtcs & (1 << output->crtc->pipe)))
+			continue;
+
+		handle = drm_plane_create_handle(plane, output);
+
+		if (plane == scanout_plane)
+			output->scanout_handle = handle;
+		if (plane == cursor_plane)
+			output->cursor_handle = handle;
+	}
+
+	assert(output->scanout_handle);
+	assert(!cursor_plane || output->cursor_handle);
+
+	output->has_underlay = false;
+	wl_list_for_each(handle, &output->plane_handle_list, link) {
+		plane = handle->plane;
+
+		if (plane->zpos_min < primary_plane_zpos_min &&
+		    plane->zpos_max >= primary_plane_zpos_min) {
+			handle->subtype = PLANE_SUBTYPE_BOTH;
+			output->has_underlay = true;
+		} else if (plane->zpos_min < primary_plane_zpos_min &&
+			   plane->zpos_max < primary_plane_zpos_min) {
+			handle->subtype = PLANE_SUBTYPE_UNDERLAY_ONLY;
+			output->has_underlay = true;
+		} else {
+			handle->subtype = PLANE_SUBTYPE_OVERLAY_ONLY;
+		}
+
+	}
 
 	return 0;
 }
@@ -2598,13 +2620,9 @@ static void
 drm_output_deinit_planes(struct drm_output *output)
 {
 	struct drm_device *device = output->device;
+	struct drm_plane_handle *handle, *next_handle;
 
-	wl_list_remove(&output->scanout_plane->base.link);
-	wl_list_init(&output->scanout_plane->base.link);
-
-	if (output->cursor_plane) {
-		wl_list_remove(&output->cursor_plane->base.link);
-		wl_list_init(&output->cursor_plane->base.link);
+	if (output->cursor_handle) {
 		/* Turn off hardware cursor */
 		drmModeSetCursor(device->kms_device->fd, output->crtc->crtc_id, 0, 0, 0);
 	}
@@ -2614,13 +2632,17 @@ drm_output_deinit_planes(struct drm_output *output)
 	 * We want the planes to  continue to exist and be freed up
 	 * for other outputs.
 	 */
-	if (output->cursor_plane)
-		drm_plane_reset_state(output->cursor_plane);
-	if (output->scanout_plane)
-		drm_plane_reset_state(output->scanout_plane);
+	if (output->cursor_handle)
+		drm_plane_reset_state(output->cursor_handle->plane);
+	if (output->scanout_handle)
+		drm_plane_reset_state(output->scanout_handle->plane);
 
-	output->cursor_plane = NULL;
-	output->scanout_plane = NULL;
+	output->cursor_handle = NULL;
+	output->scanout_handle = NULL;
+
+	wl_list_for_each_safe(handle, next_handle,
+			      &output->plane_handle_list, link)
+		drm_plane_destroy_handle(handle);
 }
 
 static struct weston_drm_format_array *
@@ -3364,6 +3386,8 @@ drm_output_create(struct weston_backend *backend, const char *name)
 	output->disable_pending = false;
 
 	output->state_cur = drm_output_state_alloc(output);
+
+	wl_list_init(&output->plane_handle_list);
 
 	weston_compositor_add_pending_output(&output->base, b->compositor);
 
@@ -4592,7 +4616,6 @@ drm_backend_create(struct weston_compositor *compositor,
 	b->pageflip_timeout = config->pageflip_timeout;
 	b->use_pixman_shadow = config->use_pixman_shadow;
 	b->offload_blend_to_output = config->offload_blend_to_output;
-	b->has_underlay = false;
 
 	b->debug = weston_compositor_add_log_scope(compositor, "drm-backend",
 						   "Debug messages from DRM/KMS backend\n",
