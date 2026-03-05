@@ -814,13 +814,11 @@ drm_output_find_plane_for_view(struct drm_output_state *state,
 }
 
 static bool
-is_paint_node_solid_opaque_black(struct weston_paint_node *pnode)
+is_paint_node_solid_opaque(struct weston_paint_node *pnode)
 {
 	return pnode->draw_solid && pnode->is_fully_opaque &&
 	       pnode->valid_transform &&
-	       (pnode->surf_xform_valid && !pnode->surf_xform.transform) &&
-	       pnode->solid.r == 0.0f && pnode->solid.g == 0.0f &&
-	       pnode->solid.b == 0.0f;
+	       (pnode->surf_xform_valid && !pnode->surf_xform.transform);
 }
 
 static bool
@@ -833,12 +831,15 @@ lower_solid_views_to_background_region(struct drm_output *output,
 	struct drm_backend *b = device->backend;
 	struct weston_paint_node **visible_pnode;
 	struct wl_array visible_pnodes_new;
+	struct weston_solid_buffer_values background_region_color = {0};
 
 	wl_array_init(&visible_pnodes_new);
 	wl_array_for_each(visible_pnode, visible_pnodes) {
 		struct weston_paint_node *pnode = *visible_pnode;
 		struct weston_paint_node **visible_pnode_new;
 		struct weston_view *ev = pnode->view;
+		bool background_color_matches;
+		bool background_color_supported;
 		pixman_region32_t tmp;
 
 		drm_debug(b, "\t\t\t[view] evaluating view %s for scene"
@@ -846,7 +847,21 @@ lower_solid_views_to_background_region(struct drm_output *output,
 			  ev->internal_name, output->base.name,
 			  (unsigned long) output->base.id);
 
-		if (is_paint_node_solid_opaque_black(pnode)) {
+		background_color_matches =
+			is_paint_node_solid_opaque(pnode) &&
+			(!pixman_region32_not_empty(background_region) ||
+			 (background_region_color.r == pnode->solid.r &&
+			  background_region_color.g == pnode->solid.g &&
+			  background_region_color.b == pnode->solid.b));
+
+		background_color_supported =
+			is_paint_node_solid_opaque(pnode) &&
+			(drm_crtc_supports_background_color(output->crtc) ||
+			 (pnode->solid.r == 0.0f &&
+			  pnode->solid.g == 0.0f &&
+			  pnode->solid.b == 0.0f));
+
+		if (background_color_matches && background_color_supported) {
 			drm_debug(b, "\t\t\t\t[view] ignoring view %s " \
 				  "(opaque-black solid buffer r %f g %f b %f " \
 				  "a %f)\n",
@@ -856,15 +871,31 @@ lower_solid_views_to_background_region(struct drm_output *output,
 			pixman_region32_union(background_region,
 					      background_region,
 					      &pnode->visible);
+
+			background_region_color.a = 1.0f;
+			background_region_color.r = pnode->solid.r;
+			background_region_color.g = pnode->solid.g;
+			background_region_color.b = pnode->solid.b;
+
+			if (drm_crtc_supports_background_color(output->crtc)) {
+				uint64_t a16, r16, g16, b16;
+
+				a16 = 0xffff;
+				r16 = 0xffff * background_region_color.r;
+				g16 = 0xffff * background_region_color.g;
+				b16 = 0xffff * background_region_color.b;
+
+				output->crtc->background_color =
+					a16 << 48 | r16 << 32 | g16 << 16 | b16;
+			}
+
 			continue;
 		}
 
-		/* We can support this with the 'CRTC background colour'
-		 * property */
 		if (pnode->draw_solid) {
 			drm_debug(b, "\t\t\t\t[view] not assigning view %s to "
-                                  "a plane (non-opaque-black solid buffer r %f "
-                                  "g %f b %f a %f)\n",
+                                  "a plane (background-incompatible solid "
+				  "buffer r %f g %f b %f a %f)\n",
 				  ev->internal_name, pnode->solid.r, pnode->solid.g,
 				  pnode->solid.b, pnode->solid.a);
 			wl_array_release(&visible_pnodes_new);
@@ -1073,6 +1104,9 @@ drm_output_propose_state(struct weston_output *output_base,
 	 *
 	 * See https://dri.freedesktop.org/docs/drm/gpu/drm-kms.html#plane-abstraction
 	 *
+	 * For other colors the same applies if the BACKGROUND_COLOR DRM
+	 * property is supported.
+	 *
 	 * All said views can thus be ignored during plane assignment.
 	 */
 	pixman_region32_init(&background_region);
@@ -1083,6 +1117,9 @@ drm_output_propose_state(struct weston_output *output_base,
 						    &last_visible_pnode,
 						    &background_region))
 		goto err_region;
+
+	if (!pixman_region32_not_empty(&background_region))
+		output->crtc->background_color = 0;
 
 	/* Assign paint nodes to planes. */
 	wl_array_for_each(visible_pnode, &visible_pnodes) {
