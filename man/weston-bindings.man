@@ -23,14 +23,19 @@ which is determined in the file
 Make active window fullscreen
 .P
 .RE
-.B mod + K
-.RS 4
-Kill active window
-.P
-.RE
 .B mod + Shift + M
 .RS 4
 Maximize active window
+.P
+.RE
+.B mod + Shift + N
+.RS 4
+Make active window minimized
+.P
+.RE
+.B mod + K
+.RS 4
+Kill active window
 .P
 .RE
 .B mod + Shift + KEY_LEFT
