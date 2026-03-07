@@ -118,6 +118,8 @@ weston_ini_config.set('bindir', dir_bin)
 weston_ini_config.set('libexecdir', dir_libexec)
 configure_file(
 	input: '../weston.ini.in',
-	output: 'weston.ini',
-	configuration: weston_ini_config
+	output: 'weston.ini.example',
+	configuration: weston_ini_config,
+	install: true,
+	install_dir: join_paths(dir_data, 'weston')
 )
