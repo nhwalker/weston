@@ -129,6 +129,8 @@ struct shell_surface {
 		struct weston_coord_global pos;
 	} xwayland;
 
+	bool appid_output_assigned;
+
 	int focus_count;
 
 	bool destroying;
@@ -233,6 +235,7 @@ struct shell_output {
 	struct wl_listener    destroy_listener;
 	struct wl_list        link;
 
+	char *app_ids;
 	struct weston_surface *panel_surface;
 	struct weston_view *panel_view;
 	struct wl_listener panel_surface_listener;
