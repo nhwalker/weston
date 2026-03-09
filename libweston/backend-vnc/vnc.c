@@ -81,6 +81,18 @@ struct vnc_backend {
 	unsigned int formats_count;
 };
 
+struct vnc_fbq_item {
+	struct nvnc_fb* fb;
+	struct wl_list link;
+};
+
+struct vnc_fb_pool {
+	int ref;
+	struct wl_list fbs;
+
+	struct vnc_backend *backend;
+};
+
 struct vnc_output {
 	struct weston_output base;
 	struct weston_plane cursor_plane;
@@ -89,11 +101,12 @@ struct vnc_output {
 	struct wl_event_source *finish_frame_timer;
 	struct nvnc_display *display;
 
-	struct nvnc_fb_pool *fb_pool;
+	struct vnc_fb_pool *fb_pool;
 
 	struct wl_list peers;
 
 	bool resizeable;
+	bool use_dma;
 };
 
 struct vnc_peer {
@@ -113,6 +126,7 @@ struct vnc_buffer {
 	weston_renderbuffer_t rb;
 	struct nvnc_fb *fb;
 	struct vnc_output *output;
+	struct linux_dmabuf_memory *dma;
 };
 
 static void
@@ -291,6 +305,143 @@ static const uint32_t vnc_formats[] = {
 	DRM_FORMAT_XRGB8888,
 	DRM_FORMAT_ARGB8888,
 };
+
+static void
+vnc_fb_pool_destroy_fbs(struct vnc_fb_pool *self)
+{
+	struct vnc_fbq_item *item, *tmp;
+
+	wl_list_for_each_safe(item, tmp, &self->fbs, link) {
+		nvnc_fb_unref(item->fb);
+		wl_list_remove(&item->link);
+		free(item);
+	}
+}
+
+static void
+vnc_fb_pool_unref(struct vnc_fb_pool *self)
+{
+	if (--self->ref > 0)
+		return;
+
+	vnc_fb_pool_destroy_fbs(self);
+	free(self);
+}
+
+static struct vnc_fb_pool*
+vnc_fb_pool_new(struct vnc_backend* backend)
+{
+	struct vnc_fb_pool* self;
+
+	self = zalloc(sizeof *self);
+	if (self == NULL)
+		return NULL;
+
+	wl_list_init(&self->fbs);
+	self->ref = 1;
+	self->backend = backend;
+
+	return self;
+}
+
+static void
+vnc_fb_pool_release_fn(struct nvnc_fb* fb, void *context)
+{
+	struct vnc_fbq_item* item;
+	struct vnc_fb_pool* self = context;
+	struct weston_mode *current_mode =
+		self->backend->output->base.current_mode;
+
+	// Drop fb if it's properties do not align with current mode.
+	if (nvnc_fb_get_width(fb) != current_mode->width ||
+	    nvnc_fb_get_height(fb) != current_mode->height ||
+	    nvnc_fb_get_fourcc_format(fb) !=
+		self->backend->formats[0]->format ||
+	    (nvnc_fb_get_type(fb) != NVNC_FB_GBM_BO &&
+	     nvnc_fb_get_stride(fb) != current_mode->width)) {
+		return;
+	}
+
+	nvnc_fb_ref(fb);
+
+	item = zalloc(sizeof *item);
+	assert(item);
+	item->fb = fb;
+	wl_list_insert(&self->fbs, &item->link);
+}
+
+static struct nvnc_fb*
+vnc_fb_pool_acquire_from_list(struct vnc_fb_pool* self)
+{
+	struct vnc_fbq_item* item;
+	struct nvnc_fb* fb;
+
+	item = wl_container_of(self->fbs.next, item, link);
+	fb = item->fb;
+	assert(item && fb);
+
+	wl_list_remove(&item->link);
+	free(item);
+
+	self->ref++;
+
+	return fb;
+}
+
+static struct nvnc_fb*
+vnc_fb_pool_acquire_new(struct vnc_fb_pool* self)
+{
+	struct vnc_output *output = self->backend->output;
+	struct weston_mode *current_mode = output->base.current_mode;
+	struct linux_dmabuf_memory *linux_dmabuf_memory = NULL;
+	struct nvnc_fb *fb = NULL;
+	struct vnc_buffer *buffer;
+	
+#ifdef HAVE_GBM
+	if (output->use_dma) {
+		struct weston_renderer *rdr = output->base.compositor->renderer;
+		uint64_t modifier[] = { DRM_FORMAT_MOD_LINEAR };
+
+		linux_dmabuf_memory =
+			rdr->dmabuf_alloc(rdr, current_mode->width,
+					  current_mode->height,
+					  self->backend->formats[0]->format,
+					  modifier, ARRAY_LENGTH(modifier));
+
+		// Don't try to use dma again if allocation failed once.
+		if (!linux_dmabuf_memory)
+			output->use_dma = false;
+		else
+			fb = nvnc_fb_from_gbm_bo(linux_dmabuf_memory->bo);
+
+	}
+
+	if (!fb)
+#endif
+		fb = nvnc_fb_new(current_mode->width, current_mode->height,
+				 self->backend->formats[0]->format,
+				 current_mode->width);
+	
+	assert(fb);
+
+	buffer = xzalloc(sizeof *buffer);
+	buffer->dma = linux_dmabuf_memory;
+
+	nvnc_set_userdata(fb, buffer, (nvnc_cleanup_fn) vnc_buffer_destroy);
+	nvnc_fb_set_release_fn(fb, vnc_fb_pool_release_fn, self);
+	self->ref++;
+
+	return fb;
+}
+
+static struct nvnc_fb*
+vnc_fb_pool_acquire(struct vnc_fb_pool* self)
+{
+	if (wl_list_empty(&self->fbs))
+		return vnc_fb_pool_acquire_new(self);
+	else 
+		return vnc_fb_pool_acquire_from_list(self);
+}
 
 static void
 vnc_handle_key_event(struct nvnc_client *client, uint32_t keysym,
@@ -677,35 +828,29 @@ vnc_log_damage(struct vnc_backend *backend, pixman_region32_t *damage)
 	weston_log_scope_printf(backend->debug, "\n\n");
 }
 
-static bool
-vnc_rb_discarded_cb(weston_renderbuffer_t rb, void *data)
-{
-	struct vnc_buffer *buffer = (struct vnc_buffer *) data;
-
-	assert(nvnc_get_userdata(buffer->fb) == buffer);
-
-	nvnc_set_userdata(buffer->fb, NULL, NULL);
-	vnc_buffer_destroy(buffer);
-
-	return true;
-}
-
-static struct vnc_buffer *
-vnc_buffer_create(struct nvnc_fb* fb, struct vnc_output *output)
+static void
+vnc_renderbuffer_create(struct vnc_buffer *buffer, struct nvnc_fb* fb,
+			struct vnc_output *output)
 {
 	const struct pixel_format_info *pfmt =
 		pixel_format_get_info(DRM_FORMAT_XRGB8888);
 	struct weston_renderer *rdr = output->base.compositor->renderer;
-	struct vnc_buffer *buffer = xmalloc(sizeof *buffer);
 
-	buffer->rb = rdr->create_renderbuffer(&output->base, pfmt,
-					      nvnc_fb_get_addr(fb),
-					      output->base.current_mode->width * 4,
-					      vnc_rb_discarded_cb, buffer);
+#ifdef HAVE_GBM
+	if (nvnc_fb_get_type(fb) == NVNC_FB_GBM_BO)
+		buffer->rb =
+			rdr->create_renderbuffer_dmabuf(&output->base,
+							buffer->dma, NULL,
+							NULL);
+	else
+#endif
+		buffer->rb =
+			rdr->create_renderbuffer(&output->base, pfmt,
+					      	 nvnc_fb_get_addr(fb),
+					      	 output->base.current_mode->width * 4,
+					      	 NULL, NULL);
 	buffer->fb = fb;
 	buffer->output = output;
-
-	return buffer;
 }
 
 static void
@@ -713,7 +858,8 @@ vnc_buffer_destroy(struct vnc_buffer *buffer)
 {
 	struct weston_renderer *rdr = buffer->output->base.compositor->renderer;
 
-	rdr->destroy_renderbuffer(buffer->rb);
+	if (buffer->rb)
+		rdr->destroy_renderbuffer(buffer->rb);
 	free(buffer);
 }
 
@@ -729,15 +875,11 @@ vnc_update_buffer(struct nvnc_display *display, struct pixman_region32 *damage)
 	pixman_region16_t nvnc_damage;
 	struct nvnc_fb *fb;
 
-	fb = nvnc_fb_pool_acquire(output->fb_pool);
-	assert(fb);
+	fb = vnc_fb_pool_acquire(output->fb_pool);
 
 	buffer = nvnc_get_userdata(fb);
-	if (!buffer) {
-		buffer = vnc_buffer_create(fb, output);
-		nvnc_set_userdata(fb, buffer,
-				  (nvnc_cleanup_fn) vnc_buffer_destroy);
-	}
+	if (!buffer->rb)
+		vnc_renderbuffer_create(buffer, fb, output);
 
 	vnc_log_damage(backend, damage);
 
@@ -869,10 +1011,7 @@ vnc_output_enable(struct weston_output *base)
 							     finish_frame_handler,
 							     output);
 
-	output->fb_pool = nvnc_fb_pool_new(output->base.current_mode->width,
-					   output->base.current_mode->height,
-					   backend->formats[0]->format,
-					   output->base.current_mode->width);
+	output->fb_pool = vnc_fb_pool_new(backend);
 
 	output->display = nvnc_display_new(0, 0);
 
@@ -897,7 +1036,7 @@ vnc_output_disable(struct weston_output *base)
 
 	nvnc_remove_display(backend->server, output->display);
 	nvnc_display_unref(output->display);
-	nvnc_fb_pool_unref(output->fb_pool);
+	vnc_fb_pool_unref(output->fb_pool);
 
 	switch (renderer->type) {
 	case WESTON_RENDERER_PIXMAN:
@@ -953,6 +1092,7 @@ vnc_create_output(struct weston_backend *backend, const char *name)
 	output->base.attach_head = NULL;
 
 	output->backend = b;
+	output->use_dma = b->compositor->renderer->import_dmabuf != NULL;
 
 	weston_compositor_add_pending_output(&output->base, b->compositor);
 
@@ -1122,15 +1262,13 @@ vnc_switch_mode(struct weston_output *base, struct weston_mode *target_mode)
 	/* vnc_buffers are stored as user data pointers into the renderbuffers
 	 * for the discarded callback. weston_renderer_resize_output(), which
 	 * triggers the renderbuffer's discarded callbacks, must be called
-	 * before nvnc_fb_pool_resize(), which destroys all the nvnc_fbs and
+	 * before vnc_fb_pool_destroy_fbs(), which destroys all the nvnc_fbs and
 	 * their associated vnc_buffers, so that the vnc_buffers are valid at
 	 * callback. */
 	if (!weston_renderer_resize_output(base, &fb_size, NULL))
 		return -1;
 
-	nvnc_fb_pool_resize(output->fb_pool, target_mode->width,
-			    target_mode->height, DRM_FORMAT_XRGB8888,
-			    target_mode->width);
+	vnc_fb_pool_destroy_fbs(output->fb_pool);
 
 	return 0;
 }
