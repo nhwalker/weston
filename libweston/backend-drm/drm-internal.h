@@ -379,6 +379,7 @@ struct drm_output_state {
 	struct wl_list plane_list;
 	bool tear;
 	bool planes_enabled;
+	bool disabled_primary;
 };
 
 /**

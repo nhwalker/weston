@@ -542,6 +542,94 @@ view_with_region_matches_output_entirely(struct weston_paint_node *pnode,
 	return res;
 }
 
+static bool
+check_plane(struct drm_output_state *output_state,
+	    struct drm_plane_handle *handle,
+	    struct weston_paint_node *pnode,
+	    enum drm_output_propose_state_mode mode,
+	    struct drm_plane_state *scanout_state,
+	    bool need_underlay,
+	    uint64_t current_lowest_zpos_underlay,
+	    uint64_t *current_lowest_zpos,
+	    uint64_t *zpos)
+{
+	const char *p_name = drm_output_get_handle_type_name(handle);
+	struct drm_output *output = output_state->output;
+	struct drm_plane *plane = handle->plane;
+	struct drm_backend *b = output->backend;
+	bool mm_underlay_only =
+		drm_mixed_mode_check_underlay(mode, scanout_state, plane->zpos_max);
+
+	if (!drm_plane_is_available(plane, output))
+		return false;
+
+	if (drm_output_check_plane_has_view_assigned(plane, output_state)) {
+		drm_debug(b, "\t\t\t\t[plane] not trying plane %d: "
+			     "another view already assigned\n",
+			     plane->plane_id);
+		return false;
+	}
+
+	/* if view has alpha check if this plane supports plane alpha */
+	if (pnode->view->alpha != 1.0f && plane->alpha_max == plane->alpha_min) {
+		drm_debug(b, "\t\t\t\t[plane] not trying plane %d:"
+			     "plane-alpha not supported\n",
+			     plane->plane_id);
+		return false;
+	}
+
+	/* Pre-judge whether the plane will be set as underlay plane. If so, start
+	 * trying to find underlay plane based on 'current_lowest_zpos_underlay'. */
+	if (!need_underlay) {
+		uint64_t tmp_next_lowest_zpos;
+		if (*current_lowest_zpos == DRM_PLANE_ZPOS_INVALID_PLANE)
+			tmp_next_lowest_zpos = plane->zpos_max;
+		else
+			tmp_next_lowest_zpos = *current_lowest_zpos - 1;
+		if (drm_mixed_mode_check_underlay(mode, scanout_state, tmp_next_lowest_zpos)) {
+			drm_debug(b, "\t\t\t\t[plane] could not use overlay planes, "
+			             "attempting to find underlay plane\n");
+			*current_lowest_zpos = current_lowest_zpos_underlay;
+		}
+	}
+
+	if (plane->zpos_min >= *current_lowest_zpos) {
+		drm_debug(b, "\t\t\t\t[plane] not trying plane %d: "
+			     "plane's minimum zpos (%"PRIu64") above "
+			     "current lowest zpos (%"PRIu64")\n",
+			     plane->plane_id, plane->zpos_min,
+			     *current_lowest_zpos);
+		return false;
+	}
+
+	/* If the surface buffer has an in-fence fd, but the plane doesn't
+	 * support fences, we can't place the buffer on this plane. */
+	if (pnode->surface->acquire_fence_fd >= 0 &&
+	    plane->props[WDRM_PLANE_IN_FENCE_FD].prop_id == 0) {
+		drm_debug(b, "\t\t\t\t[%s] not placing view %s on %s: "
+		          "no in-fence support\n",
+			  p_name, pnode->view->internal_name, p_name);
+		return false;
+	}
+
+	if (!output->has_underlay && mm_underlay_only) {
+		drm_debug(b, "\t\t\t\t[plane] not adding plane %d to "
+			     "candidate list: plane is below the primary "
+			     "plane and backend format (%s) is opaque, "
+			     "hole on primary plane will not work\n",
+			     plane->plane_id, b->format->drm_format_name);
+
+		return false;
+	}
+
+	if (*current_lowest_zpos == DRM_PLANE_ZPOS_INVALID_PLANE)
+		*zpos = plane->zpos_max;
+	else
+		*zpos = MIN(*current_lowest_zpos - 1, plane->zpos_max);
+
+	return true;
+}
+
 static struct drm_plane_state *
 drm_output_find_plane_for_view(struct drm_output_state *state,
 			       struct weston_paint_node *pnode,
@@ -555,7 +643,7 @@ drm_output_find_plane_for_view(struct drm_output_state *state,
 	struct drm_output *output = state->output;
 	struct drm_device *device = output->device;
 	struct drm_backend *b = device->backend;
-
+	struct weston_compositor *compositor = b->compositor;
 	struct drm_plane_state *ps = NULL;
 	struct drm_plane_handle *handle;
 
@@ -598,15 +686,26 @@ drm_output_find_plane_for_view(struct drm_output_state *state,
 		pnode->try_view_on_plane_failure_reasons |=
 			FAILURE_REASONS_SOLID_SURFACE;
 	} else if (buffer->type == WESTON_BUFFER_SHM) {
-		struct drm_plane *cursor_plane = NULL;
-
-		if (output->cursor_handle)
-			cursor_plane = output->cursor_handle->plane;
+		struct drm_plane_state *ps;
+		bool ok;
+		uint64_t zpos;
 
 		try_pnode_on_cursor_plane(output, pnode);
+		if (pnode->try_view_on_plane_failure_reasons != FAILURE_REASONS_NONE)
+			return NULL;
 
-		if (pnode->try_view_on_plane_failure_reasons == FAILURE_REASONS_NONE)
-			possible_plane_mask = (1 << cursor_plane->plane_idx);
+		ok = check_plane(state, output->cursor_handle, pnode, mode,
+				 scanout_state, false,
+				 current_lowest_zpos_underlay,
+				 &current_lowest_zpos, &zpos);
+		if (!ok)
+			return NULL;
+
+		ps = drm_output_prepare_cursor_paint_node(state, pnode, zpos);
+		if (!ps)
+			pnode->try_view_on_plane_failure_reasons |=
+				FAILURE_REASONS_PLANES_REJECTED;
+		return ps;
 	} else {
 		if (mode == DRM_OUTPUT_PROPOSE_STATE_RENDERER_AND_CURSOR) {
 			drm_debug(b, "\t\t\t\t[view] not assigning view %s "
@@ -642,14 +741,19 @@ drm_output_find_plane_for_view(struct drm_output_state *state,
 				fputs("\n", dbg);
 			}
 			pnode->try_view_on_plane_failure_reasons |= fb_failure_reasons;
+			return NULL;
 		}
 	}
 
+	assert(fb);
+
 	/* if the view covers the whole output, put it in the scanout plane,
 	 * not overlay */
-	if (mode == DRM_OUTPUT_PROPOSE_STATE_PLANES_ONLY) {
+	if (mode == DRM_OUTPUT_PROPOSE_STATE_PLANES_ONLY &&
+	    !state->disabled_primary) {
 		bool scanout_has_view_assigned;
 		bool view_matches_entire_output;
+		bool scanout_plane_possible;
 
 		scanout_has_view_assigned =
 			drm_output_check_plane_has_view_assigned(output->scanout_handle->plane,
@@ -660,6 +764,32 @@ drm_output_find_plane_for_view(struct drm_output_state *state,
 								 &output->base);
 
 		use_scanout_plane = !scanout_has_view_assigned && view_matches_entire_output;
+
+		scanout_plane_possible = possible_plane_mask & (1 << output->scanout_handle->plane->plane_idx);
+
+		if (use_scanout_plane && scanout_plane_possible) {
+			uint64_t zpos;
+			bool ok;
+
+			ok = check_plane(state, output->scanout_handle, pnode, mode,
+					 scanout_state, need_underlay,
+					 current_lowest_zpos_underlay,
+					 &current_lowest_zpos, &zpos);
+			if (!ok)
+				return NULL;
+
+			ps = drm_output_try_paint_node_on_plane(output->scanout_handle,
+								state, pnode, mode,
+								fb, zpos);
+			if (ps) {
+				drm_fb_unref(fb);
+				return ps;
+			}
+
+			/* Maybe we can still build planes only with just a scanout
+			 * plane and no primary at all.
+			 */
+		}
 	}
 
 	/* assemble a list with possible candidates */
@@ -681,20 +811,14 @@ drm_output_find_plane_for_view(struct drm_output_state *state,
 
 		switch (plane->type) {
 		case WDRM_PLANE_TYPE_CURSOR:
-			assert(buffer->shm_buffer);
-			assert(output->cursor_handle);
-			assert(plane == output->cursor_handle->plane);
-			break;
+			weston_assert_not_reached(compositor,
+						  "Illegal use of cursor plane");
+			continue;
 		case WDRM_PLANE_TYPE_PRIMARY:
-			if (plane != output->scanout_handle->plane)
-				continue;
-			if (!use_scanout_plane)
-				continue;
-			break;
+			/* We've already tested the primary plane independently */
+			continue;
 		case WDRM_PLANE_TYPE_OVERLAY:
 			assert(mode != DRM_OUTPUT_PROPOSE_STATE_RENDERER_AND_CURSOR);
-			if (use_scanout_plane)
-				continue;
 			/* for alpha views, avoid placing them on the HW planes that
 			 * are below the primary plane. */
 			if (mm_underlay_only && !pnode->is_fully_opaque)
@@ -704,87 +828,22 @@ drm_output_find_plane_for_view(struct drm_output_state *state,
 			assert(false && "unknown plane type");
 		}
 
-		if (!drm_plane_is_available(plane, output))
+		if (!check_plane(state, handle, pnode, mode,
+				 scanout_state, need_underlay,
+				 current_lowest_zpos_underlay,
+				 &current_lowest_zpos, &zpos))
 			continue;
-
-		if (drm_output_check_plane_has_view_assigned(plane, state)) {
-			drm_debug(b, "\t\t\t\t[plane] not trying plane %d: "
-				     "another view already assigned\n",
-				     plane->plane_id);
-			continue;
-		}
-
-		/* if view has alpha check if this plane supports plane alpha */
-		if (ev->alpha != 1.0f && plane->alpha_max == plane->alpha_min) {
-			drm_debug(b, "\t\t\t\t[plane] not trying plane %d:"
-				     "plane-alpha not supported\n",
-				     plane->plane_id);
-			continue;
-		}
-
-		/* Pre-judge whether the plane will be set as underlay plane. If so, start
-		 * trying to find underlay plane based on 'current_lowest_zpos_underlay'. */
-		if (!need_underlay) {
-			uint64_t tmp_next_lowest_zpos;
-			if (current_lowest_zpos == DRM_PLANE_ZPOS_INVALID_PLANE)
-				tmp_next_lowest_zpos = plane->zpos_max;
-			else
-				tmp_next_lowest_zpos = current_lowest_zpos - 1;
-			if (drm_mixed_mode_check_underlay(mode, scanout_state, tmp_next_lowest_zpos)) {
-				drm_debug(b, "\t\t\t\t[plane] could not use overlay planes, "
-				             "attempting to find underlay plane\n");
-				current_lowest_zpos = current_lowest_zpos_underlay;
-			}
-		}
-
-		if (plane->zpos_min >= current_lowest_zpos) {
-			drm_debug(b, "\t\t\t\t[plane] not trying plane %d: "
-				     "plane's minimum zpos (%"PRIu64") above "
-				     "current lowest zpos (%"PRIu64")\n",
-				     plane->plane_id, plane->zpos_min,
-				     current_lowest_zpos);
-			continue;
-		}
-
-		/* If the surface buffer has an in-fence fd, but the plane doesn't
-		 * support fences, we can't place the buffer on this plane. */
-		if (ev->surface->acquire_fence_fd >= 0 &&
-		    plane->props[WDRM_PLANE_IN_FENCE_FD].prop_id == 0) {
-			drm_debug(b, "\t\t\t\t[%s] not placing view %s on %s: "
-			          "no in-fence support\n",
-				  p_name, ev->internal_name, p_name);
-			continue;
-		}
-
-		if (!output->has_underlay && mm_underlay_only) {
-			drm_debug(b, "\t\t\t\t[plane] not adding plane %d to "
-				     "candidate list: plane is below the primary "
-				     "plane and backend format (%s) is opaque, "
-				     "hole on primary plane will not work\n",
-				     plane->plane_id, b->format->drm_format_name);
-
-			continue;
-		}
-
-		if (current_lowest_zpos == DRM_PLANE_ZPOS_INVALID_PLANE)
-			zpos = plane->zpos_max;
-		else
-			zpos = MIN(current_lowest_zpos - 1, plane->zpos_max);
 
 		any_candidate_picked = true;
 		drm_debug(b, "\t\t\t\t[plane] plane %d picked "
 			     "from candidate list, type: %s\n",
 			     plane->plane_id, p_name);
 
-		if (plane->type == WDRM_PLANE_TYPE_CURSOR) {
-			ps = drm_output_prepare_cursor_paint_node(state, pnode, zpos);
-		} else {
-			if (fb)
-				ps = drm_output_try_paint_node_on_plane(handle, state,
-									pnode, mode,
-									fb, zpos);
-		}
+		assert(plane->type != WDRM_PLANE_TYPE_CURSOR);
 
+		ps = drm_output_try_paint_node_on_plane(handle, state,
+							pnode, mode,
+							fb, zpos);
 		if (ps) {
 			/* Check if this ps is underlay plane, if so, the view
 			 * needs through hole on primary plane. */
@@ -809,6 +868,9 @@ drm_output_find_plane_for_view(struct drm_output_state *state,
 	if (!any_candidate_picked)
 		pnode->try_view_on_plane_failure_reasons |=
 			FAILURE_REASONS_NO_PLANES_AVAILABLE;
+
+	if (ps && use_scanout_plane)
+		state->disabled_primary = true;
 
 	/* if we have a plane state, it has its own ref to the fb; if not then
 	 * we drop ours here */
