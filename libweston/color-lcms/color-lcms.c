@@ -195,7 +195,7 @@ cmlcms_get_sRGB_to_blend_color_transform(struct weston_color_manager_lcms *cm,
 
 static float
 meta_clamp(float value, const char *valname, float min, float max,
-	   struct weston_output *output)
+	   const struct cmlcms_color_profile *cprof)
 {
 	float ret = value;
 
@@ -207,78 +207,71 @@ meta_clamp(float value, const char *valname, float min, float max,
 		ret = max;
 
 	if (ret != value) {
-		weston_log("output '%s' clamping %s value from %f to %f.\n",
-			   output->name, valname, value, ret);
+		weston_log("Output profile p%u '%s': clamping %s value from %f to %f.\n",
+			   cprof->base.id, cprof->base.description, valname, value, ret);
 	}
 
 	return ret;
 }
 
-static bool
-cmlcms_get_hdr_meta(struct weston_output *output,
-		    struct weston_hdr_metadata_type1 *hdr_meta)
+static void
+cmlcms_get_hdr_meta(struct weston_hdr_metadata_type1 *hdr_meta,
+		    const struct cmlcms_color_profile *cprof)
 {
-	const struct weston_color_characteristics *cc;
-
-	/* TODO: get color characteristics from color profiles instead. */
+	const struct weston_color_profile_params *cpp = NULL;
+	unsigned i;
 
 	hdr_meta->group_mask = 0;
 
-	/* Only SMPTE ST 2084 mode uses HDR Static Metadata Type 1 */
-	if (weston_output_get_eotf_mode(output) != WESTON_EOTF_MODE_ST2084)
-		return true;
+	switch (cprof->type) {
+	case CMLCMS_PROFILE_TYPE_ICC:
+		/* No HDR metadata */
+		return;
 
-	cc = weston_output_get_color_characteristics(output);
-
-	/* Target content chromaticity */
-	if (cc->group_mask & WESTON_COLOR_CHARACTERISTICS_GROUP_PRIMARIES) {
-		unsigned i;
-
-		for (i = 0; i < 3; i++) {
-			hdr_meta->primary[i].x = meta_clamp(cc->primary[i].x,
-							    "primary", 0.0, 1.0,
-							    output);
-			hdr_meta->primary[i].y = meta_clamp(cc->primary[i].y,
-							    "primary", 0.0, 1.0,
-							    output);
-		}
-		hdr_meta->group_mask |= WESTON_HDR_METADATA_TYPE1_GROUP_PRIMARIES;
+	case CMLCMS_PROFILE_TYPE_PARAMS:
+		cpp = cprof->params;
+		break;
 	}
+	weston_assert_ptr_not_null(cprof->base.cm->compositor, cpp);
 
-	/* Target content white point */
-	if (cc->group_mask & WESTON_COLOR_CHARACTERISTICS_GROUP_WHITE) {
-		hdr_meta->white.x = meta_clamp(cc->white.x, "white",
-					       0.0, 1.0, output);
-		hdr_meta->white.y = meta_clamp(cc->white.y, "white",
-					       0.0, 1.0, output);
-		hdr_meta->group_mask |= WESTON_HDR_METADATA_TYPE1_GROUP_WHITE;
+
+	for (i = 0; i < 3; i++) {
+		hdr_meta->primary[i].x = meta_clamp(cpp->target_primaries.primary[i].x,
+						    "primary", 0.0, 1.0, cprof);
+		hdr_meta->primary[i].y = meta_clamp(cpp->target_primaries.primary[i].y,
+						    "primary", 0.0, 1.0, cprof);
 	}
+	hdr_meta->group_mask |= WESTON_HDR_METADATA_TYPE1_GROUP_PRIMARIES;
 
-	/* Target content peak and max mastering luminance */
-	if (cc->group_mask & WESTON_COLOR_CHARACTERISTICS_GROUP_MAXL) {
-		hdr_meta->maxDML = meta_clamp(cc->max_luminance, "maxDML",
-					      1.0, 65535.0, output);
-		hdr_meta->maxCLL = meta_clamp(cc->max_luminance, "maxCLL",
-					      1.0, 65535.0, output);
+	hdr_meta->white.x = meta_clamp(cpp->target_primaries.white_point.x,
+				       "white", 0.0, 1.0, cprof);
+	hdr_meta->white.y = meta_clamp(cpp->target_primaries.white_point.y,
+				       "white", 0.0, 1.0, cprof);
+	hdr_meta->group_mask |= WESTON_HDR_METADATA_TYPE1_GROUP_WHITE;
+
+	if (cpp->target_max_luminance > 0.0f) {
+		hdr_meta->maxDML = meta_clamp(cpp->target_max_luminance,
+					      "maxDML", 1.0, 65535.0, cprof);
 		hdr_meta->group_mask |= WESTON_HDR_METADATA_TYPE1_GROUP_MAXDML;
-		hdr_meta->group_mask |= WESTON_HDR_METADATA_TYPE1_GROUP_MAXCLL;
 	}
 
-	/* Target content min mastering luminance */
-	if (cc->group_mask & WESTON_COLOR_CHARACTERISTICS_GROUP_MINL) {
-		hdr_meta->minDML = meta_clamp(cc->min_luminance, "minDML",
-					      0.0001, 6.5535, output);
+	if (cpp->target_min_luminance > 0.0f) {
+		hdr_meta->minDML = meta_clamp(cpp->target_min_luminance,
+					      "minDML", 0.0001, 6.5535, cprof);
 		hdr_meta->group_mask |= WESTON_HDR_METADATA_TYPE1_GROUP_MINDML;
 	}
 
-	/* Target content max frame-average luminance */
-	if (cc->group_mask & WESTON_COLOR_CHARACTERISTICS_GROUP_MAXFALL) {
-		hdr_meta->maxFALL = meta_clamp(cc->maxFALL, "maxFALL",
-					       1.0, 65535.0, output);
+	if (cpp->maxFALL > 0.0f) {
+		hdr_meta->maxFALL = meta_clamp(cpp->maxFALL,
+					      "maxFALL", 1.0, 65535.0, cprof);
 		hdr_meta->group_mask |= WESTON_HDR_METADATA_TYPE1_GROUP_MAXFALL;
 	}
 
-	return true;
+	if (cpp->maxCLL > 0.0f) {
+		hdr_meta->maxCLL = meta_clamp(cpp->maxCLL,
+					      "maxCLL", 1.0, 65535.0, cprof);
+		hdr_meta->group_mask |= WESTON_HDR_METADATA_TYPE1_GROUP_MAXCLL;
+	}
 }
 
 static struct weston_output_color_outcome *
@@ -288,14 +281,13 @@ cmlcms_create_output_color_outcome(struct weston_color_manager *cm_base,
 	struct weston_color_manager_lcms *cm = to_cmlcms(cm_base);
 	struct weston_output_color_outcome *co;
 
+	weston_assert_ptr_not_null(cm->base.compositor, output->color_profile);
+
 	co = zalloc(sizeof *co);
 	if (!co)
 		return NULL;
 
-	if (!cmlcms_get_hdr_meta(output, &co->hdr_meta))
-		goto out_fail;
-
-	assert(output->color_profile);
+	cmlcms_get_hdr_meta(&co->hdr_meta, to_cmlcms_cprof(output->color_profile));
 
 	/* TODO: take container color space into account */
 
@@ -429,19 +421,13 @@ cmlcms_init(struct weston_color_manager *cm_base)
 
 	cmsSetLogErrorHandlerTHR(cm->lcms_ctx, lcms_error_logger);
 
-	if (!cmlcms_create_stock_profile(cm)) {
-		weston_log("color-lcms: error: cmlcms_create_stock_profile failed\n");
-		goto out_err;
-	}
+	cm->sRGB_profile = cmlcms_create_stock_profile(cm);
+
 	weston_log("LittleCMS %d initialized.\n", cmsGetEncodedCMMversion());
 
 	return true;
 
 out_err:
-	if (cm->lcms_ctx)
-		cmsDeleteContext(cm->lcms_ctx);
-	cm->lcms_ctx = NULL;
-
 	weston_log_scope_destroy(cm->transforms_scope);
 	cm->transforms_scope = NULL;
 	weston_log_scope_destroy(cm->optimizer_scope);
@@ -520,7 +506,6 @@ weston_color_manager_create(struct weston_compositor *compositor)
 	cm->base.get_surface_color_transform = cmlcms_get_surface_color_transform;
 	cm->base.create_output_color_outcome = cmlcms_create_output_color_outcome;
 
-	/* We support all color features. */
 	cm->base.supported_color_features = (1 << WESTON_COLOR_FEATURE_ICC) |
 					    (1 << WESTON_COLOR_FEATURE_PARAMETRIC) |
 					    (1 << WESTON_COLOR_FEATURE_SET_PRIMARIES) |
@@ -529,14 +514,12 @@ weston_color_manager_create(struct weston_compositor *compositor)
 					    (1 << WESTON_COLOR_FEATURE_SET_MASTERING_DISPLAY_PRIMARIES) |
 					    (1 << WESTON_COLOR_FEATURE_EXTENDED_TARGET_VOLUME);
 
-	/* We support all rendering intents. */
 	cm->base.supported_rendering_intents = (1 << WESTON_RENDER_INTENT_PERCEPTUAL) |
-					       (1 << WESTON_RENDER_INTENT_SATURATION) |
+					    /* (1 << WESTON_RENDER_INTENT_SATURATION) | */
 					       (1 << WESTON_RENDER_INTENT_ABSOLUTE) |
 					       (1 << WESTON_RENDER_INTENT_RELATIVE) |
 					       (1 << WESTON_RENDER_INTENT_RELATIVE_BPC);
 
-	/* We support all primaries named. */
 	cm->base.supported_primaries_named = (1 << WESTON_PRIMARIES_CICP_SRGB) |
 					     (1 << WESTON_PRIMARIES_CICP_PAL_M) |
 					     (1 << WESTON_PRIMARIES_CICP_PAL) |
@@ -548,18 +531,10 @@ weston_color_manager_create(struct weston_compositor *compositor)
 					     (1 << WESTON_PRIMARIES_CICP_DISPLAY_P3) |
 					     (1 << WESTON_PRIMARIES_ADOBE_RGB);
 
-	/**
-	 * TODO: this is a lie just to make the color-management-parametric
-	 * tests to work. Without this the tests would be much more limited. We
-	 * actually need to implement such TF's. There's no problem doing that,
-	 * as parametric color profiles themselves are still unsupported.
-	 */
-
-	/* We need to implement each tf, and we support only a few of them. */
 	cm->base.supported_tf_named = (1 << WESTON_TF_GAMMA22) |
 				      (1 << WESTON_TF_GAMMA28) |
-				      (1 << WESTON_TF_SRGB) |
-				      (1 << WESTON_TF_ST2084_PQ);
+				      (1 << WESTON_TF_ST2084_PQ) |
+				      (1 << WESTON_TF_EXT_LINEAR);
 
 	wl_list_init(&cm->color_transform_list);
 	wl_list_init(&cm->color_profile_list);
