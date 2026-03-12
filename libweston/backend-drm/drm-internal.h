@@ -582,6 +582,9 @@ struct drm_crtc {
 
 	/* CRTC prop WDRM_CRTC_GAMMA_LUT_SIZE */
 	uint32_t lut_size;
+
+	/* Union of formats of all compatible writeback connectors */
+	struct weston_drm_format_array writeback_formats;
 };
 
 struct drm_output {
