@@ -1194,6 +1194,11 @@ drm_connector_set_max_bpc(struct drm_connector *connector,
 		assert(a <= b);
 
 		max_bpc = MAX(a, MIN(output->max_bpc, b));
+		if (max_bpc != output->max_bpc)
+			weston_log("Warning: user-specified 'max_bpc' %u, "
+				   "outside of range: [%"PRIu64", %"PRIu64"]. "
+				   "Using 'max_bpc': %"PRIu64"\n", output->max_bpc,
+				   a, b, max_bpc);
 	}
 
 	return connector_add_prop(req, connector,
