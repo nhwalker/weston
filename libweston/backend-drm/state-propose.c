@@ -128,6 +128,21 @@ drm_output_try_paint_node_on_plane(struct drm_plane_handle *handle,
 	state->fb = drm_fb_ref(fb);
 	state->in_fence_fd = ev->surface->acquire_fence_fd;
 
+	drm_color_pipeline_state_destroy(state->pipeline_state);
+	state->pipeline_state = NULL;
+	if (node->surf_xform.transform || !node->surf_xform.identity_pipeline) {
+		state->pipeline_state =
+			drm_color_pipeline_state_from_xform(plane,
+							    node->surf_xform.transform,
+							    "\t\t\t\t");
+		if (!state->pipeline_state) {
+			drm_debug(b, "\t\t\t\t[view] not placing view %p on plane %lu: "
+				     "not compatible with surface color xform\n",
+				     ev, (unsigned long) plane->plane_id);
+			goto out;
+		}
+	}
+
 	if (fb->format && fb->format->color_model == COLOR_MODEL_YUV) {
 		struct weston_color_representation color_rep;
 		const struct weston_color_matrix_coef_info *matrix_coef_info;
@@ -722,6 +737,16 @@ drm_output_find_plane_for_view(struct drm_output_state *state,
 			continue;
 		}
 
+		/* If we have a color xform that is not identity, we need to
+		 * be able to offload that to KMS. */
+		if ((pnode->surf_xform.transform || !pnode->surf_xform.identity_pipeline) &&
+		    plane->num_color_pipelines == 0) {
+			drm_debug(b, "\t\t\t\t[plane] not trying plane %d: plane has no color "
+				     "pipelines and xform is not identity\n",
+				     plane->plane_id);
+			continue;
+		}
+
 		/* Pre-judge whether the plane will be set as underlay plane. If so, start
 		 * trying to find underlay plane based on 'current_lowest_zpos_underlay'. */
 		if (!need_underlay) {
@@ -1116,8 +1141,8 @@ drm_output_propose_state(struct weston_output *output_base,
 			pnode->try_view_on_plane_failure_reasons |=
 				FAILURE_REASONS_OUTPUT_COLOR_EFFECT;
 
-		if (pnode->surf_xform.transform != NULL ||
-		    !pnode->surf_xform.identity_pipeline)
+		if ((pnode->surf_xform.transform || !pnode->surf_xform.identity_pipeline) &&
+		    (!device->color_pipeline_supported || !pnode->output->from_blend_to_output_by_backend))
 			pnode->try_view_on_plane_failure_reasons |=
 				FAILURE_REASONS_NO_COLOR_TRANSFORM;
 

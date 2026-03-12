@@ -93,6 +93,8 @@ drm_plane_state_free(struct drm_plane_state *state, bool force)
 	state->in_fence_fd = -1;
 	state->zpos = DRM_PLANE_ZPOS_INVALID_PLANE;
 	state->alpha = DRM_PLANE_ALPHA_OPAQUE;
+	drm_color_pipeline_state_destroy(state->pipeline_state);
+	state->pipeline_state = NULL;
 
 	/* Once the damage blob has been submitted, it is refcounted internally
 	 * by the kernel, which means we can safely discard it.

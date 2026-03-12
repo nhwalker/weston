@@ -218,6 +218,8 @@ struct drm_device {
 
 	bool aspect_ratio_supported;
 
+	bool color_pipeline_supported;
+
 	int32_t cursor_width;
 	int32_t cursor_height;
 
@@ -238,8 +240,12 @@ struct drm_device {
 	/* drm_backend::kms_list */
 	struct wl_list link;
 
-	/* struct drm_colorop_3x1d_lut::link  */
-	struct wl_list drm_colorop_3x1d_lut_list;
+	/* struct drm_colorop_3x1d_lut_blob::link  */
+	struct wl_list drm_colorop_3x1d_lut_blob_list;
+	/* struct drm_colorop_clut_blob::link */
+	struct wl_list drm_colorop_clut_blob_list;
+	/* struct drm_colorop_matrix_blob::link */
+	struct wl_list drm_colorop_matrix_blob_list;
 };
 
 struct drm_backend {
@@ -381,6 +387,117 @@ struct drm_output_state {
 	bool planes_enabled;
 };
 
+enum drm_colorop_3x1d_lut_blob_representation {
+	DRM_COLOROP_3X1D_LUT_BLOB_REPRESENTATION_U16 = 0,
+	DRM_COLOROP_3X1D_LUT_BLOB_REPRESENTATION_U32,
+};
+
+struct drm_colorop_3x1d_lut_blob {
+	/* drm_device::drm_colorop_3x1d_lut_blob_list */
+	struct wl_list link;
+	struct drm_device *device;
+
+	/* Lifetime matches the xform. */
+	struct weston_color_transform *xform;
+	struct wl_listener destroy_listener;
+
+	/* Which curve of the xform the 3x1D LUT was generated from. */
+	enum weston_color_curve_step curve_step;
+
+	enum drm_colorop_3x1d_lut_blob_representation representation;
+
+	uint32_t lut_len;
+
+	uint32_t blob_id;
+};
+
+struct drm_colorop_clut_blob {
+	/* drm_device::drm_colorop_clut_blob_list */
+	struct wl_list link;
+	struct drm_device *device;
+
+	/* Lifetime matches the xform. */
+	struct weston_color_transform *xform;
+	struct wl_listener destroy_listener;
+
+	uint32_t shaper_len;
+	uint32_t clut_len;
+
+	uint32_t shaper_blob_id;
+	uint32_t clut_blob_id;
+};
+
+struct drm_colorop_matrix_blob {
+	/* drm_device::drm_colorop_matrix_blob_list */
+	struct wl_list link;
+	struct drm_device *device;
+
+	/* Lifetime matches the xform. */
+	struct weston_color_transform *xform;
+	struct wl_listener destroy_listener;
+
+	uint32_t blob_id;
+};
+
+struct drm_colorop {
+	struct drm_color_pipeline *pipeline;
+	struct wl_list link; /* drm_pipeline::colorop_list */
+
+	enum wdrm_colorop_type type;
+
+	uint32_t id;
+
+	/* Some colorop's can be bypassed. */
+	bool can_bypass;
+
+	/* Only useful for 1D and 3D LUT colorop's. */
+	uint32_t size;
+
+	/* Holds the properties for the colorop. */
+	struct drm_property_info props[WDRM_COLOROP__COUNT];
+};
+
+enum colorop_object_type {
+	COLOROP_OBJECT_TYPE_CURVE = 0,
+	COLOROP_OBJECT_TYPE_MATRIX,
+	COLOROP_OBJECT_TYPE_3x1D_LUT,
+	COLOROP_OBJECT_TYPE_3D_LUT,
+	COLOROP_OBJECT_TYPE_MULTIPLIER,
+};
+
+struct drm_colorop_state_object {
+	/* Defines which of the below is valid. The others are zero. */
+	enum colorop_object_type type;
+
+	uint64_t curve_type_prop_val;
+	uint32_t matrix_blob_id;
+	uint32_t lut_3x1d_blob_id;
+	uint32_t lut_3d_blob_id;
+	uint64_t multiplier;
+};
+
+struct drm_colorop_state {
+	struct drm_colorop *colorop;
+	/* struct drm_color_pipeline_state::colorop_state_list */
+	struct wl_list link;
+
+	/* Object that should be programmed through the colorop. */
+	struct drm_colorop_state_object object;
+};
+
+struct drm_color_pipeline {
+	struct drm_plane *plane;
+	struct wl_list colorop_list; /* drm_colorop::link */
+	uint32_t id;
+};
+
+struct drm_color_pipeline_state {
+	struct drm_color_pipeline *pipeline;
+
+	/* struct drm_colorop_state::link */
+	struct wl_list colorop_state_list;
+};
+
 /**
  * Plane state holds the dynamic state for a plane: where it is positioned,
  * and which buffer it is currently displaying.
@@ -400,6 +517,9 @@ struct drm_plane_state {
 	} fb_ref;
 
 	struct weston_view *ev; /**< maintained for drm_assign_planes only */
+
+	/* only when a color transformation is being offloaded */
+	struct drm_color_pipeline_state *pipeline_state;
 
 	int32_t src_x, src_y;
 	uint32_t src_w, src_h;
@@ -465,6 +585,10 @@ struct drm_plane {
 	struct wl_list link;
 
 	struct weston_drm_format_array formats;
+
+	uint32_t pipeline_props_id;
+	uint32_t num_color_pipelines;
+	struct drm_color_pipeline *pipelines;
 };
 
 struct drm_plane_handle {
@@ -533,19 +657,6 @@ struct drm_writeback {
 	struct drm_connector connector;
 
 	struct weston_drm_format_array formats;
-};
-
-struct drm_colorop_3x1d_lut {
-	/* drm_device::drm_colorop_3x1d_lut_list */
-	struct wl_list link;
-	struct drm_device *device;
-
-	uint64_t lut_size;
-
-	struct weston_color_transform *xform;
-	struct wl_listener destroy_listener;
-
-	uint32_t blob_id;
 };
 
 struct drm_head {
@@ -623,7 +734,7 @@ struct drm_output {
 
 	bool legacy_gamma_not_supported;
 	uint16_t legacy_gamma_size;
-	struct drm_colorop_3x1d_lut *blend_to_output_xform;
+	struct drm_colorop_3x1d_lut_blob *blend_to_output_xform;
 
 	/* Plane being displayed directly on the CRTC */
 	struct drm_plane_handle *scanout_handle;
@@ -771,6 +882,31 @@ drm_output_get_handle_type_name(struct drm_plane_handle *h)
 	return drm_output_get_plane_type_name_internal(NULL, h);
 }
 
+void
+drm_color_pipeline_state_destroy(struct drm_color_pipeline_state *state);
+
+struct drm_color_pipeline_state *
+drm_color_pipeline_state_from_xform(struct drm_plane *plane,
+				    struct weston_color_transform *xform,
+				    const char *indent);
+
+const char *
+drm_colorop_type_to_str(struct drm_colorop *colorop);
+
+struct drm_colorop_3x1d_lut_blob *
+drm_colorop_3x1d_lut_blob_create(struct drm_device *device,
+				 struct weston_color_transform *xform,
+				 enum weston_color_curve_step curve_step,
+				 enum drm_colorop_3x1d_lut_blob_representation representation,
+				 struct weston_vec3f *cm_lut, uint32_t lut_len);
+
+struct drm_colorop_3x1d_lut_blob *
+drm_colorop_3x1d_lut_blob_search(struct drm_device *device,
+				 struct weston_color_transform *xform,
+				 enum weston_color_curve_step curve_step,
+				 enum drm_colorop_3x1d_lut_blob_representation representation,
+				 uint32_t lut_len);
+
 struct drm_crtc *
 drm_crtc_find(struct drm_device *device, uint32_t crtc_id);
 
@@ -835,6 +971,14 @@ int
 drm_plane_populate_formats(struct drm_plane *plane, const drmModePlane *kplane,
 			   const drmModeObjectProperties *props,
 			   const bool use_modifiers);
+
+void
+drm_plane_populate_color_pipelines(struct drm_plane *plane,
+				   drmModeObjectPropertiesPtr plane_props);
+
+void
+drm_plane_release_color_pipelines(struct drm_plane *plane);
+
 void
 drm_property_info_free(struct drm_property_info *info, int num_props);
 
@@ -845,6 +989,7 @@ extern struct drm_property_enum_info content_protection_enums[];
 extern struct drm_property_enum_info hdcp_content_type_enums[];
 extern const struct drm_property_info connector_props[];
 extern const struct drm_property_info crtc_props[];
+extern const struct drm_property_info colorop_props[];
 
 int
 init_kms_caps(struct drm_device *device);
