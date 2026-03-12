@@ -209,15 +209,34 @@ weston_cm_send_target_primaries(struct cm_image_desc_info *cm_image_desc_info,
  * This is a helper function that should be used by the color plugin
  * that owns the color profile and has information about it.
  *
- * \param cm_image_desc_info The image description info object
- * \param tf_info The tf_info object
+ * \param cm_image_desc_info The image description info object.
+ * \param tf The color transfer function to send.
  */
 WL_EXPORT void
-weston_cm_send_tf_named(struct cm_image_desc_info *cm_image_desc_info,
-			const struct weston_color_tf_info *tf_info)
+weston_cm_send_tf(struct cm_image_desc_info *cm_image_desc_info,
+		  const struct weston_color_tf *tf)
 {
-	wp_image_description_info_v1_send_tf_named(cm_image_desc_info->owner,
-						   tf_info->protocol_tf);
+	switch (tf->info->tf) {
+	case WESTON_TF_BT1886:
+	case WESTON_TF_GAMMA22:
+	case WESTON_TF_GAMMA28:
+	case WESTON_TF_SRGB:
+	case WESTON_TF_EXT_SRGB:
+	case WESTON_TF_ST240:
+	case WESTON_TF_ST428:
+	case WESTON_TF_ST2084_PQ:
+	case WESTON_TF_EXT_LINEAR:
+	case WESTON_TF_LOG_100:
+	case WESTON_TF_LOG_316:
+	case WESTON_TF_XVYCC:
+	case WESTON_TF_HLG:
+		wp_image_description_info_v1_send_tf_named(cm_image_desc_info->owner,
+							   tf->info->protocol_tf);
+		break;
+	case WESTON_TF_POWER:
+		wp_image_description_info_v1_send_tf_power(cm_image_desc_info->owner,
+							   tf->params[0]);
+	}
 }
 
 /**
@@ -259,6 +278,37 @@ weston_cm_send_target_luminances(struct cm_image_desc_info *cm_image_desc_info,
 	wp_image_description_info_v1_send_target_luminance(cm_image_desc_info->owner,
 							   min_lum * 10000,
 							   max_lum);
+}
+
+/**
+ * Send complete parametric image description information to the client.
+ */
+WL_EXPORT void
+weston_cm_send_parametric_info(struct cm_image_desc_info *cm_image_desc_info,
+			       const struct weston_color_profile_params *par)
+{
+	if (par->primaries_info)
+		weston_cm_send_primaries_named(cm_image_desc_info, par->primaries_info);
+	weston_cm_send_primaries(cm_image_desc_info, &par->primaries);
+	weston_cm_send_target_primaries(cm_image_desc_info, &par->target_primaries);
+
+	weston_cm_send_tf(cm_image_desc_info, &par->tf);
+
+	weston_cm_send_luminances(cm_image_desc_info, par->min_luminance,
+				  par->max_luminance, par->reference_white_luminance);
+	weston_cm_send_target_luminances(cm_image_desc_info,
+					 par->target_min_luminance,
+					 par->target_max_luminance);
+
+	if (par->maxCLL > 0.0f) {
+		wp_image_description_info_v1_send_target_max_cll(cm_image_desc_info->owner,
+								 par->maxCLL);
+	}
+
+	if (par->maxFALL > 0.0f) {
+		wp_image_description_info_v1_send_target_max_fall(cm_image_desc_info->owner,
+								  par->maxFALL);
+	}
 }
 
 /**
