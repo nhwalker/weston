@@ -514,6 +514,7 @@ struct drm_writeback_state {
 
 	enum writeback_screenshot_state state;
 	struct weston_capture_task *ct;
+	struct wl_listener buffer_destroy_listener;
 
 	struct drm_fb *fb;
 	int32_t out_fence_fd;
@@ -581,6 +582,9 @@ struct drm_crtc {
 
 	/* CRTC prop WDRM_CRTC_GAMMA_LUT_SIZE */
 	uint32_t lut_size;
+
+	/* Union of formats of all compatible writeback connectors */
+	struct weston_drm_format_array writeback_formats;
 };
 
 struct drm_output {
@@ -684,7 +688,7 @@ void
 drm_writeback_reference_planes(struct drm_writeback_state *state,
 			       struct wl_list *plane_state_list);
 bool
-drm_writeback_should_wait_completion(struct drm_writeback_state *state);
+drm_writeback_try_complete(struct drm_writeback_state *state);
 void
 drm_writeback_fail_screenshot(struct drm_writeback_state *state,
 			      const char *err_msg);
