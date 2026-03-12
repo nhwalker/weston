@@ -1305,7 +1305,7 @@ drm_assign_planes(struct weston_output *output_base)
 							 mode);
 		}
 	} else {
-		drm_debug(b, "\t[state] no overlay plane support\n");
+		drm_debug(b, "\t[state] no HW plane support\n");
 	}
 
 	/* We can enter this block in two situations:
