@@ -1566,16 +1566,16 @@ drm_plane_create_handle(struct drm_plane *plane, struct drm_output *output)
 }
 
 /**
- * Initialise sprites (overlay planes)
+ * Initialise hardware planes
  *
  * Walk the list of provided DRM planes, and add overlay planes.
  *
- * Call destroy_sprites to free these planes.
+ * Call destroy_planes to free these planes.
  *
  * @param device DRM device
  */
 static void
-create_sprites(struct drm_device *device)
+create_planes(struct drm_device *device)
 {
 	drmModePlaneRes *kplane_res;
 	drmModePlane *kplane;
@@ -1607,14 +1607,14 @@ create_sprites(struct drm_device *device)
 }
 
 /**
- * Clean up sprites (overlay planes)
+ * Clean up hardware planes
  *
- * The counterpart to create_sprites.
+ * The counterpart to create_planes.
  *
  * @param device DRM device
  */
 static void
-destroy_sprites(struct drm_device *device)
+destroy_planes(struct drm_device *device)
 {
 	struct drm_plane *plane, *next;
 
@@ -4022,7 +4022,7 @@ drm_shutdown(struct weston_backend *backend)
 	wl_event_source_remove(b->perf_page_flips_stats.pageflip_timer_counter);
 
 	/* We are shutting down. This function destroy the planes with
-	 * destroy_sprites() and then calls weston_compositor_shutdown(), which
+	 * destroy_planes() and then calls weston_compositor_shutdown(), which
 	 * will lead to calls to drm_output_destroy(). We are destroying the
 	 * plane and its state_cur in drm_plane_destroy(), and that removes
 	 * state_cur from the output->state_cur list, but not from the
@@ -4037,7 +4037,7 @@ drm_shutdown(struct weston_backend *backend)
 	 *
 	 * But now we don't leak the drm_output during shutdown with a pending
 	 * flip anymore. So we must destroy output->state_last for every output
-	 * before destroying the planes with destroy_sprites(), otherwise we'd
+	 * before destroying the planes with destroy_planes(), otherwise we'd
 	 * leave output->state_last referring to a freed plane, leading to
 	 * issues when trying to free it at a later point.
 	 */
@@ -4074,7 +4074,7 @@ drm_device_destroy(struct drm_device *device)
 
 	wl_list_remove(&device->link);
 
-	destroy_sprites(device);
+	destroy_planes(device);
 
 	wl_list_for_each_safe(crtc, crtc_tmp, &device->crtc_list, link)
 		drm_crtc_destroy(crtc);
@@ -4371,7 +4371,7 @@ planes_binding(struct weston_keyboard *keyboard, const struct timespec *time,
 	case KEY_V:
 		/* We don't support overlay-plane usage with legacy KMS. */
 		if (device->atomic_modeset)
-			device->sprites_are_broken ^= true;
+			device->hw_planes_are_broken ^= true;
 		break;
 	default:
 		break;
@@ -4544,7 +4544,7 @@ drm_device_create(struct drm_backend *backend,
 				     WL_EVENT_READABLE, on_drm_input, device);
 
 	wl_list_init(&device->plane_list);
-	create_sprites(device);
+	create_planes(device);
 
 	wl_list_init(&device->drm_colorop_3x1d_lut_list);
 
