@@ -1408,6 +1408,9 @@ weston_wm_window_draw_decoration(struct weston_wm_window *window)
 		how = "decorate";
 		frame_set_title(window->frame, window->name);
 		frame_repaint(window->frame, cr);
+	} else if (weston_wm_window_is_maximized(window)) {
+		how = "maximized";
+		/* nothing */
 	} else {
 		how = "shadow";
 		cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
@@ -1763,8 +1766,10 @@ weston_wm_handle_reparent_notify(struct weston_wm *wm, xcb_generic_event_t *even
 		(xcb_reparent_notify_event_t *) event;
 	struct weston_wm_window *window;
 
-	wm_printf(wm, "XCB_REPARENT_NOTIFY (window %d, parent %d, event %d%s)\n",
+	wm_printf(wm, "XCB_REPARENT_NOTIFY (window %d @ %d,%d, parent %d, event %d%s)\n",
 		  reparent_notify->window,
+		  reparent_notify->x,
+		  reparent_notify->y,
 		  reparent_notify->parent,
 		  reparent_notify->event,
 		  reparent_notify->override_redirect ? ", override" : "");
@@ -3208,9 +3213,15 @@ send_position(struct weston_surface *surface, int32_t x, int32_t y)
 		return;
 
 	wm = window->wm;
+
+    wm_printf(wm, "XWM: send_position (window %d) input %d,%d window %f,%f%s\n",
+		window->id, x, y,
+		window->pos.c.x, window->pos.c.y,
+		window->override_redirect ? ", override" : "");
+
 	/* We use pos_dirty to tell whether a configure message is in flight.
 	 * This is needed in case we send two configure events in a very
-	 * short time, since window->x/y is set in after a roundtrip, hence
+	 * short time, since window->pos.x/y is set in after a roundtrip, hence
 	 * we cannot just check if the current x and y are different. */
 	if (window->pos.c.x != pos.c.x || window->pos.c.y != pos.c.y ||
 	    window->pos_dirty) {
@@ -3223,6 +3234,19 @@ send_position(struct weston_surface *surface, int32_t x, int32_t y)
 		weston_wm_window_send_configure_notify(window);
 		xcb_flush(wm->conn);
 	}
+}
+
+static void
+get_saved_geometry(struct weston_surface *surface,
+				   int32_t *saved_height, int32_t *saved_width)
+{
+	struct weston_wm_window *window = get_wm_window(surface);
+
+	if (!window)
+		return;
+
+	*saved_height = window->saved_height;
+	*saved_width = window->saved_width;
 }
 
 static void
@@ -3245,9 +3269,38 @@ send_fullscreen(struct weston_surface *surface, bool fullscreen)
 	}
 }
 
+static void
+send_maximized(struct weston_surface *surface, bool maximized)
+{
+	struct weston_wm_window *window = get_wm_window(surface);
+
+	if (!window || !window->wm)
+		return;
+
+	if (weston_wm_window_is_maximized(window) == maximized)
+		return;
+
+	if (maximized) {
+		window->maximized_horz = 1;
+		window->maximized_vert = 1;
+
+		/* Store only if we were not already in full-screen */
+		if (!window->fullscreen) {
+			window->saved_width = window->width;
+			window->saved_height = window->height;
+		}
+	} else {
+		window->maximized_horz = 0;
+		window->maximized_vert = 0;
+	}
+
+	weston_wm_window_set_net_wm_state(window);
+}
+
 static const struct weston_xwayland_client_interface shell_client = {
 	send_configure,
 	send_close,
+	send_maximized,
 	send_fullscreen,
 };
 
@@ -3440,4 +3493,5 @@ const struct weston_xwayland_surface_api surface_api = {
 	is_wm_window,
 	send_position,
 	get_xwayland_window_name,
+	get_saved_geometry,
 };
