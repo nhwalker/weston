@@ -9,12 +9,6 @@ option(
 	description: 'Weston backend: DRM/KMS'
 )
 option(
-	'deprecated-backend-drm-screencast-vaapi',
-	type: 'boolean',
-	value: false,
-	description: 'DEPRECATED: DRM/KMS backend support for VA-API screencasting'
-)
-option(
 	'backend-headless',
 	type: 'boolean',
 	value: true,
@@ -31,12 +25,6 @@ option(
 	type: 'boolean',
 	value: true,
 	description: 'Weston backend: RDP remote screensharing'
-)
-option(
-	'deprecated-screenshare',
-	type: 'boolean',
-	value: false,
-	description: 'DEPRECATED: Compositor: RDP screen-sharing support. Requires fullscreen-shell support'
 )
 option(
 	'backend-vnc',
@@ -117,12 +105,6 @@ option(
 	type: 'boolean',
 	value: true,
 	description: 'Weston shell UI: traditional desktop'
-)
-option(
-	'deprecated-shell-fullscreen',
-	type: 'boolean',
-	value: false,
-	description: 'DEPRECATED: Weston shell UI: fullscreen/kiosk. For a more modern alternative, use kiosk-shell instead'
 )
 option(
 	'shell-ivi',
