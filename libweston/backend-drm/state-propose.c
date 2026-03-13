@@ -430,11 +430,11 @@ dmabuf_feedback_maybe_update(struct drm_device *device, struct weston_view *ev,
 		clock_gettime(CLOCK_MONOTONIC, &dmabuf_feedback->timer);
 		dmabuf_feedback->action_needed = action_needed;
 		return;
-	/* Timer is already on and the action needed when it was set to on does
-	 * not conflict with the most recent needed action we've detected. If
-	 * more than MAX_TIME_SECONDS has passed, we need to resend the dma-buf
-	 * feedback. Otherwise, return and leave the timer running. */
 	} else {
+		/* Timer is already on and the action needed when it was set to on does
+		 * not conflict with the most recent needed action we've detected. If
+		 * more than MAX_TIME_SECONDS has passed, we need to resend the dma-buf
+		 * feedback. Otherwise, return and leave the timer running. */
 		clock_gettime(CLOCK_MONOTONIC, &current_time);
 		delta_time.tv_sec = current_time.tv_sec -
 				    dmabuf_feedback->timer.tv_sec;
