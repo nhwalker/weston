@@ -26,6 +26,14 @@ Weston formerly accepted patches via `git-send-email`, sent to
 [tracked using Patchwork](https://patchwork.freedesktop.org/project/wayland/).
 New email patches are no longer accepted.
 
+### AI-Policy
+
+Based on similar policies from
+[Fedora](https://communityblog.fedoraproject.org/council-policy-proposal-policy-on-ai-assisted-contributions/)
+and from [OpenInfra](https://openinfra.org/legal/ai-policy) Weston has a
+dedicated [AI-policy](ai-policy.md) related to that. Please read that before
+opening an MR.
+
 Finding something to work on
 ----------------------------
 
