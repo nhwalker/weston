@@ -3860,7 +3860,10 @@ load_vnc_backend(struct weston_compositor *c,
 {
 	struct weston_vnc_backend_config config  = {{ 0, }};
 	struct weston_config_section *section;
+	const char *section_name;
+	const struct weston_vnc_output_api *api;
 	struct wet_backend *wb;
+	int output_count = 0;
 
 	struct wet_output_config *parsed_options = wet_init_parsed_options(c);
 	if (!parsed_options)
@@ -3902,6 +3905,44 @@ load_vnc_backend(struct weston_compositor *c,
 
 	if (!wb)
 		return -1;
+
+	api = weston_vnc_output_get_api(c);
+	if (!api) {
+		weston_log("Cannot use weston_vnc_output_api.\n");
+		return -1;
+	}
+
+	/* Create a head for each [output] section whose name starts with
+	 * "vnc".  Each head gets its own VNC server on a separate port,
+	 * starting from the configured base port (default 5900). */
+	section = NULL;
+	while (weston_config_next_section(wc, &section, &section_name)) {
+		char *output_name;
+
+		if (strcmp(section_name, "output") != 0)
+			continue;
+
+		weston_config_section_get_string(section, "name",
+						 &output_name, NULL);
+		if (output_name == NULL ||
+		    strncmp(output_name, "vnc", 3) != 0) {
+			free(output_name);
+			continue;
+		}
+
+		if (api->create_head(wb->backend, output_name) < 0) {
+			free(output_name);
+			return -1;
+		}
+		free(output_name);
+		output_count++;
+	}
+
+	/* Fall back to a single default output if none were configured. */
+	if (output_count == 0) {
+		if (api->create_head(wb->backend, "vnc") < 0)
+			return -1;
+	}
 
 	return 0;
 }

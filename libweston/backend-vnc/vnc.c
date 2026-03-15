@@ -66,15 +66,20 @@ struct vnc_backend {
 	struct weston_backend base;
 	struct weston_compositor *compositor;
 	struct weston_log_scope *debug;
-	struct vnc_output *output;
 
 	struct xkb_rule_names xkb_rule_name;
 	struct xkb_keymap *xkb_keymap;
 
 	struct aml *aml;
 	struct wl_event_source *aml_event;
-	struct nvnc *server;
+	int port_counter;
 	int vnc_monitor_refresh_rate;
+
+	/* Stored config for per-output server setup */
+	char *bind_address;
+	char *server_cert;
+	char *server_key;
+	bool disable_tls;
 
 	const struct pixel_format_info **formats;
 	unsigned int formats_count;
@@ -86,7 +91,9 @@ struct vnc_output {
 	struct weston_surface *cursor_surface;
 	struct vnc_backend *backend;
 	struct wl_event_source *finish_frame_timer;
+	struct nvnc *server;
 	struct nvnc_display *display;
+	int port;
 
 	struct nvnc_fb_pool *fb_pool;
 
@@ -97,6 +104,7 @@ struct vnc_output {
 
 struct vnc_peer {
 	struct vnc_backend *backend;
+	struct vnc_output *output;
 	struct weston_seat *seat;
 	struct nvnc_client *client;
 
@@ -394,7 +402,7 @@ vnc_handle_desktop_layout_event(struct nvnc_client *client,
 				const struct nvnc_desktop_layout *layout)
 {
 	struct vnc_peer *peer = nvnc_get_userdata(client);
-	struct vnc_output *output = peer->backend->output;
+	struct vnc_output *output = peer->output;
 	struct weston_mode new_mode;
 	uint16_t width = nvnc_desktop_layout_get_width(layout);
 	uint16_t height = nvnc_desktop_layout_get_height(layout);
@@ -418,7 +426,7 @@ vnc_pointer_event(struct nvnc_client *client, uint16_t x, uint16_t y,
 		  enum nvnc_button_mask button_mask)
 {
 	struct vnc_peer *peer = nvnc_get_userdata(client);
-	struct vnc_output *output = peer->backend->output;
+	struct vnc_output *output = peer->output;
 	struct timespec time;
 	enum nvnc_button_mask changed_button_mask;
 
@@ -489,7 +497,7 @@ static void
 vnc_client_cleanup(struct nvnc_client *client)
 {
 	struct vnc_peer *peer = nvnc_get_userdata(client);
-	struct vnc_output *output = peer->backend->output;
+	struct vnc_output *output = peer->output;
 
 	wl_list_remove(&peer->link);
 	weston_seat_release_keyboard(peer->seat);
@@ -531,7 +539,6 @@ vnc_output_get_pointer(struct vnc_output *output,
 static void
 vnc_output_update_cursor(struct vnc_output *output)
 {
-	struct vnc_backend *backend = output->backend;
 	struct weston_pointer *pointer;
 	struct weston_paint_node *pointer_pnode = NULL;
 	bool update_cursor;
@@ -568,7 +575,7 @@ vnc_output_update_cursor(struct vnc_output *output)
 		       4 * buffer->width);
 	wl_shm_buffer_end_access(buffer->shm_buffer);
 
-	nvnc_set_cursor(backend->server, fb, buffer->width, buffer->height,
+	nvnc_set_cursor(output->server, fb, buffer->width, buffer->height,
 			pointer->hotspot.c.x, pointer->hotspot.c.y, true);
 	nvnc_fb_unref(fb);
 }
@@ -749,8 +756,8 @@ static void
 vnc_new_client(struct nvnc_client *client)
 {
 	struct nvnc *server = nvnc_client_get_server(client);
-	struct vnc_backend *backend = nvnc_get_userdata(server);
-	struct vnc_output *output = backend->output;
+	struct vnc_output *output = nvnc_get_userdata(server);
+	struct vnc_backend *backend = output->backend;
 	struct vnc_peer *peer;
 	const char *seat_name = "VNC Client";
 
@@ -759,6 +766,7 @@ vnc_new_client(struct nvnc_client *client)
 	peer = xzalloc(sizeof(*peer));
 	peer->client = client;
 	peer->backend = backend;
+	peer->output = output;
 	peer->seat = xzalloc(sizeof(*peer->seat));
 
 	weston_seat_init(peer->seat, backend->compositor, seat_name);
@@ -797,11 +805,11 @@ vnc_output_enable(struct weston_output *base)
 	struct vnc_output *output = to_vnc_output(base);
 	struct vnc_backend *backend;
 	struct wl_event_loop *loop;
+	int ret;
 
 	assert(output);
 
 	backend = output->backend;
-	backend->output = output;
 
 	weston_plane_init(&output->cursor_plane, backend->compositor);
 
@@ -847,11 +855,64 @@ vnc_output_enable(struct weston_output *base)
 					   backend->formats[0]->format,
 					   output->base.width);
 
+	/* Create this output's own VNC server on its assigned port. */
+	aml_set_default(backend->aml);
+	output->server = nvnc_open(backend->bind_address, output->port);
+	if (!output->server) {
+		weston_log("Failed to open VNC server on port %d\n",
+			   output->port);
+		goto err_fb_pool;
+	}
+
+	nvnc_set_new_client_fn(output->server, vnc_new_client);
+	nvnc_set_pointer_fn(output->server, vnc_pointer_event);
+	nvnc_set_key_fn(output->server, vnc_handle_key_event);
+	nvnc_set_key_code_fn(output->server, vnc_handle_key_code_event);
+	nvnc_set_desktop_layout_fn(output->server, vnc_handle_desktop_layout_event);
+	nvnc_set_userdata(output->server, output, NULL);
+	nvnc_set_name(output->server, "Weston VNC backend");
+
+	if (!backend->disable_tls) {
+		ret = nvnc_set_tls_creds(output->server, backend->server_key,
+					 backend->server_cert);
+		if (ret) {
+			weston_log("Failed to set TLS credentials\n");
+			goto err_server;
+		}
+
+		ret = nvnc_enable_auth(
+			output->server,
+			NVNC_AUTH_REQUIRE_AUTH | NVNC_AUTH_REQUIRE_ENCRYPTION,
+			vnc_handle_auth, NULL);
+		if (ret) {
+			weston_log("Failed to enable TLS support\n");
+			goto err_server;
+		}
+	} else {
+		ret = nvnc_enable_auth(output->server, NVNC_AUTH_REQUIRE_AUTH,
+				       vnc_handle_auth, NULL);
+		if (ret) {
+			weston_log("Failed to enable authentication\n");
+			goto err_server;
+		}
+	}
+
 	output->display = nvnc_display_new(0, 0);
 
-	nvnc_add_display(backend->server, output->display);
+	nvnc_add_display(output->server, output->display);
+
+	weston_log("VNC server listening on port %d\n", output->port);
 
 	return 0;
+
+err_server:
+	nvnc_close(output->server);
+	output->server = NULL;
+err_fb_pool:
+	nvnc_fb_pool_unref(output->fb_pool);
+	wl_event_source_remove(output->finish_frame_timer);
+	weston_plane_release(&output->cursor_plane);
+	return -1;
 }
 
 static int
@@ -868,9 +929,11 @@ vnc_output_disable(struct weston_output *base)
 	if (!output->base.enabled)
 		return 0;
 
-	nvnc_remove_display(backend->server, output->display);
+	nvnc_remove_display(output->server, output->display);
 	nvnc_display_unref(output->display);
 	nvnc_fb_pool_unref(output->fb_pool);
+	nvnc_close(output->server);
+	output->server = NULL;
 
 	switch (renderer->type) {
 	case WESTON_RENDERER_PIXMAN:
@@ -884,7 +947,6 @@ vnc_output_disable(struct weston_output *base)
 	}
 
 	wl_event_source_remove(output->finish_frame_timer);
-	backend->output = NULL;
 
 	weston_plane_release(&output->cursor_plane);
 
@@ -936,8 +998,6 @@ vnc_destroy(struct weston_backend *base)
 	struct weston_compositor *ec = backend->compositor;
 	struct weston_head *head, *next;
 
-	nvnc_close(backend->server);
-
 	wl_list_remove(&backend->base.link);
 
 	wl_event_source_remove(backend->aml_event);
@@ -952,12 +1012,16 @@ vnc_destroy(struct weston_backend *base)
 	if (backend->debug)
 		weston_log_scope_destroy(backend->debug);
 
+	free(backend->bind_address);
+	free(backend->server_cert);
+	free(backend->server_key);
 	free(backend);
 }
 
-static void
-vnc_head_create(struct vnc_backend *backend, const char *name)
+static int
+vnc_head_create(struct weston_backend *base, const char *name)
 {
+	struct vnc_backend *backend = container_of(base, struct vnc_backend, base);
 	struct vnc_head *head;
 
 	head = xzalloc(sizeof *head);
@@ -970,6 +1034,8 @@ vnc_head_create(struct vnc_backend *backend, const char *name)
 
 	weston_head_set_connection_status(&head->base, true);
 	weston_compositor_add_head(backend->compositor, &head->base);
+
+	return 0;
 }
 
 static void
@@ -1093,6 +1159,8 @@ vnc_output_set_size(struct weston_output *base, int width, int height,
 	/* We can only be called once. */
 	assert(!output->base.current_mode);
 
+	output->port = backend->port_counter++;
+
 	wl_list_init(&output->peers);
 
 	init_mode.width = width;
@@ -1115,6 +1183,7 @@ vnc_output_set_size(struct weston_output *base, int width, int height,
 
 static const struct weston_vnc_output_api api = {
 	vnc_output_set_size,
+	vnc_head_create,
 };
 
 static int
@@ -1189,8 +1258,6 @@ vnc_backend_create(struct weston_compositor *compositor,
 		}
 	}
 
-	vnc_head_create(backend, "vnc");
-
 	compositor->capabilities |= WESTON_CAP_ARBITRARY_MODES;
 
 	backend->xkb_rule_name.rules = strdup(compositor->xkb_names.rules);
@@ -1214,18 +1281,17 @@ vnc_backend_create(struct weston_compositor *compositor,
 						  vnc_aml_dispatch,
 						  backend->aml);
 
-	backend->server = nvnc_open(config->bind_address, config->port);
-	if (!backend->server)
-		goto err_output;
+	/* Store config for use when each per-output server is created. */
+	backend->bind_address = config->bind_address ?
+				strdup(config->bind_address) : NULL;
+	backend->server_cert = config->server_cert ?
+			       strdup(config->server_cert) : NULL;
+	backend->server_key = config->server_key ?
+			      strdup(config->server_key) : NULL;
+	backend->disable_tls = config->disable_tls;
+	backend->port_counter = config->port;
 
-	nvnc_set_new_client_fn(backend->server, vnc_new_client);
-	nvnc_set_pointer_fn(backend->server, vnc_pointer_event);
-	nvnc_set_key_fn(backend->server, vnc_handle_key_event);
-	nvnc_set_key_code_fn(backend->server, vnc_handle_key_code_event);
-	nvnc_set_desktop_layout_fn(backend->server, vnc_handle_desktop_layout_event);
-	nvnc_set_userdata(backend->server, backend, NULL);
-	nvnc_set_name(backend->server, "Weston VNC backend");
-
+	/* Pre-validate TLS config once so we fail early. */
 	if (!config->disable_tls) {
 		if (!nvnc_has_auth()) {
 			weston_log("Neat VNC built without TLS support\n");
@@ -1248,31 +1314,8 @@ vnc_backend_create(struct weston_compositor *compositor,
 			goto err_output;
 		}
 
-		ret = nvnc_set_tls_creds(backend->server, config->server_key,
-					 config->server_cert);
-		if (ret) {
-			weston_log("Failed set TLS credentials\n");
-			goto err_output;
-		}
-
-		ret = nvnc_enable_auth(
-			backend->server,
-			NVNC_AUTH_REQUIRE_AUTH | NVNC_AUTH_REQUIRE_ENCRYPTION,
-			vnc_handle_auth, NULL);
-		if (ret) {
-			weston_log("Failed to enable TLS support\n");
-			goto err_output;
-		}
-
-		weston_log("TLS support activated\n");
+		weston_log("TLS support will be activated per output\n");
 	} else {
-		ret = nvnc_enable_auth(backend->server, NVNC_AUTH_REQUIRE_AUTH,
-				       vnc_handle_auth, NULL);
-		if (ret) {
-			weston_log("Failed to enable authentication\n");
-			goto err_output;
-		}
-
 		weston_log(
 			"warning: VNC enabled without Transport Layer "
 			"Security!\n");
@@ -1290,6 +1333,9 @@ vnc_backend_create(struct weston_compositor *compositor,
 err_output:
 	wl_list_for_each_safe(base, next, &compositor->head_list, compositor_link)
 		vnc_head_destroy(base);
+	free(backend->bind_address);
+	free(backend->server_cert);
+	free(backend->server_key);
 err_compositor:
 	wl_list_remove(&backend->base.link);
 	free(backend);

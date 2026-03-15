@@ -33,7 +33,7 @@ extern "C" {
 #include <libweston/libweston.h>
 #include <libweston/plugin-registry.h>
 
-#define WESTON_VNC_OUTPUT_API_NAME "weston_vnc_output_api_v2"
+#define WESTON_VNC_OUTPUT_API_NAME "weston_vnc_output_api_v3"
 #define VNC_DEFAULT_FREQ 60
 
 struct weston_vnc_output_api {
@@ -43,6 +43,20 @@ struct weston_vnc_output_api {
 	 */
 	int (*output_set_size)(struct weston_output *output,
 			       int width, int height, bool resizeable);
+
+	/** Create a new VNC head (and thus output) with the given name.
+	 *
+	 * \param backend The backend.
+	 * \param name    Name for the new head, must not be NULL.
+	 *
+	 * Returns 0 on success, -1 on failure.
+	 *
+	 * Each head created here will result in a heads_changed callback
+	 * and a corresponding output can be created for it.  Each output
+	 * will listen on a separate VNC port, starting from the configured
+	 * base port and incrementing by one for each additional output.
+	 */
+	int (*create_head)(struct weston_backend *backend, const char *name);
 };
 
 static inline const struct weston_vnc_output_api *
