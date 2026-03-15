@@ -1,0 +1,38 @@
+---
+xwayland/window-manager.c — Two changes
+
+1. Initial position: respect WM_NORMAL_HINTS at map time (weston_wm_handle_map_request)
+
+Before: window->map_request was always set from window->pos, which comes from XCB_CREATE_NOTIFY/XCB_CONFIGURE_NOTIFY
+events. In XWayland, windows are typically created at (0,0), so this was usually (0,0).
+
+After: If the app set WM_NORMAL_HINTS with USPosition (user-specified position) or PPosition (program-specified
+position) flags, the map_request is now taken from size_hints.x/y instead. These flags mean the app explicitly 
+requested a position, and size_hints.x/y is the canonical place that position is stored.
+
+weston_wm_window_is_positioned() was already returning true when these flags were set — but the coordinate actually
+used was always the (usually zero) window->pos. This change makes the coordinate match the flag.
+
+2. Client-initiated moves: handle X/Y in weston_wm_handle_configure_request
+
+When an app calls XMoveWindow() after it's already mapped, X11 sends a ConfigureRequest with XCB_CONFIG_WINDOW_X
+and/or XCB_CONFIG_WINDOW_Y set. The old code silently ignored these bits.
+
+Now two things happen:
+- window->pos is updated immediately (but only for non-maximized, non-fullscreen windows — those positions are
+  compositor-managed).
+- If the window already has a shsurf (is fully mapped), set_toplevel_with_position is called with the new position
+  to push the move into the compositor.
+
+---
+desktop-shell/shell.c and kiosk-shell/kiosk-shell.c — Same fix in both
+
+set_toplevel_with_position routes through weston_desktop_api_set_xwayland_position, which calls the shell's
+desktop_surface_set_xwayland_position. Previously, this only stored the position hint (shsurf->xwayland.pos /
+is_set) — a hint that is only consumed at initial map time in the shell's map() function.
+
+Now: If the surface is already mapped, the position is applied immediately by calling 
+weston_view_set_position_with_offset (adjusting for surface geometry) followed by weston_view_update_transform.
+The transform update fires the compositor's transform_signal, which triggers each shell's transform_handler, which
+calls xwayland_surface_api->send_position back into the XWM to update the X11 frame window position and send the
+XCB_CONFIGURE_NOTIFY acknowledgement to the X11 client.
