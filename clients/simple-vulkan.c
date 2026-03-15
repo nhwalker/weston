@@ -525,8 +525,11 @@ find_memory_type(struct window *window, uint32_t allowed, VkMemoryPropertyFlags 
 	VkPhysicalDeviceMemoryProperties mem_properties;
 	vkGetPhysicalDeviceMemoryProperties(window->vk.phys_dev, &mem_properties);
 
-	for (unsigned i = 0; (1u << i) <= allowed && i <= mem_properties.memoryTypeCount; ++i) {
-		if ((allowed & (1u << i)) && (mem_properties.memoryTypes[i].propertyFlags & properties))
+	for (unsigned i = 0; i < mem_properties.memoryTypeCount; ++i) {
+		bool is_allowed = allowed & (1u << i);
+		bool has_properties =
+			(mem_properties.memoryTypes[i].propertyFlags & properties) == properties;
+		if (is_allowed && has_properties)
 			return i;
 	}
 	return -1;
@@ -905,13 +908,7 @@ create_instance(struct window *window)
 	inst_extns[num_inst_extns++] = VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME;
 
 	for (uint32_t i = 0; i < num_inst_extns; i++) {
-		uint32_t j;
-		for (j = 0; j < num_avail_inst_extns; j++) {
-			if (strcmp(inst_extns[i], avail_inst_extns[j].extensionName) == 0) {
-				break;
-			}
-		}
-		if (j == num_avail_inst_extns) {
+		if (!check_extension(avail_inst_extns, num_avail_inst_extns, inst_extns[i])) {
 			fprintf(stderr, "Unsupported instance extension: %s\n", inst_extns[i]);
 			abort();
 		}
@@ -1028,13 +1025,7 @@ create_device(struct window *window)
 	}
 
 	for (uint32_t i = 0; i < num_device_extns; i++) {
-		uint32_t j;
-		for (j = 0; j < num_avail_device_extns; j++) {
-			if (strcmp(device_extns[i], avail_device_extns[j].extensionName) == 0) {
-				break;
-			}
-		}
-		if (j == num_avail_device_extns) {
+		if (!check_extension(avail_device_extns, num_avail_device_extns, device_extns[i])) {
 			fprintf(stderr, "Unsupported device extension: %s\n", device_extns[i]);
 			abort();
 		}
@@ -1612,20 +1603,12 @@ redraw(struct window *window)
 			.pRegions = &region,
 		};
 		pnext(&present_info, &present_regions);
-
-		result = vkQueuePresentKHR(window->vk.queue, &present_info);
-	} else {
-		result = vkQueuePresentKHR(window->vk.queue, &present_info);
 	}
+
+	result = vkQueuePresentKHR(window->vk.queue, &present_info);
 
 	if (result != VK_SUCCESS)
 		return;
-	if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
-		recreate_swapchain(window);
-		return;
-	} else if (result != VK_SUCCESS) {
-		assert(0);
-	}
 
 	window->frames++;
 	window->vk.frame_index = (window->vk.frame_index + 1) % MAX_CONCURRENT_FRAMES;
