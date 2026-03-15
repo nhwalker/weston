@@ -908,13 +908,7 @@ create_instance(struct window *window)
 	inst_extns[num_inst_extns++] = VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME;
 
 	for (uint32_t i = 0; i < num_inst_extns; i++) {
-		uint32_t j;
-		for (j = 0; j < num_avail_inst_extns; j++) {
-			if (strcmp(inst_extns[i], avail_inst_extns[j].extensionName) == 0) {
-				break;
-			}
-		}
-		if (j == num_avail_inst_extns) {
+		if (!check_extension(avail_inst_extns, num_avail_inst_extns, inst_extns[i])) {
 			fprintf(stderr, "Unsupported instance extension: %s\n", inst_extns[i]);
 			abort();
 		}
@@ -1031,13 +1025,7 @@ create_device(struct window *window)
 	}
 
 	for (uint32_t i = 0; i < num_device_extns; i++) {
-		uint32_t j;
-		for (j = 0; j < num_avail_device_extns; j++) {
-			if (strcmp(device_extns[i], avail_device_extns[j].extensionName) == 0) {
-				break;
-			}
-		}
-		if (j == num_avail_device_extns) {
+		if (!check_extension(avail_device_extns, num_avail_device_extns, device_extns[i])) {
 			fprintf(stderr, "Unsupported device extension: %s\n", device_extns[i]);
 			abort();
 		}
