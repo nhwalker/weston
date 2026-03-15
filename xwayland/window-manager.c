@@ -838,6 +838,13 @@ weston_wm_handle_configure_request(struct weston_wm *wm, xcb_generic_event_t *ev
 			window->saved_height = window->height;
 	}
 
+	if (!weston_wm_window_is_maximized(window) && !window->fullscreen) {
+		if (configure_request->value_mask & XCB_CONFIG_WINDOW_X)
+			window->pos.c.x = configure_request->x;
+		if (configure_request->value_mask & XCB_CONFIG_WINDOW_Y)
+			window->pos.c.y = configure_request->y;
+	}
+
 	if (window->frame) {
 		weston_wm_window_set_allow_commits(window, false);
 		frame_resize_inside(window->frame, window->width, window->height);
@@ -863,6 +870,18 @@ weston_wm_handle_configure_request(struct weston_wm *wm, xcb_generic_event_t *ev
 
 	weston_wm_configure_window(wm, window->id, mask, values);
 	weston_wm_window_configure_frame(window);
+
+	if (window->shsurf &&
+	    !weston_wm_window_is_maximized(window) && !window->fullscreen &&
+	    (configure_request->value_mask & (XCB_CONFIG_WINDOW_X |
+					      XCB_CONFIG_WINDOW_Y))) {
+		const struct weston_desktop_xwayland_interface *xwayland_interface =
+			wm->server->compositor->xwayland_interface;
+		if (xwayland_interface)
+			xwayland_interface->set_toplevel_with_position(window->shsurf,
+								       window->pos);
+	}
+
 	weston_wm_window_send_configure_notify(window);
 	weston_wm_window_schedule_repaint(window);
 }
@@ -1271,7 +1290,11 @@ weston_wm_handle_map_request(struct weston_wm *wm, xcb_generic_event_t *event)
 	assert(!window->shsurf);
 
 	window->map_request_valid = true;
-	window->map_request = window->pos;
+	if (window->size_hints.flags & (USPosition | PPosition))
+		window->map_request.c = weston_coord(window->size_hints.x,
+						      window->size_hints.y);
+	else
+		window->map_request = window->pos;
 
 	if (window->frame_id == XCB_WINDOW_NONE)
 		weston_wm_window_create_frame(window); /* sets frame_id */

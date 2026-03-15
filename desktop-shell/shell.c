@@ -2729,9 +2729,16 @@ desktop_surface_set_xwayland_position(struct weston_desktop_surface *surface,
 {
 	struct shell_surface *shsurf =
 		weston_desktop_surface_get_user_data(surface);
+	struct weston_surface *wsurf =
+		weston_desktop_surface_get_surface(surface);
 
 	shsurf->xwayland.pos = pos;
 	shsurf->xwayland.is_set = true;
+
+	if (weston_surface_is_mapped(wsurf)) {
+		set_position_from_xwayland(shsurf);
+		weston_view_update_transform(shsurf->view);
+	}
 }
 
 static void

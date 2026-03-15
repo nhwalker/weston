@@ -1195,9 +1195,22 @@ desktop_surface_set_xwayland_position(struct weston_desktop_surface *desktop_sur
 {
 	struct kiosk_shell_surface *shsurf =
 		weston_desktop_surface_get_user_data(desktop_surface);
+	struct weston_surface *surface =
+		weston_desktop_surface_get_surface(desktop_surface);
 
 	shsurf->xwayland.pos = pos;
 	shsurf->xwayland.is_set = true;
+
+	if (weston_surface_is_mapped(surface)) {
+		struct weston_coord_surface offset;
+		struct weston_geometry geometry =
+			weston_desktop_surface_get_geometry(desktop_surface);
+
+		offset = weston_coord_surface(-geometry.x, -geometry.y,
+					      shsurf->view->surface);
+		weston_view_set_position_with_offset(shsurf->view, pos, offset);
+		weston_view_update_transform(shsurf->view);
+	}
 }
 
 static void
