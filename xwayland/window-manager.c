@@ -838,6 +838,22 @@ weston_wm_handle_configure_request(struct weston_wm *wm, xcb_generic_event_t *ev
 			window->saved_height = window->height;
 	}
 
+	if (configure_request->value_mask & XCB_CONFIG_WINDOW_X)
+		window->pos.c.x = configure_request->x;
+	if (configure_request->value_mask & XCB_CONFIG_WINDOW_Y)
+		window->pos.c.y = configure_request->y;
+
+	if ((configure_request->value_mask &
+	     (XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y)) &&
+	    window->shsurf && !weston_wm_window_is_maximized(window)) {
+		const struct weston_desktop_xwayland_interface *xwayland_interface =
+			wm->server->compositor->xwayland_interface;
+
+		if (xwayland_interface)
+			xwayland_interface->set_toplevel_with_position(
+				window->shsurf, window->pos);
+	}
+
 	if (window->frame) {
 		weston_wm_window_set_allow_commits(window, false);
 		frame_resize_inside(window->frame, window->width, window->height);
