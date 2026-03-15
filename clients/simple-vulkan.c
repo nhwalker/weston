@@ -1603,20 +1603,12 @@ redraw(struct window *window)
 			.pRegions = &region,
 		};
 		pnext(&present_info, &present_regions);
-
-		result = vkQueuePresentKHR(window->vk.queue, &present_info);
-	} else {
-		result = vkQueuePresentKHR(window->vk.queue, &present_info);
 	}
+
+	result = vkQueuePresentKHR(window->vk.queue, &present_info);
 
 	if (result != VK_SUCCESS)
 		return;
-	if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
-		recreate_swapchain(window);
-		return;
-	} else if (result != VK_SUCCESS) {
-		assert(0);
-	}
 
 	window->frames++;
 	window->vk.frame_index = (window->vk.frame_index + 1) % MAX_CONCURRENT_FRAMES;
