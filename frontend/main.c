@@ -789,7 +789,8 @@ usage(int error_code)
 		"Options for vnc:\n\n"
 		"  --width=WIDTH\t\tWidth of desktop\n"
 		"  --height=HEIGHT\tHeight of desktop\n"
-		"  --port=PORT\t\tThe port to listen on\n"
+		"  --port=PORT\t\tThe base port to listen on (default: 5900)\n"
+		"  --num-outputs=NUM\tNumber of VNC outputs/monitors (default: 1, ports increment from base)\n"
 		"  --vnc-tls-cert=FILE\tThe file containing the certificate for TLS encryption\n"
 		"  --vnc-tls-key=FILE\tThe file containing the private key for TLS encryption\n"
 		"  --disable-transport-layer-security\t\tDisable Transport Layer Security (not recommended)\n"
@@ -3851,6 +3852,7 @@ weston_vnc_backend_config_init(struct weston_vnc_backend_config *config)
 	config->bind_address = NULL;
 	config->port = 5900;
 	config->refresh_rate = VNC_DEFAULT_FREQ;
+	config->num_outputs = 1;
 }
 
 static int
@@ -3876,6 +3878,7 @@ load_vnc_backend(struct weston_compositor *c,
 		{ WESTON_OPTION_STRING,  "vnc-tls-cert", 0, &config.server_cert },
 		{ WESTON_OPTION_STRING,  "vnc-tls-key", 0, &config.server_key },
 		{ WESTON_OPTION_BOOLEAN, "disable-transport-layer-security", 0, &config.disable_tls },
+		{ WESTON_OPTION_INTEGER, "num-outputs", 0, &config.num_outputs },
 	};
 
 	parse_options(vnc_options, ARRAY_LENGTH(vnc_options), argc, argv);
@@ -3886,6 +3889,9 @@ load_vnc_backend(struct weston_compositor *c,
 	weston_config_section_get_int(section, "refresh-rate",
 				      &config.refresh_rate,
 				      VNC_DEFAULT_FREQ);
+	weston_config_section_get_int(section, "num-outputs",
+				      &config.num_outputs,
+				      config.num_outputs);
 	weston_config_section_get_string(section, "tls-cert",
 					 &config.server_cert,
 					 config.server_cert);
