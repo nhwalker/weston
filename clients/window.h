@@ -576,6 +576,11 @@ widget_set_image_description_icc(struct widget *widget, int icc_fd,
 				 uint32_t length, uint32_t offset,
 				 enum render_intent intent, char **err_msg);
 
+bool
+widget_set_image_description_param(struct widget *widget, uint8_t cicp_primaries,
+				   uint8_t cicp_tf, bool video_full_range,
+				   enum render_intent intent, char **err_msg);
+
 int
 widget_set_tooltip(struct widget *parent, char *entry, float x, float y);
 

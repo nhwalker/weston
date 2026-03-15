@@ -47,6 +47,7 @@
 #include "shared/image-loader.h"
 
 bool verbose;
+bool parametric;
 
 #define verbose_print(...) do { \
 	if (verbose) \
@@ -436,9 +437,15 @@ set_empty_input_region(struct widget *widget, struct display *display)
 	wl_region_destroy(region);
 }
 
+enum preferred_colorimetry {
+	PREFERRED_COLORIMETRY_ICC,
+	PREFERRED_COLORIMETRY_PARAM,
+};
+
 static struct image *
 image_create(struct display *display, const char *filename,
-	     int *image_counter, int render_intent)
+	     int *image_counter, int render_intent,
+	     enum preferred_colorimetry preferred_colorimetry)
 {
 	struct image *image;
 	struct weston_image *wimage;
@@ -500,33 +507,50 @@ image_create(struct display *display, const char *filename,
 
 	wimage = load_cairo_surface_get_user_data(image->image);
 	assert(wimage);
-	if (wimage->icc_profile_data && render_intent != -1) {
-		verbose_print("Image contains ICC file embedded, let's try to use the Wayland\n" \
-			      "color-management protocol to set the surface image description\n" \
-			      "using this ICC file.\n");
-		ret = widget_set_image_description_icc(image->image_widget,
-						       wimage->icc_profile_data->fd,
-						       wimage->icc_profile_data->length,
-						       wimage->icc_profile_data->offset,
-						       render_intent, &err_msg);
-		if (ret) {
-			verbose_print("Successfully set surface image description " \
-				      "using ICC file.\n");
-		} else {
-			fprintf(stderr, "Failed to set surface image description:\n%s\n",
-					err_msg);
-			free(err_msg);
+
+	if (render_intent != -1) {
+		if (wimage->icc_profile_data &&
+		    !(wimage->cicp_data && preferred_colorimetry == PREFERRED_COLORIMETRY_PARAM)) {
+			verbose_print("Image contains ICC file embedded, let's try to use the Wayland\n" \
+				      "color-management protocol to set the surface image description\n" \
+				      "using this ICC file.\n");
+			ret = widget_set_image_description_icc(image->image_widget,
+							       wimage->icc_profile_data->fd,
+							       wimage->icc_profile_data->length,
+							       wimage->icc_profile_data->offset,
+							       render_intent, &err_msg);
+			if (ret) {
+				verbose_print("Successfully set surface image description " \
+					      "using ICC file.\n");
+			} else {
+				fprintf(stderr, "Failed to set surface image description:\n%s\n",
+						err_msg);
+				free(err_msg);
+			}
+		} else if (wimage->cicp_data) {
+			verbose_print("Image contains CICP data embedded, let's try to use the Wayland\n" \
+				      "color-management protocol to set the surface image description\n" \
+				      "using this CICP data.\n");
+			ret = widget_set_image_description_param(image->image_widget,
+								 wimage->cicp_data->primaries,
+								 wimage->cicp_data->tf,
+								 wimage->cicp_data->video_full_range,
+								 render_intent, &err_msg);
+			if (ret) {
+				verbose_print("Successfully set surface image description " \
+					      "using CICP data.\n");
+			} else {
+				fprintf(stderr, "Failed to set surface image description:\n%s\n",
+						err_msg);
+				free(err_msg);
+			}
 		}
 	}
-	/* TODO: investigate if/how to get colorimetry info from the
-	 * PNG/JPEG/etc image. Then use that to create a parametric image
-	 * description and set it as the widget image description. Also, if
-	 * clients do not enforce us to avoid setting an image description (i.e.
-	 * render_intent != -1) but no colorimetry data is present, we can
-	 * create a sRGB image description (through parameters) and set it as
-	 * the image description to use. For now Weston do not support creating
-	 * image description from parameters, that's why we've added only the
-	 * code above that depends on ICC profiles. */
+
+	/* TODO: if clients do not enforce us to avoid setting an image
+	 * description (i.e. render_intent != -1) but no colorimetry data is
+	 * present, we can create a sRGB image description (through parameters)
+	 * and set it as the image description to use. */
 
 	widget_schedule_resize(image->frame_widget, 500, 400);
 
@@ -546,6 +570,11 @@ print_usage(const char *program_name)
 	fprintf(stderr, "-v or --verbose to print verbose log information.\n\n");
 
 	fprintf(stderr, "-h or --help to open this HELP dialogue.\n\n");
+
+	fprintf(stderr, "-p or --parametric to give preference to parametric colorimetry data embedded.\n\n    " \
+			"By default ICC is preferred. When the image has both ICC and parametric\n    " \
+			"colorimetry data embedded, this allows users to decide which one to give\n    " \
+			"preference.\n\n");
 
 	fprintf(stderr, "-r or --rendering-intent to choose the color-management rendering intent.\n\n    " \
 			"The rendering intent is used when an image file has colorimetry data embedded,\n    " \
@@ -599,9 +628,11 @@ main(int argc, char *argv[])
 	int render_intent;
 	bool opt_help = false;
 	char *opt_rendering_intent = NULL;
+	enum preferred_colorimetry preferred_colorimetry;
 	struct weston_option cli_options[] = {
 		{ WESTON_OPTION_BOOLEAN, "help", 'h', &opt_help },
 		{ WESTON_OPTION_BOOLEAN, "verbose", 'v', &verbose },
+		{ WESTON_OPTION_BOOLEAN, "parametric", 'p', &parametric},
 		{ WESTON_OPTION_STRING, "rendering-intent", 'r', &opt_rendering_intent },
 	};
 
@@ -623,8 +654,12 @@ main(int argc, char *argv[])
 		return -1;
 	}
 
+	preferred_colorimetry = parametric ? PREFERRED_COLORIMETRY_PARAM :
+					     PREFERRED_COLORIMETRY_ICC;
+
 	for (i = 1; i < argc; i++)
-		image_create(d, argv[i], &image_counter, render_intent);
+		image_create(d, argv[i], &image_counter, render_intent,
+			     preferred_colorimetry);
 
 	if (image_counter > 0)
 		display_run(d);

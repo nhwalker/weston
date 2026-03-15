@@ -222,6 +222,9 @@ load_jpeg(FILE *fp, uint32_t image_load_flags)
 		if (ret < 0)
 			goto err;
 	}
+	if (image_load_flags & WESTON_IMAGE_LOAD_CICP) {
+		fprintf(stderr, "We still don't support reading CICP data from JPEG\n");
+	}
 
 	jpeg_finish_decompress(&cinfo);
 	jpeg_destroy_decompress(&cinfo);
@@ -408,6 +411,40 @@ load_png_icc(FILE *fp, png_struct *png, png_info *info,
 	return 0;
 }
 
+static int
+load_png_cicp(FILE *fp, png_struct *png, png_info *info,
+	      struct cicp_data **cicp_data)
+{
+	png_byte primaries;
+	png_byte tf;
+	png_byte matrix_coefficients;
+	png_byte video_full_range;
+	png_uint_32 ret;
+
+	ret = png_get_cICP(png, info, &primaries, &tf,
+			   &matrix_coefficients, &video_full_range);
+	if (ret != PNG_INFO_cICP) {
+		/* Not an error, the file simply does not have CICP data embedded. */
+		*cicp_data = NULL;
+		return 0;
+	}
+
+	/**
+	 * "RGB is currently the only supported color model in PNG, and as such
+	 * Matrix Coefficients shall be set to 0".
+	 */
+	if (matrix_coefficients != 0)
+		fprintf(stderr, "png CICP matrix coefficient %u, but this should be 0. Ignoring that\n",
+				matrix_coefficients);
+
+	*cicp_data = xzalloc(sizeof(**cicp_data));
+	(*cicp_data)->primaries = primaries;
+	(*cicp_data)->tf = tf;
+	(*cicp_data)->video_full_range = (video_full_range == 1);
+
+	return 0;
+}
+
 static struct weston_image *
 load_png(FILE *fp, uint32_t image_load_flags)
 {
@@ -446,6 +483,11 @@ load_png(FILE *fp, uint32_t image_load_flags)
 		if (ret < 0)
 			goto err;
 	}
+	if (image_load_flags & WESTON_IMAGE_LOAD_CICP) {
+		ret = load_png_cicp(fp, png, info, &image->cicp_data);
+		if (ret < 0)
+			goto err;
+	}
 
 	png_destroy_read_struct(&png, &info, NULL);
 	return image;
@@ -474,6 +516,9 @@ load_webp(FILE *fp, uint32_t image_load_flags)
 
 	if (image_load_flags & WESTON_IMAGE_LOAD_ICC)
 		fprintf(stderr, "We still don't support reading ICC profile from WebP\n");
+
+	if (image_load_flags & WESTON_IMAGE_LOAD_CICP)
+		fprintf(stderr, "We still don't support reading CICP data from WebP\n");
 
 	if (!(image_load_flags & WESTON_IMAGE_LOAD_IMAGE))
 		return NULL;
@@ -575,7 +620,8 @@ static const struct image_loader loaders[] = {
  * As ICC profiles are not always embedded on image files, even if
  * WESTON_IMAGE_LOAD_ICC is one of the given flags, the returned
  * weston_image::icc_profile_data may be NULL. But if something fails, this
- * function returns NULL.
+ * function returns NULL. The same applies for CICP data and the
+ * WESTON_IMAGE_LOAD_CICP flag.
  */
 struct weston_image *
 weston_image_load(const char *filename, uint32_t image_load_flags)
@@ -638,6 +684,9 @@ weston_image_destroy(struct weston_image *image)
 		close(image->icc_profile_data->fd);
 		free(image->icc_profile_data);
 	}
+
+	if (image->cicp_data)
+		free(image->cicp_data);
 
 	free(image);
 }
