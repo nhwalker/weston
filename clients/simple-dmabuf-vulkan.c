@@ -459,8 +459,11 @@ find_memory_type(struct display *display, uint32_t allowed, VkMemoryPropertyFlag
 	VkPhysicalDeviceMemoryProperties mem_properties;
 	vkGetPhysicalDeviceMemoryProperties(display->vk.phys_dev, &mem_properties);
 
-	for (unsigned i = 0; (1u << i) <= allowed && i <= mem_properties.memoryTypeCount; ++i) {
-		if ((allowed & (1u << i)) && (mem_properties.memoryTypes[i].propertyFlags & properties))
+	for (unsigned i = 0; i < mem_properties.memoryTypeCount; ++i) {
+		bool is_allowed = allowed & (1u << i);
+		bool has_properties =
+			(mem_properties.memoryTypes[i].propertyFlags & properties) == properties;
+		if (is_allowed && has_properties)
 			return i;
 	}
 	return -1;
