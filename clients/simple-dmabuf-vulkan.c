@@ -1581,6 +1581,17 @@ destroy_display(struct display *display)
 	free(display);
 }
 
+static bool
+check_extension(const VkExtensionProperties *avail, uint32_t avail_len, const char *name)
+{
+	for (size_t i = 0; i < avail_len; i++) {
+		if (strcmp(avail[i].extensionName, name) == 0) {
+			return true;
+		}
+	}
+	return false;
+}
+
 static void
 load_device_proc(struct display *display, const char *func, void *proc_ptr)
 {
@@ -1617,13 +1628,7 @@ create_instance(struct display *display)
 	inst_extns[num_inst_extns++] = VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME;
 
 	for (uint32_t i = 0; i < num_inst_extns; i++) {
-		uint32_t j;
-		for (j = 0; j < num_avail_inst_extns; j++) {
-			if (strcmp(inst_extns[i], avail_inst_extns[j].extensionName) == 0) {
-				break;
-			}
-		}
-		if (j == num_avail_inst_extns) {
+		if (!check_extension(avail_inst_extns, num_avail_inst_extns, inst_extns[i])) {
 			fprintf(stderr, "Unsupported instance extension: %s\n", inst_extns[i]);
 			abort();
 		}
@@ -1744,13 +1749,7 @@ create_device(struct display *display)
 	device_extns[num_device_extns++] = VK_KHR_SAMPLER_YCBCR_CONVERSION_EXTENSION_NAME;
 
 	for (uint32_t i = 0; i < num_device_extns; i++) {
-		uint32_t j;
-		for (j = 0; j < num_avail_device_extns; j++) {
-			if (strcmp(device_extns[i], avail_device_extns[j].extensionName) == 0) {
-				break;
-			}
-		}
-		if (j == num_avail_device_extns) {
+		if (!check_extension(avail_device_extns, num_avail_device_extns, device_extns[i])) {
 			fprintf(stderr, "Unsupported device extension: %s\n", device_extns[i]);
 			abort();
 		}
