@@ -129,6 +129,12 @@ option(
 	value: true,
 	description: 'Weston shell UI: kiosk (desktop apps)'
 )
+option(
+	'shell-layout',
+	type: 'boolean',
+	value: true,
+	description: 'Weston shell UI: JSON-driven window layout by title'
+)
 
 option(
 	'desktop-shell-client-default',

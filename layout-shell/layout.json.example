@@ -1,0 +1,25 @@
+{
+  "layouts": [
+    {
+      "title":  "Firefox",
+      "x":      0,
+      "y":      0,
+      "width":  1280,
+      "height": 720
+    },
+    {
+      "title":  "Terminal",
+      "x":      1280,
+      "y":      0,
+      "width":  640,
+      "height": 480
+    },
+    {
+      "title":  "Settings",
+      "x":      100,
+      "y":      100,
+      "width":  800,
+      "height": 600
+    }
+  ]
+}
