@@ -82,6 +82,7 @@ RUN dnf install -y \
     bluez-libs-devel \
     libva-devel \
     hwdata \
+    libdisplay-info-devel \
     && dnf clean all
 
 # ── wayland-protocols ─────────────────────────────────────────────────────────
@@ -94,15 +95,10 @@ RUN git clone --branch 1.33 --depth=1 \
     && ninja -C build install \
     && cd .. && rm -rf wayland-protocols
 
-# ── libdisplay-info ───────────────────────────────────────────────────────────
-RUN git clone --branch 0.1.1 --depth=1 \
-        https://gitlab.freedesktop.org/emersion/libdisplay-info.git \
-    && cd libdisplay-info \
-    && meson setup build --wrap-mode=nofallback \
-    && ninja -C build install \
-    && cd .. && rm -rf libdisplay-info
-
 # ── aml + neatvnc (VNC backend) ───────────────────────────────────────────────
+# Weston 14.0 requires aml [>= 0.3.0, < 0.4.0]. The aml package in EPEL is
+# newer than 0.4.0, so both aml and neatvnc are built from source to ensure a
+# compatible version is used.
 RUN git clone --branch v0.3.0 --depth=1 https://github.com/any1/aml.git \
     && cd aml \
     && meson setup build --wrap-mode=nofallback \
