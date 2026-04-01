@@ -94,19 +94,36 @@ RUN git clone --branch 1.33 --depth=1 \
     && ninja -C build install \
     && cd .. && rm -rf wayland-protocols
 
+# ── libdisplay-info ───────────────────────────────────────────────────────────
+RUN git clone --branch 0.1.1 --depth=1 \
+        https://gitlab.freedesktop.org/emersion/libdisplay-info.git \
+    && cd libdisplay-info \
+    && meson setup build --wrap-mode=nofallback \
+    && ninja -C build install \
+    && cd .. && rm -rf libdisplay-info
+
+# ── aml + neatvnc (VNC backend) ───────────────────────────────────────────────
+RUN git clone --branch v0.3.0 --depth=1 https://github.com/any1/aml.git \
+    && cd aml \
+    && meson setup build --wrap-mode=nofallback \
+    && ninja -C build install \
+    && cd .. && rm -rf aml
+
+RUN git clone --branch v0.7.0 --depth=1 https://github.com/any1/neatvnc.git \
+    && cd neatvnc \
+    && meson setup build --wrap-mode=nofallback -Dauto_features=disabled \
+    && ninja -C build install \
+    && cd .. && rm -rf neatvnc
+
 # ── Build Weston ──────────────────────────────────────────────────────────────
 # Copy the project source into the image.
 COPY . /weston-src
 
-# Build with --wrap-mode=default so that meson automatically fetches and builds
-# subproject dependencies declared in subprojects/*.wrap (display-info, aml,
-# neatvnc) that are not yet packaged for RHEL 10.
-#
 # Disabled options that pull in deps not available in the above repos:
 #   backend-rdp – requires FreeRDP development libraries
 RUN cd /weston-src \
     && meson setup build \
-        --wrap-mode=default \
+        --wrap-mode=nofallback \
         -Dtests=false \
         -Ddoc=false \
         -Dbackend-rdp=false \
