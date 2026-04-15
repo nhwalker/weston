@@ -4800,6 +4800,49 @@ shell_destroy(struct wl_listener *listener, void *data)
 }
 
 static void
+lower_to_back_binding(struct weston_keyboard *keyboard,
+		      const struct timespec *time,
+		      uint32_t key, void *data)
+{
+	struct weston_surface *focus = keyboard->focus;
+	struct weston_surface *surface;
+	struct shell_surface *shsurf;
+	struct weston_view *view;
+	struct weston_layer *layer;
+	struct wl_list *view_list;
+
+	surface = weston_surface_get_main_surface(focus);
+	if (surface == NULL)
+		return;
+
+	shsurf = get_shell_surface(surface);
+	if (shsurf == NULL)
+		return;
+
+	/* Don't lower fullscreen windows */
+	if (weston_desktop_surface_get_fullscreen(shsurf->desktop_surface))
+		return;
+
+	view = shsurf->view;
+	layer = view->layer_link.layer;
+	if (!layer)
+		return;
+
+	view_list = &layer->view_list.link;
+
+	/* Already at the back of the stack; nothing to do */
+	if (view->layer_link.link.next == view_list)
+		return;
+
+	/* Remove from current position and re-insert at the tail */
+	wl_list_remove(&view->layer_link.link);
+	wl_list_insert(view_list->prev, &view->layer_link.link);
+
+	surface->compositor->view_list_needs_rebuild = true;
+	weston_surface_damage(surface);
+}
+
+static void
 shell_add_bindings(struct weston_compositor *ec, struct desktop_shell *shell)
 {
 	uint32_t mod;
@@ -4825,6 +4868,8 @@ shell_add_bindings(struct weston_compositor *ec, struct desktop_shell *shell)
 				          backlight_binding, ec);
 	weston_compositor_add_key_binding(ec, KEY_BRIGHTNESSUP, 0,
 				          backlight_binding, ec);
+	weston_compositor_add_key_binding(ec, KEY_F3, MODIFIER_ALT,
+				          lower_to_back_binding, NULL);
 
 	mod = shell->binding_modifier;
 	if (!mod)
