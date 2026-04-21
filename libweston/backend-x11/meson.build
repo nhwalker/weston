@@ -32,6 +32,12 @@ foreach name : [ 'xcb-shm', 'x11', 'x11-xcb' ]
 	deps_x11 += d
 endforeach
 
+dep_xcb_randr = dependency('xcb-randr', version: '>= 1.12', required: false)
+if dep_xcb_randr.found()
+	deps_x11 += dep_xcb_randr
+	config_h.set('HAVE_XCB_RANDR', '1')
+endif
+
 dep_xcb_xkb = dependency('xcb-xkb', version: '>= 1.9', required: false)
 if dep_xcb_xkb.found()
 	deps_x11 += dep_xcb_xkb

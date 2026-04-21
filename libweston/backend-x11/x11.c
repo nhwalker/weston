@@ -44,6 +44,9 @@
 #ifdef HAVE_XCB_XKB
 #include <xcb/xkb.h>
 #endif
+#ifdef HAVE_XCB_RANDR
+#include <xcb/randr.h>
+#endif
 
 #include <X11/Xlib.h>
 #include <X11/Xlib-xcb.h>
@@ -79,6 +82,13 @@ static const uint32_t x11_formats[] = {
 	DRM_FORMAT_XRGB8888,
 };
 
+struct x11_monitor {
+	char			*name;
+	int32_t			 x, y;
+	int32_t			 width, height;
+	int32_t			 mm_width, mm_height;
+};
+
 struct x11_backend {
 	struct weston_backend	 base;
 	struct weston_compositor *compositor;
@@ -96,6 +106,17 @@ struct x11_backend {
 	int			 no_input;
 
 	int			 has_net_wm_state_fullscreen;
+
+	/* Host-monitor override-redirect fullscreen path. When
+	 * or_fullscreen is true, monitors[] has at least one entry and the
+	 * backend bypasses the window manager. */
+	bool			 or_fullscreen;
+	struct x11_monitor	*monitors;
+	size_t			 monitor_count;
+#ifdef HAVE_XCB_RANDR
+	bool			 has_randr;
+	uint8_t			 randr_event_base;
+#endif
 
 	/* We could map multi-pointer X to multiple wayland seats, but
 	 * for now we only support core X input. */
@@ -127,6 +148,9 @@ struct x11_backend {
 
 struct x11_head {
 	struct weston_head	base;
+	/* Index into x11_backend::monitors, or -1 if this head is not
+	 * bound to a host monitor (legacy windowed / EWMH path). */
+	int			monitor_index;
 };
 
 struct x11_output {
@@ -662,6 +686,11 @@ x11_output_wait_for_map(struct x11_backend *b, struct x11_output *output)
 	 * configure_notify before map_notify, we just wait for the
 	 * first one and hope that's our size. */
 
+	/* Override-redirect windows bypass the WM; the server honors the
+	 * size we asked for, so there's no configure-notify to wait for. */
+	if (b->or_fullscreen)
+		configured = 1;
+
 	xcb_flush(b->conn);
 
 	while (!mapped || !configured) {
@@ -950,6 +979,10 @@ x11_output_enable(struct weston_output *base)
 	struct x11_output *output = to_x11_output(base);
 	const struct weston_mode *mode = output->base.current_mode;
 	struct x11_backend *b;
+	struct x11_head *xhead = NULL;
+	struct x11_monitor *mon = NULL;
+	struct weston_head *head_iter = NULL;
+	int16_t win_x = 0, win_y = 0;
 
 	assert(output);
 
@@ -964,16 +997,13 @@ x11_output_enable(struct weston_output *base)
 	char *icon_filename;
 
 	int ret;
-	uint32_t mask = XCB_CW_EVENT_MASK | XCB_CW_CURSOR;
+	uint32_t mask;
 	xcb_atom_t atom_list[1];
-	uint32_t values[2] = {
-		XCB_EVENT_MASK_EXPOSURE |
-		XCB_EVENT_MASK_STRUCTURE_NOTIFY,
-		0
-	};
+	uint32_t event_mask =
+		XCB_EVENT_MASK_EXPOSURE | XCB_EVENT_MASK_STRUCTURE_NOTIFY;
 
 	if (!b->no_input)
-		values[0] |=
+		event_mask |=
 			XCB_EVENT_MASK_KEY_PRESS |
 			XCB_EVENT_MASK_KEY_RELEASE |
 			XCB_EVENT_MASK_BUTTON_PRESS |
@@ -984,21 +1014,51 @@ x11_output_enable(struct weston_output *base)
 			XCB_EVENT_MASK_KEYMAP_STATE |
 			XCB_EVENT_MASK_FOCUS_CHANGE;
 
-	values[1] = b->null_cursor;
+	/* Resolve host monitor binding (override-redirect path). */
+	if (b->or_fullscreen) {
+		head_iter = weston_output_iterate_heads(base, NULL);
+		if (head_iter)
+			xhead = to_x11_head(head_iter);
+		if (xhead && xhead->monitor_index >= 0 &&
+		    (size_t)xhead->monitor_index < b->monitor_count) {
+			mon = &b->monitors[xhead->monitor_index];
+			win_x = mon->x;
+			win_y = mon->y;
+		}
+	}
+
+	/* XCB wire protocol: values[] must be ordered by ascending mask
+	 * bit. XCB_CW_OVERRIDE_REDIRECT (0x200) < EVENT_MASK (0x800) <
+	 * CURSOR (0x4000). */
+	uint32_t values[3];
+	int nvalues = 0;
+	if (mon) {
+		mask = XCB_CW_OVERRIDE_REDIRECT | XCB_CW_EVENT_MASK |
+		       XCB_CW_CURSOR;
+		values[nvalues++] = 1;
+	} else {
+		mask = XCB_CW_EVENT_MASK | XCB_CW_CURSOR;
+	}
+	values[nvalues++] = event_mask;
+	values[nvalues++] = b->null_cursor;
+
 	output->window = xcb_generate_id(b->conn);
 	screen = x11_compositor_get_default_screen(b);
 	xcb_create_window(b->conn,
 			  XCB_COPY_FROM_PARENT,
 			  output->window,
 			  screen->root,
-			  0, 0,
+			  win_x, win_y,
 			  mode->width, mode->height,
 			  0,
 			  XCB_WINDOW_CLASS_INPUT_OUTPUT,
 			  screen->root_visual,
 			  mask, values);
 
-	if (b->fullscreen) {
+	if (mon) {
+		/* Override-redirect: no WM involvement. Skip EWMH fullscreen
+		 * atom and WM_NORMAL_HINTS — neither is meaningful here. */
+	} else if (b->fullscreen) {
 		atom_list[0] = b->atom.net_wm_state_fullscreen;
 		xcb_change_property(b->conn, XCB_PROP_MODE_REPLACE,
 				    output->window,
@@ -1049,7 +1109,20 @@ x11_output_enable(struct weston_output *base)
 
 	xcb_map_window(b->conn, output->window);
 
-	if (b->fullscreen)
+	if (mon) {
+		uint32_t stack = XCB_STACK_MODE_ABOVE;
+
+		xcb_configure_window(b->conn, output->window,
+				     XCB_CONFIG_WINDOW_STACK_MODE, &stack);
+		/* OR windows aren't managed by the WM, so no focus handoff
+		 * happens on map. Point input focus at the new window so
+		 * Weston's keyboard path receives events. */
+		xcb_set_input_focus(b->conn,
+				    XCB_INPUT_FOCUS_POINTER_ROOT,
+				    output->window, XCB_CURRENT_TIME);
+	}
+
+	if (b->fullscreen || mon)
 		x11_output_wait_for_map(b, output);
 
 	switch (renderer->type) {
@@ -1162,10 +1235,24 @@ x11_output_set_size(struct weston_output *base, int width, int height)
 	}
 
 	wl_list_for_each(head, &output->base.head_list, output_link) {
+		struct x11_head *xhead = to_x11_head(head);
+		int32_t mm_w, mm_h;
+
+		if (xhead && xhead->monitor_index >= 0 &&
+		    (size_t)xhead->monitor_index < b->monitor_count &&
+		    b->monitors[xhead->monitor_index].mm_width > 0 &&
+		    b->monitors[xhead->monitor_index].mm_height > 0) {
+			mm_w = b->monitors[xhead->monitor_index].mm_width;
+			mm_h = b->monitors[xhead->monitor_index].mm_height;
+		} else {
+			mm_w = width * scrn->width_in_millimeters /
+			       scrn->width_in_pixels;
+			mm_h = height * scrn->height_in_millimeters /
+			       scrn->height_in_pixels;
+		}
+
 		weston_head_set_monitor_strings(head, "weston-X11", "none", NULL);
-		weston_head_set_physical_size(head,
-			width * scrn->width_in_millimeters / scrn->width_in_pixels,
-			height * scrn->height_in_millimeters / scrn->height_in_pixels);
+		weston_head_set_physical_size(head, mm_w, mm_h);
 	}
 
 	output_width = width * output->base.current_scale;
@@ -1228,6 +1315,8 @@ x11_head_create(struct weston_backend *base, const char *name)
 	if (!head)
 		return -1;
 
+	head->monitor_index = -1;
+
 	weston_head_init(&head->base, name);
 
 	head->base.backend = &backend->base;
@@ -1237,6 +1326,73 @@ x11_head_create(struct weston_backend *base, const char *name)
 
 	return 0;
 }
+
+static int
+x11_backend_create_heads_from_host(struct weston_backend *base)
+{
+	struct x11_backend *backend = to_x11_backend(base);
+	size_t i;
+	int created = 0;
+
+	if (!backend->or_fullscreen || backend->monitor_count == 0)
+		return 0;
+
+	for (i = 0; i < backend->monitor_count; i++) {
+		struct weston_head *head;
+		struct x11_head *xhead;
+
+		if (x11_head_create(base, backend->monitors[i].name) < 0)
+			return -1;
+
+		/* Find the head we just added (most recently appended). */
+		head = NULL;
+		xhead = NULL;
+		while ((head = weston_compositor_iterate_heads(backend->compositor,
+							       head))) {
+			struct x11_head *candidate = to_x11_head(head);
+			if (candidate && candidate->monitor_index == -1 &&
+			    head->backend == base)
+				xhead = candidate;
+		}
+		if (!xhead)
+			return -1;
+		xhead->monitor_index = (int)i;
+		created++;
+	}
+
+	return created;
+}
+
+static bool
+x11_head_get_monitor_info(struct weston_head *head,
+			  struct weston_x11_monitor_info *info)
+{
+	struct x11_head *xhead = to_x11_head(head);
+	struct x11_backend *backend;
+	struct x11_monitor *mon;
+
+	if (!xhead || xhead->monitor_index < 0 || !head->backend)
+		return false;
+
+	backend = container_of(head->backend, struct x11_backend, base);
+	if ((size_t)xhead->monitor_index >= backend->monitor_count)
+		return false;
+
+	mon = &backend->monitors[xhead->monitor_index];
+	if (info) {
+		info->x = mon->x;
+		info->y = mon->y;
+		info->width = mon->width;
+		info->height = mon->height;
+		info->mm_width = mon->mm_width;
+		info->mm_height = mon->mm_height;
+	}
+	return true;
+}
+
+static const struct weston_x11_output_api x11_output_api = {
+	x11_head_get_monitor_info,
+};
 
 static void
 x11_head_destroy(struct weston_head *base)
@@ -1742,6 +1898,18 @@ x11_backend_handle_event(int fd, uint32_t mask, void *data)
 			}
 		}
 #endif
+#ifdef HAVE_XCB_RANDR
+		if (b->has_randr &&
+		    response_type == b->randr_event_base +
+					 XCB_RANDR_SCREEN_CHANGE_NOTIFY) {
+			/* Monitor layout changed. We don't rebuild outputs
+			 * live; the user needs to restart Weston to pick up
+			 * the new layout. */
+			weston_log("x11-backend: RandR screen change detected; "
+				   "monitor layout is now stale (restart "
+				   "Weston to refresh).\n");
+		}
+#endif
 
 		count++;
 		if (b->prev_event != event)
@@ -1769,6 +1937,160 @@ x11_backend_handle_event(int fd, uint32_t mask, void *data)
 }
 
 #define F(field) offsetof(struct x11_backend, field)
+
+static void
+x11_backend_free_monitors(struct x11_backend *b)
+{
+	size_t i;
+
+	for (i = 0; i < b->monitor_count; i++)
+		free(b->monitors[i].name);
+	free(b->monitors);
+	b->monitors = NULL;
+	b->monitor_count = 0;
+}
+
+static void
+x11_backend_install_root_monitor(struct x11_backend *b)
+{
+	struct x11_monitor *mon;
+
+	x11_backend_free_monitors(b);
+	b->monitors = zalloc(sizeof *b->monitors);
+	if (!b->monitors)
+		return;
+
+	mon = &b->monitors[0];
+	mon->name = strdup("X11");
+	mon->x = 0;
+	mon->y = 0;
+	mon->width = b->screen->width_in_pixels;
+	mon->height = b->screen->height_in_pixels;
+	mon->mm_width = b->screen->width_in_millimeters;
+	mon->mm_height = b->screen->height_in_millimeters;
+	b->monitor_count = 1;
+}
+
+#ifdef HAVE_XCB_RANDR
+static char *
+x11_fetch_atom_name(xcb_connection_t *conn, xcb_atom_t atom)
+{
+	xcb_get_atom_name_cookie_t cookie;
+	xcb_get_atom_name_reply_t *reply;
+	char *name = NULL;
+	int len;
+
+	if (atom == XCB_ATOM_NONE)
+		return NULL;
+
+	cookie = xcb_get_atom_name(conn, atom);
+	reply = xcb_get_atom_name_reply(conn, cookie, NULL);
+	if (!reply)
+		return NULL;
+
+	len = xcb_get_atom_name_name_length(reply);
+	name = strndup(xcb_get_atom_name_name(reply), len);
+	free(reply);
+	return name;
+}
+
+static int
+x11_backend_query_randr_monitors(struct x11_backend *b)
+{
+	const xcb_query_extension_reply_t *ext;
+	xcb_randr_query_version_cookie_t ver_cookie;
+	xcb_randr_query_version_reply_t *ver_reply;
+	xcb_randr_get_monitors_cookie_t mon_cookie;
+	xcb_randr_get_monitors_reply_t *mon_reply;
+	xcb_randr_monitor_info_iterator_t it;
+	size_t i;
+
+	ext = xcb_get_extension_data(b->conn, &xcb_randr_id);
+	if (!ext || !ext->present)
+		return -1;
+	b->randr_event_base = ext->first_event;
+
+	ver_cookie = xcb_randr_query_version(b->conn,
+					     XCB_RANDR_MAJOR_VERSION,
+					     XCB_RANDR_MINOR_VERSION);
+	ver_reply = xcb_randr_query_version_reply(b->conn, ver_cookie, NULL);
+	if (!ver_reply)
+		return -1;
+	/* GetMonitors requires RandR >= 1.5. */
+	if (ver_reply->major_version < 1 ||
+	    (ver_reply->major_version == 1 && ver_reply->minor_version < 5)) {
+		free(ver_reply);
+		return -1;
+	}
+	free(ver_reply);
+
+	mon_cookie = xcb_randr_get_monitors(b->conn, b->screen->root, 1);
+	mon_reply = xcb_randr_get_monitors_reply(b->conn, mon_cookie, NULL);
+	if (!mon_reply)
+		return -1;
+
+	if (mon_reply->nMonitors <= 0) {
+		free(mon_reply);
+		return -1;
+	}
+
+	b->monitors = zalloc(mon_reply->nMonitors * sizeof *b->monitors);
+	if (!b->monitors) {
+		free(mon_reply);
+		return -1;
+	}
+
+	it = xcb_randr_get_monitors_monitors_iterator(mon_reply);
+	for (i = 0; i < (size_t)mon_reply->nMonitors && it.rem; i++,
+	     xcb_randr_monitor_info_next(&it)) {
+		xcb_randr_monitor_info_t *info = it.data;
+		struct x11_monitor *mon = &b->monitors[i];
+
+		mon->x = info->x;
+		mon->y = info->y;
+		mon->width = info->width;
+		mon->height = info->height;
+		mon->mm_width = info->width_in_millimeters;
+		mon->mm_height = info->height_in_millimeters;
+		mon->name = x11_fetch_atom_name(b->conn, info->name);
+		if (!mon->name) {
+			char fallback[32];
+			snprintf(fallback, sizeof fallback, "X11-%zu", i);
+			mon->name = strdup(fallback);
+		}
+	}
+	b->monitor_count = i;
+	b->has_randr = true;
+
+	free(mon_reply);
+
+	xcb_randr_select_input(b->conn, b->screen->root,
+			       XCB_RANDR_NOTIFY_MASK_SCREEN_CHANGE);
+	xcb_flush(b->conn);
+
+	return 0;
+}
+#endif /* HAVE_XCB_RANDR */
+
+/* Populate b->monitors for override-redirect fullscreen. Prefers the
+ * host's XRandR monitor list; falls back to one monitor covering the
+ * whole root window if RandR is unavailable. Always succeeds as long as
+ * we can allocate. */
+static int
+x11_backend_enumerate_monitors(struct x11_backend *b)
+{
+#ifdef HAVE_XCB_RANDR
+	if (x11_backend_query_randr_monitors(b) == 0)
+		return 0;
+	weston_log("x11-backend: XRandR 1.5 unavailable; "
+		   "fullscreen will use a single root-window output.\n");
+#else
+	weston_log("x11-backend: built without XRandR support; "
+		   "fullscreen will use a single root-window output.\n");
+#endif
+	x11_backend_install_root_monitor(b);
+	return b->monitor_count > 0 ? 0 : -1;
+}
 
 static void
 x11_backend_get_resources(struct x11_backend *b)
@@ -1873,6 +2195,7 @@ x11_destroy(struct weston_backend *base)
 	}
 
 	XCloseDisplay(backend->dpy);
+	x11_backend_free_monitors(backend);
 	free(backend->formats);
 	free(backend);
 }
@@ -1880,6 +2203,7 @@ x11_destroy(struct weston_backend *base)
 static const struct weston_windowed_output_api api = {
 	x11_output_set_size,
 	x11_head_create,
+	x11_backend_create_heads_from_host,
 };
 
 static struct x11_backend *
@@ -1919,10 +2243,16 @@ x11_backend_create(struct weston_compositor *compositor,
 	x11_backend_get_resources(b);
 	x11_backend_get_wm_info(b);
 
-	if (!b->has_net_wm_state_fullscreen && config->fullscreen) {
-		weston_log("Can not fullscreen without window manager support"
-			   "(need _NET_WM_STATE_FULLSCREEN)\n");
-		config->fullscreen = 0;
+	if (config->fullscreen) {
+		if (x11_backend_enumerate_monitors(b) == 0 &&
+		    b->monitor_count > 0) {
+			b->or_fullscreen = true;
+		} else if (!b->has_net_wm_state_fullscreen) {
+			weston_log("Can not fullscreen without window manager "
+				   "support (need _NET_WM_STATE_FULLSCREEN) "
+				   "and RandR enumeration failed\n");
+			config->fullscreen = 0;
+		}
 	}
 
 	b->formats_count = ARRAY_LENGTH(x11_formats);
@@ -1986,6 +2316,15 @@ x11_backend_create(struct weston_compositor *compositor,
 
 	if (ret < 0) {
 		weston_log("Failed to register output API.\n");
+		goto err_x11_input;
+	}
+
+	ret = weston_plugin_api_register(compositor,
+					 WESTON_X11_OUTPUT_API_NAME,
+					 &x11_output_api,
+					 sizeof(x11_output_api));
+	if (ret < 0) {
+		weston_log("Failed to register X11 output API.\n");
 		goto err_x11_input;
 	}
 
