@@ -30,9 +30,11 @@
 extern "C" {
 #endif
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include <libweston/libweston.h>
+#include <libweston/plugin-registry.h>
 
 #define WESTON_X11_BACKEND_CONFIG_VERSION 3
 
@@ -44,6 +46,39 @@ struct weston_x11_backend_config {
 
 	enum weston_renderer_type renderer;
 };
+
+/** Geometry of the host X11 monitor backing a head, in root-window pixels. */
+struct weston_x11_monitor_info {
+	int32_t x;
+	int32_t y;
+	int32_t width;
+	int32_t height;
+	int32_t mm_width;
+	int32_t mm_height;
+};
+
+#define WESTON_X11_OUTPUT_API_NAME "weston_x11_output_api_v1"
+
+struct weston_x11_output_api {
+	/** Query the host-monitor geometry associated with an X11 head.
+	 *
+	 * Returns true and fills \p info if the head was created by the
+	 * X11 backend to mirror a host XRandR monitor (i.e. fullscreen
+	 * mode picked it up). Returns false otherwise; \p info is left
+	 * untouched.
+	 */
+	bool (*head_get_monitor_info)(struct weston_head *head,
+				      struct weston_x11_monitor_info *info);
+};
+
+static inline const struct weston_x11_output_api *
+weston_x11_output_get_api(struct weston_compositor *compositor)
+{
+	const void *api;
+	api = weston_plugin_api_get(compositor, WESTON_X11_OUTPUT_API_NAME,
+				    sizeof(struct weston_x11_output_api));
+	return (const struct weston_x11_output_api *)api;
+}
 
 #ifdef  __cplusplus
 }

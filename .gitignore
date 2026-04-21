@@ -11,3 +11,5 @@ TAGS
 00*.patch
 
 build/
+
+subprojects/.wraplock

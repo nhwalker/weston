@@ -3956,9 +3956,35 @@ x11_backend_output_configure(struct weston_output *output)
 		.scale = 1,
 		.transform = WL_OUTPUT_TRANSFORM_NORMAL
 	};
+	const struct weston_x11_output_api *x11_api;
+	struct weston_x11_monitor_info mon;
+	struct weston_head *head;
+	bool have_monitor = false;
+	int ret;
 
-	return wet_configure_windowed_output_from_config(output, &defaults,
-							 WESTON_WINDOWED_OUTPUT_X11);
+	x11_api = weston_x11_output_get_api(output->compositor);
+	if (x11_api && x11_api->head_get_monitor_info) {
+		head = weston_output_iterate_heads(output, NULL);
+		if (head && x11_api->head_get_monitor_info(head, &mon)) {
+			defaults.width = mon.width;
+			defaults.height = mon.height;
+			have_monitor = true;
+		}
+	}
+
+	ret = wet_configure_windowed_output_from_config(output, &defaults,
+							WESTON_WINDOWED_OUTPUT_X11);
+	if (ret < 0)
+		return ret;
+
+	if (have_monitor) {
+		struct weston_coord_global pos = {
+			.c = { .x = mon.x, .y = mon.y },
+		};
+		weston_output_set_position(output, pos);
+	}
+
+	return 0;
 }
 
 static int
@@ -4022,6 +4048,17 @@ load_x11_backend(struct weston_compositor *c,
 	if (!api) {
 		weston_log("Cannot use weston_windowed_output_api.\n");
 		return -1;
+	}
+
+	/* In fullscreen mode the backend can create one head per host
+	 * XRandR monitor; if it does, skip the [output] and
+	 * --output-count loops entirely. */
+	if (config.fullscreen && api->create_heads_from_host) {
+		int n = api->create_heads_from_host(wb->backend);
+		if (n < 0)
+			return -1;
+		if (n > 0)
+			return 0;
 	}
 
 	section = NULL;

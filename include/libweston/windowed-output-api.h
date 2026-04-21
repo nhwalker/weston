@@ -88,6 +88,25 @@ struct weston_windowed_output_api {
 	 */
 	int (*create_head)(struct weston_backend *backend,
 			   const char *name);
+
+	/** Ask the backend to create heads mirroring host display state.
+	 *
+	 * \param backend The backend.
+	 * \return Number of heads created (>=0), or -1 on error.
+	 *
+	 * Returning 0 means the backend declined (e.g. feature not enabled
+	 * or host enumeration unavailable); the caller should fall back to
+	 * its normal create_head loops. A return value > 0 means the backend
+	 * has already populated heads and the caller should skip creating
+	 * additional ones.
+	 *
+	 * Currently the X11 backend implements this to create one head per
+	 * host XRandR monitor when fullscreen was requested, so each Weston
+	 * output can map 1:1 onto a physical monitor.
+	 *
+	 * May be NULL on backends that don't implement it.
+	 */
+	int (*create_heads_from_host)(struct weston_backend *backend);
 };
 
 static inline const struct weston_windowed_output_api *
