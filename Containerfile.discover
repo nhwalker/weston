@@ -1,0 +1,61 @@
+FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
+
+ARG ELECTRON_VERSION=30.0.0
+
+# ---------------------------------------------------------------------------
+# 1. Toolchain for discovery
+#    - nodejs/npm: to pull Electron
+#    - dnf:        full dnf (microdnf has no `repoquery`)
+#    - findutils:  for `find`
+#    - glibc already provides `ldd`
+# ---------------------------------------------------------------------------
+RUN microdnf install -y --nodocs --setopt=install_weak_deps=0 \
+        nodejs npm \
+        dnf \
+        findutils \
+    && microdnf clean all
+
+# ---------------------------------------------------------------------------
+# 2. Install Electron at a known path
+# ---------------------------------------------------------------------------
+RUN npm install -g "electron@${ELECTRON_VERSION}"
+
+# ---------------------------------------------------------------------------
+# 3. Resolve-and-install loop
+#    a. ldd every binary/.so under the Electron dist
+#    b. collect "not found" sonames
+#    c. ask dnf which RPM provides each one
+#    d. install with microdnf
+#    e. repeat until nothing is missing (cap at 5 passes)
+# ---------------------------------------------------------------------------
+RUN set -eu; \
+    ELECTRON_DIR="$(npm root -g)/electron/dist"; \
+    for pass in 1 2 3 4 5; do \
+        missing="$(find "$ELECTRON_DIR" -type f \
+                        \( -name '*.so' -o -name '*.so.*' -o -name electron \) \
+                        -exec ldd {} \; 2>/dev/null \
+                    | awk '/not found/ {print $1}' \
+                    | sort -u)"; \
+        [ -z "$missing" ] && { echo "pass $pass: clean"; break; }; \
+        echo "pass $pass missing:"; echo "$missing"; \
+        pkgs=""; \
+        for lib in $missing; do \
+            pkg="$(dnf -q repoquery --whatprovides "*/$lib" \
+                        --qf '%{name}\n' 2>/dev/null \
+                    | sort -u | head -n1)"; \
+            if [ -z "$pkg" ]; then \
+                echo "ERROR: no RPM provides $lib"; exit 1; \
+            fi; \
+            pkgs="$pkgs $pkg"; \
+        done; \
+        echo "installing:$pkgs"; \
+        microdnf install -y --nodocs --setopt=install_weak_deps=0 $pkgs; \
+    done; \
+    microdnf clean all
+
+# ---------------------------------------------------------------------------
+# 4. Fail the build if anything is still unresolved
+# ---------------------------------------------------------------------------
+RUN ! ldd "$(npm root -g)/electron/dist/electron" | grep -q "not found"
+
+ENTRYPOINT ["electron"]
