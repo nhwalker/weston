@@ -479,6 +479,23 @@ sets the cursor theme (string).
 .TP 7
 .BI "cursor-size=" 24
 sets the cursor size (unsigned integer).
+.TP 7
+.BI "pinned-windows=" /path/to/pinned.ini
+path to a secondary configuration file that places matching toplevels on a
+dedicated layer above the background and below the normal application layer.
+The file uses the same syntax as
+.IR weston.ini ;
+each rule is a
+.B [pinned-window]
+section with optional string keys
+.B app-id
+and
+.B title
+(at least one must be set) and integer keys
+.BR x ", " y ", " width ", " height
+giving global compositor coordinates and size. A width or height of 0 leaves
+the surface's intrinsic size unchanged. The first matching rule wins.
+Pinned windows ignore client-initiated requests to go fullscreen or maximized.
 .\"---------------------------------------------------------------------
 .SH "LAUNCHER SECTION"
 There can be multiple launcher sections, one for each launcher.

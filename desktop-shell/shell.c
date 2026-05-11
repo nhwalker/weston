@@ -143,6 +143,8 @@ struct shell_surface {
 
 	int focus_count;
 
+	struct pinned_rule *pinned_rule;	/* NULL = not pinned */
+
 	bool destroying;
 	struct wl_list link;	/** desktop_shell::shsurf_list */
 };
@@ -563,6 +565,13 @@ shell_configuration(struct desktop_shell *shell)
 		return false;
 	}
 	free(s);
+
+	weston_config_section_get_string(section, "pinned-windows", &s, NULL);
+	if (s) {
+		if (!pinned_config_load(&shell->pinned, s))
+			weston_log("pinned-window: continuing without rules\n");
+		free(s);
+	}
 
 	return true;
 }
@@ -1640,6 +1649,38 @@ shell_surface_activate(struct shell_surface *shsurf)
 		sync_surface_activated_state(shsurf);
 }
 
+/* Re-evaluate (app_id, title) against the pinned rule set and update
+ * shsurf->pinned_rule. Returns the current rule (possibly NULL). */
+static struct pinned_rule *
+shell_surface_pinned_recheck(struct shell_surface *shsurf)
+{
+	const char *app_id =
+		weston_desktop_surface_get_app_id(shsurf->desktop_surface);
+	const char *title =
+		weston_desktop_surface_get_title(shsurf->desktop_surface);
+
+	shsurf->pinned_rule =
+		pinned_config_match(&shsurf->shell->pinned, app_id, title);
+	return shsurf->pinned_rule;
+}
+
+/* Move the view to the rule's (x, y) and, if width/height are set, request
+ * the client to resize. Caller is responsible for layer placement. */
+static void
+apply_pinned_geometry(struct shell_surface *shsurf,
+		      const struct pinned_rule *r)
+{
+	struct weston_coord_global pos;
+
+	if (r->width > 0 && r->height > 0) {
+		weston_desktop_surface_set_size(shsurf->desktop_surface,
+						r->width, r->height);
+	}
+
+	pos.c = weston_coord(r->x, r->y);
+	weston_view_set_position(shsurf->view, pos);
+}
+
 /* The surface will be inserted into the list immediately after the link
  * returned by this function (i.e. will be stacked immediately above the
  * returned link). */
@@ -1647,6 +1688,9 @@ static struct weston_layer_entry *
 shell_surface_calculate_layer_link (struct shell_surface *shsurf)
 {
 	struct workspace *ws;
+
+	if (shsurf->pinned_rule)
+		return &shsurf->shell->pinned_layer.view_list;
 
 	if (weston_desktop_surface_get_fullscreen(shsurf->desktop_surface) &&
 	    !shsurf->state.lowered) {
@@ -2251,8 +2295,12 @@ map(struct desktop_shell *shell, struct shell_surface *shsurf)
 	struct weston_compositor *compositor = shell->compositor;
 	struct weston_seat *seat;
 
+	shell_surface_pinned_recheck(shsurf);
+
 	/* initial positioning, see also configure() */
-	if (shsurf->state.fullscreen) {
+	if (shsurf->pinned_rule) {
+		apply_pinned_geometry(shsurf, shsurf->pinned_rule);
+	} else if (shsurf->state.fullscreen) {
 		shell_set_view_fullscreen(shsurf);
 	} else if (shsurf->state.maximized) {
 		set_maximized_position(shell, shsurf);
@@ -2337,6 +2385,24 @@ desktop_surface_committed(struct weston_desktop_surface *desktop_surface,
 				weston_surface_ref(surface);
 		}
 
+		return;
+	}
+
+	/* Late app_id/title may bring us into a pinned rule. */
+	if (!shsurf->pinned_rule)
+		shell_surface_pinned_recheck(shsurf);
+
+	if (shsurf->pinned_rule) {
+		/* Pinned wins over fullscreen/maximized: drop any prior
+		 * state, place on the pinned layer and re-assert geometry. */
+		if (was_fullscreen || shsurf->state.fullscreen)
+			unset_fullscreen(shsurf);
+		if (was_maximized || shsurf->state.maximized)
+			unset_maximized(shsurf);
+		shell_surface_update_layer(shsurf);
+		apply_pinned_geometry(shsurf, shsurf->pinned_rule);
+		shsurf->last_width = surface->width;
+		shsurf->last_height = surface->height;
 		return;
 	}
 
@@ -2426,6 +2492,11 @@ set_fullscreen(struct shell_surface *shsurf, bool fullscreen,
 	struct weston_desktop_surface *desktop_surface = shsurf->desktop_surface;
 	struct weston_surface *surface =
 		weston_desktop_surface_get_surface(shsurf->desktop_surface);
+
+	if (shsurf->pinned_rule) {
+		apply_pinned_geometry(shsurf, shsurf->pinned_rule);
+		return;
+	}
 
 	weston_desktop_surface_set_fullscreen(desktop_surface, fullscreen);
 	if (fullscreen) {
@@ -2574,6 +2645,11 @@ set_maximized(struct shell_surface *shsurf, bool maximized)
 	struct weston_desktop_surface *desktop_surface = shsurf->desktop_surface;
 	struct weston_surface *surface =
 		weston_desktop_surface_get_surface(shsurf->desktop_surface);
+
+	if (shsurf->pinned_rule) {
+		apply_pinned_geometry(shsurf, shsurf->pinned_rule);
+		return;
+	}
 
 	if (weston_desktop_surface_get_fullscreen(desktop_surface))
 		return;
@@ -4522,7 +4598,25 @@ shell_for_each_layer(struct desktop_shell *shell,
 	func(shell, &shell->background_layer, data);
 	func(shell, &shell->lock_layer, data);
 	func(shell, &shell->input_panel_layer, data);
+	func(shell, &shell->pinned_layer, data);
 	func(shell, &shell->workspace.layer, data);
+}
+
+void
+pinned_reapply_all(struct desktop_shell *shell)
+{
+	struct shell_surface *shsurf;
+	struct weston_surface *surface;
+
+	wl_list_for_each(shsurf, &shell->shsurf_list, link) {
+		shell_surface_pinned_recheck(shsurf);
+		surface = weston_desktop_surface_get_surface(shsurf->desktop_surface);
+		if (!weston_surface_is_mapped(surface))
+			continue;
+		shell_surface_update_layer(shsurf);
+		if (shsurf->pinned_rule)
+			apply_pinned_geometry(shsurf, shsurf->pinned_rule);
+	}
 }
 
 static void
@@ -4794,6 +4888,9 @@ shell_destroy(struct wl_listener *listener, void *data)
 	desktop_shell_destroy_layer(&shell->input_panel_layer);
 	desktop_shell_destroy_layer(&shell->minimized_layer);
 	desktop_shell_destroy_layer(&shell->fullscreen_layer);
+	desktop_shell_destroy_layer(&shell->pinned_layer);
+
+	pinned_config_clear(&shell->pinned);
 
 	free(shell->client);
 	free(shell);
@@ -4946,6 +5043,7 @@ wet_shell_init(struct weston_compositor *ec,
 	weston_layer_init(&shell->background_layer, ec);
 	weston_layer_init(&shell->lock_layer, ec);
 	weston_layer_init(&shell->input_panel_layer, ec);
+	weston_layer_init(&shell->pinned_layer, ec);
 
 	weston_layer_set_position(&shell->fullscreen_layer,
 				  WESTON_LAYER_POSITION_FULLSCREEN);
@@ -4953,6 +5051,9 @@ wet_shell_init(struct weston_compositor *ec,
 				  WESTON_LAYER_POSITION_UI);
 	weston_layer_set_position(&shell->background_layer,
 				  WESTON_LAYER_POSITION_BACKGROUND);
+	weston_layer_set_position(&shell->pinned_layer,
+				  WESTON_LAYER_POSITION_BOTTOM_UI);
+	pinned_config_init(&shell->pinned);
 
 	wl_list_init(&shell->seat_list);
 	wl_list_init(&shell->shsurf_list);
