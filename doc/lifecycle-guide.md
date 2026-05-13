@@ -708,3 +708,285 @@ After this returns, the backends are fully constructed but most
 outputs are still "pending" — they live on `compositor->pending_output_list`
 waiting for the frontend to configure and enable them. That happens
 synchronously next, in Stage 4.
+
+---
+
+## Stage 4 — Renderer & output setup
+
+By the start of Stage 4 the compositor has at least one backend loaded
+and a renderer initialised. What it doesn't have yet are usable
+`weston_output`s — outputs that are *enabled*, attached to a renderer,
+and visible to clients via `wl_output`. The frontend's job in this stage
+is to turn each backend-reported **head** into a configured, enabled
+**output**.
+
+This stage is driven almost entirely by the `heads_changed_signal` that
+the backend fired at the end of its `*_backend_create()` — synchronously
+during `load_backends()`. But the same code paths run later when monitors
+are hot-plugged at runtime; that's how output management is uniform
+across cold-start and hotplug.
+
+### Heads, outputs, layoutputs — three different abstractions
+
+| Concept | Lives in | Represents |
+|---|---|---|
+| `weston_head` | libweston | A physical (or virtual) connector — a DP/HDMI port, an X11 window, an RDP peer. Has EDID, modes, "connected" state. |
+| `weston_output` | libweston | A driveable rectangle in the scene graph. Has position, scale, transform, current mode, attached renderer. Owns one or more heads. |
+| `wet_layoutput` | frontend (`main.c`) | A `weston.ini` `[output]` section. Collects heads that should be grouped (clone mode) into a single output. |
+
+A `weston_output` can have multiple heads attached: that's how Weston
+implements clone-mode (the same image shown on two DP ports). A
+`wet_layoutput` is the frontend's policy object — it remembers which
+heads *want* to be grouped, and which `weston_output`(s) currently
+realise that grouping.
+
+### The two heads_changed implementations
+
+Each backend registers one `heads_changed` callback at load time. There
+are two:
+
+- **`simple_heads_changed`** (frontend/main.c:2881) — used by all
+  backends *except* DRM. One head = one output. Most "windowed" backends
+  (X11, Wayland-parent, headless, RDP, VNC, PipeWire) work this way.
+- **`drm_heads_changed`** (frontend/main.c:3820) — DRM-specific, because
+  it has to support clone-mode and the full `weston.ini` `[output]`
+  matching logic.
+
+#### `simple_heads_changed`
+
+```c
+// frontend/main.c:2881
+while ((head = wet_backend_iterate_heads(wet, wb, head))) {
+        connected   = weston_head_is_connected(head);
+        enabled     = weston_head_is_enabled(head);
+        changed     = weston_head_is_device_changed(head);
+        non_desktop = weston_head_is_non_desktop(head);
+
+        if (connected && !enabled && !non_desktop) {
+                simple_head_enable(wet, wb, head, NULL, NULL, NULL);
+        } else if (!connected && enabled) {
+                simple_head_disable(head);
+        }
+        weston_head_reset_device_changed(head);
+}
+```
+
+`simple_head_enable()` (frontend/main.c:2810) is short:
+
+```c
+output = weston_compositor_create_output(wet->compositor, head, head->name);
+
+if (wb->simple_output_configure)
+        ret = wb->simple_output_configure(output);
+
+if (weston_output_enable(output) < 0) { ... }
+```
+
+- `weston_compositor_create_output()` allocates a `weston_output`,
+  attaches the head, and puts it on `pending_output_list`.
+- `wb->simple_output_configure` is the per-backend output configurator
+  that was passed when the backend was loaded (it's NULL for DRM, since
+  DRM has its own pipeline). For the Wayland parent backend it parses
+  `[output] mode=WxH` and friends; for headless it fakes a fixed mode.
+- `weston_output_enable()` is the libweston call that actually wires the
+  output into the renderer and scene graph.
+
+#### `drm_heads_changed`
+
+DRM is more complex because it supports clone-mode and may have to
+group multiple connectors into one `weston_output`:
+
+```c
+// frontend/main.c:3820
+while ((head = wet_backend_iterate_heads(wet, wb, head))) {
+        connected = weston_head_is_connected(head);
+        enabled   = weston_head_is_enabled(head);
+        forced    = drm_head_should_force_enable(wet, head);
+
+        if ((connected || forced) && !enabled) {
+                drm_head_prepare_enable(wet, head);   // -> layoutput pending list
+        } else if (!(connected || forced) && enabled) {
+                drm_head_disable(head);
+        }
+}
+
+if (drm_process_layoutputs(wet) < 0)
+        wet->init_failed = true;
+```
+
+The two-phase structure (`prepare_enable` for every head, then
+`process_layoutputs`) is essential: clone-mode means a layoutput may
+have to wait for *all* of its desired heads to be discovered before
+deciding which CRTCs to use.
+
+### `drm_head_prepare_enable` — head → `wet_layoutput`
+
+```c
+// frontend/main.c:3570
+section = drm_config_find_controlling_output_section(wet->config,
+                                                     weston_head_get_name(head));
+if (section) {
+        weston_config_section_get_string(section, "mode", &mode, NULL);
+        if (mode && strcmp(mode, "off") == 0)
+                return;                            // explicitly disabled
+        if (!mode && weston_head_is_non_desktop(head))
+                return;                            // ignore VR HMDs etc.
+
+        weston_config_section_get_string(section, "name", &output_name, NULL);
+        wet_compositor_layoutput_add_head(wet, output_name, section, head);
+} else {
+        wet_compositor_layoutput_add_head(wet, weston_head_get_name(head), NULL, head);
+}
+```
+
+`drm_config_find_controlling_output_section()` matches the head's
+connector name (e.g. `HDMI-A-1`) against every `[output]` section's
+`name=` field, accepting both literal names and wildcard patterns. If a
+section says `name=desktop` and lists multiple connectors via
+`same-as=` directives, all those heads end up in the *same* layoutput
+named `desktop`. `wet_compositor_layoutput_add_head()`
+(frontend/main.c:3523) creates the layoutput on demand the first time a
+head requests it, then appends the head to its `add.heads[]` pending
+queue.
+
+### `drm_process_layoutputs` — `wet_layoutput` → `weston_output`(s)
+
+```c
+// frontend/main.c:3764
+wl_list_for_each(lo, &wet->layoutput_list, compositor_link) {
+        if (lo->add.n == 0)
+                continue;
+        if (drm_process_layoutput(wet, lo) < 0) {
+                lo->add = (struct wet_head_array){};
+                failed_layoutputs += 1;
+        }
+}
+
+if (wet->require_outputs == REQUIRE_OUTPUTS_ALL_FOUND && failed_layoutputs > 0)
+        return -1;
+if (wet->require_outputs == REQUIRE_OUTPUTS_ANY &&
+    failed_layoutputs == wl_list_length(&wet->layoutput_list))
+        return -1;
+```
+
+This is where the `require_outputs` policy from Stage 1 is finally
+enforced.
+
+`drm_process_layoutput()` (frontend/main.c:3700) does the actual work
+for one layoutput, with an interesting fallback algorithm in
+`drm_try_attach_enable()`:
+
+```c
+drm_try_attach(output, &lo->add, &failed);              // attach every pending head
+drm_backend_output_configure(output, lo->section);      // mode / scale / transform / color
+drm_try_enable(output, &lo->add, &failed);              // ask the backend to commit
+```
+
+`drm_try_enable()` (frontend/main.c:3642) is the fault-tolerant kernel of
+clone-mode. If `weston_output_enable()` fails (e.g. KMS can't find a
+compatible CRTC/encoder combination for that set of connectors), it
+detaches one head at a time and retries until the output either enables
+successfully or runs out of heads. The dropped heads end up on the
+`failed[]` queue and are pushed into the next round — they'll get their
+own separate `weston_output` from a different CRTC.
+
+### `drm_backend_output_configure` — the mode/scale/transform pipeline
+
+For each output, `weston.ini` parameters become libweston state:
+
+- `mode=preferred|current|WxH@Hz|off` → sets the video mode via
+  `weston_output_set_size()` / `set_mode()`.
+- `scale=` → `weston_output_set_scale()` (HiDPI).
+- `transform=normal|90|180|270|flipped|flipped-90|...` →
+  `weston_output_set_transform()` (rotated/mirrored panels).
+- `eotf-mode=`, `colorimetry-mode=`, `color-profile=` → color setup;
+  uses the color manager (LCMS or noop) from Stage 3.
+- `position=` and `relative-to=` → screen-layout placement
+  (eventually fed into `weston_output_lazy_align()` so multiple outputs
+  tile correctly).
+
+### `weston_output_enable()` — what the libweston side does
+
+```c
+// libweston/compositor.c:8460
+if (wl_list_empty(&output->head_list))            return -1;
+if (wl_list_empty(&output->mode_list))            return -1;
+if (!output->current_mode)                        return -1;
+
+wl_signal_init(&output->frame_signal);
+wl_signal_init(&output->post_latch_signal);
+wl_signal_init(&output->destroy_signal);
+
+weston_output_transform_scale_init(output, transform, scale);
+weston_output_init_geometry(output, output->pos);
+
+wl_list_init(&output->animation_list);
+wl_list_init(&output->paint_node_list);
+wl_list_init(&output->paint_node_z_order_list);
+
+weston_output_update_matrix(output);
+weston_output_set_color_outcome(output);             // build color pipeline
+output->capture_info = weston_output_capture_info_create();
+
+/* Backend-specific enable: allocate framebuffers, hook KMS commit,
+ * create the X11 window, etc. */
+if (output->enable(output) < 0) { ... }
+
+weston_compositor_add_output(output->compositor, output);
+weston_output_damage(output);
+```
+
+Notable points:
+
+- The `output->enable` vtable hook is per-backend (`drm_output_enable`,
+  `headless_output_enable`, `x11_output_enable`, etc.). This is where
+  framebuffers/swapchains for the chosen renderer are allocated and
+  where KMS-side state (atomic property values, CRTC binding) is set up.
+- `weston_compositor_add_output()` is the moment the output becomes
+  *publicly visible*: it moves the output from `pending_output_list` to
+  `output_list`, advertises the `wl_output` global to clients, and
+  fires `output_created_signal` — which shells listen to so they can
+  spawn a background/panel for the new output.
+
+### Multi-output mirroring (`wet_handle_mirror_outputs`)
+
+```c
+// frontend/main.c:5556
+wet_handle_mirror_outputs(&wet);   // attaches output_created_listener
+```
+
+This registers a frontend-side listener so that whenever an output is
+created later (e.g. hotplug), `wet_output_handle_create()` can apply the
+`[output] mirror-of=` policy — making an output start out tracking
+another output's content. It's a runtime mirror, not a KMS-level clone;
+the rendering side simply paints the same scene twice with possibly
+different scales/transforms.
+
+### `weston_compositor_flush_heads_changed`
+
+```c
+// frontend/main.c:5564
+weston_compositor_flush_heads_changed(wet.compositor);
+if (wet.init_failed) goto out;
+```
+
+Backends accumulate head changes and only signal once per "batch" to let
+the frontend's `heads_changed` callback see a consistent picture. The
+flush here at the end of Stage 4 forces any deferred-but-not-yet-emitted
+batch to be delivered, so the frontend has had its chance to react to
+every head before we proceed to shell loading.
+
+`wet.init_failed` is the cumulative "something during head processing
+failed" flag — `drm_process_layoutputs()` and `simple_heads_changed()`
+both set it on error.
+
+By the end of Stage 4:
+
+- The compositor has zero or more enabled `weston_output`s, each driven
+  by a backend and attached to a renderer.
+- `wl_output` globals are advertised on the Wayland display; clients
+  *could* see them, but the listening socket is still about to be set up
+  in `wet_main`'s next block (or was just set up, depending on
+  build/version — the order in current code is socket → shell).
+- The `require_outputs` policy has been enforced. If we asked for
+  outputs and got none, we're already on the `out:` cleanup path.
