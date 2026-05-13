@@ -426,3 +426,285 @@ By the end of Stage 2:
 - The compositor's "always on" Wayland globals are advertised, but no
   client has had a chance to bind them yet (the socket is added later).
 - No outputs, no seats, no renderer — those arrive when backends load.
+
+---
+
+## Stage 3 — Backend loading
+
+A **backend** in Weston is the DSO that connects libweston to a specific
+output/input substrate: real KMS hardware (DRM), a parent Wayland
+compositor, an X11 window, a network protocol (RDP/VNC/PipeWire), or
+nothing at all (headless). Backends provide outputs, optionally provide
+seats, and drive the renderer choice.
+
+Each backend is built as a separate shared object:
+
+```c
+// libweston/compositor.c:10769
+static const char * const backend_map[] = {
+        [WESTON_BACKEND_DRM]      = "drm-backend.so",
+        [WESTON_BACKEND_HEADLESS] = "headless-backend.so",
+        [WESTON_BACKEND_PIPEWIRE] = "pipewire-backend.so",
+        [WESTON_BACKEND_RDP]      = "rdp-backend.so",
+        [WESTON_BACKEND_VNC]      = "vnc-backend.so",
+        [WESTON_BACKEND_WAYLAND]  = "wayland-backend.so",
+        [WESTON_BACKEND_X11]      = "x11-backend.so",
+};
+```
+
+### Three layers of indirection
+
+The frontend → backend hand-off is intentionally layered so that
+each piece has a single job:
+
+```
+load_backends()                       frontend/main.c:5056
+  └── load_backend(name)              frontend/main.c:5011
+       └── load_drm_backend() etc.    frontend/main.c:4194, 4310, 4480, ...
+            └── wet_compositor_load_backend()
+                                      frontend/main.c:4163
+                 └── weston_compositor_load_backend()
+                                      libweston/compositor.c:10793
+                      └── dlopen + dlsym("weston_backend_init")
+                           └── backend's weston_backend_init()
+                                e.g. libweston/backend-drm/drm.c:4869
+                                 └── drm_backend_create()
+```
+
+Why so many layers?
+
+- `load_backends()` splits the comma-separated `backends=` string and
+  calls `load_backend()` per entry.
+- `load_backend()` is the type dispatch — string name → enum →
+  per-backend `load_*_backend()` wrapper.
+- `load_drm_backend()` (and its siblings) own the **frontend-side
+  configuration**: parsing backend-specific CLI flags, reading the
+  matching `weston.ini` sections, and building a `weston_*_backend_config`
+  struct.
+- `wet_compositor_load_backend()` is the **frontend bookkeeping** layer:
+  it allocates a `struct wet_backend` (the frontend's per-backend record),
+  registers a `heads_changed` listener (more on this below), invokes the
+  libweston loader, and appends the result to `wet.backend_list`.
+- `weston_compositor_load_backend()` does the actual `dlopen()` + `dlsym()`.
+- The backend's `weston_backend_init()` validates the config struct and
+  calls its internal `*_backend_create()`.
+
+### `load_drm_backend()` — what a per-backend wrapper does
+
+DRM is the canonical "real hardware" backend. Walking through
+`load_drm_backend()` (frontend/main.c:4194) shows the typical pattern:
+
+```c
+struct weston_drm_backend_config config = {{ 0, }};
+
+// 1. Read [core] options that influence backend behaviour.
+weston_config_section_get_bool(section, "use-pixman", &force_pixman, false);
+
+// 2. Parse backend-specific CLI options on top.
+const struct weston_option options[] = {
+        { WESTON_OPTION_STRING,  "seat",                0, &config.seat_id },
+        { WESTON_OPTION_STRING,  "drm-device",          0, &config.specific_device },
+        { WESTON_OPTION_STRING,  "additional-devices",  0, &config.additional_devices },
+        { WESTON_OPTION_BOOLEAN, "current-mode",        0, &wet->drm_use_current_mode },
+        { WESTON_OPTION_BOOLEAN, "use-pixman",          0, &force_pixman },
+        { WESTON_OPTION_BOOLEAN, "continue-without-input", 0, &without_input },
+};
+parse_options(options, ARRAY_LENGTH(options), argc, argv);
+
+// 3. Reconcile CLI/ini conflicts.
+if (force_pixman && renderer != WESTON_RENDERER_AUTO) {
+        weston_log("error: conflicting renderer specification\n");
+        return -1;
+} else if (force_pixman) {
+        config.renderer = WESTON_RENDERER_PIXMAN;
+} else {
+        config.renderer = renderer;
+}
+
+// 4. Pull more [core] options needed by the backend.
+weston_config_section_get_string(section, "gbm-format", &config.gbm_format, NULL);
+weston_config_section_get_uint  (section, "pageflip-timeout", &config.pageflip_timeout, 0);
+weston_config_section_get_bool  (section, "pixman-shadow",  &config.use_pixman_shadow, true);
+
+// 5. Versioned ABI: every backend config has struct_version/struct_size.
+config.base.struct_version = WESTON_DRM_BACKEND_CONFIG_VERSION;
+config.base.struct_size    = sizeof(struct weston_drm_backend_config);
+config.configure_device    = configure_input_device;
+
+// 6. Hand off to the bookkeeping layer.
+wb = wet_compositor_load_backend(c, WESTON_BACKEND_DRM, &config.base,
+                                 drm_heads_changed, NULL);
+```
+
+The `struct_version` / `struct_size` pattern lets the frontend and
+backend evolve independently: a newer libweston backend can grow its
+config struct and detect older frontends via the size field.
+
+### `wet_compositor_load_backend()` — the heads_changed bridge
+
+```c
+// frontend/main.c:4163
+wb = xzalloc(sizeof *wb);
+
+if (heads_changed) {
+        wb->simple_output_configure = simple_output_configure;
+        wb->heads_changed_listener.notify = heads_changed;
+        weston_compositor_add_heads_changed_listener(compositor,
+                                                     &wb->heads_changed_listener);
+}
+
+wb->backend = weston_compositor_load_backend(compositor, backend, config_base);
+if (!wb->backend) { free(wb); return NULL; }
+
+wl_list_insert(wet->backend_list.prev, &wb->compositor_link);
+```
+
+This is the crucial wiring point between libweston and the frontend's
+output policy. A backend discovers physical or virtual **heads** (a
+connector + monitor, an X11 window, a remote client, etc.) and fires
+`heads_changed_signal`. The frontend listens via `drm_heads_changed`
+(frontend/main.c:3820), `simple_heads_changed` (frontend/main.c:2881),
+etc., and matches each new head to a `weston.ini` `[output]` section
+to decide whether/how to enable it. (Stage 4 covers this in detail.)
+
+### Inside `weston_backend_init()` (DRM example)
+
+```c
+// libweston/backend-drm/drm.c:4869
+WL_EXPORT int
+weston_backend_init(struct weston_compositor *compositor,
+                    struct weston_backend_config *config_base)
+{
+        struct weston_drm_backend_config config = {{ 0, }};
+
+        // ABI check.
+        if (config_base->struct_version != WESTON_DRM_BACKEND_CONFIG_VERSION ||
+            config_base->struct_size > sizeof(struct weston_drm_backend_config))
+                return -1;
+
+        // DRM must be the primary backend; secondaries can't drive the renderer.
+        if (compositor->renderer)
+                return -1;
+
+        config_init_to_defaults(&config);
+        memcpy(&config, config_base, config_base->struct_size);
+
+        return drm_backend_create(compositor, &config) ? 0 : -1;
+}
+```
+
+`drm_backend_create()` (libweston/backend-drm/drm.c:4611) is where the
+real work happens. The interesting pieces:
+
+```c
+// 1. Allocate backend, register itself in compositor->backend_list.
+b = zalloc(sizeof *b);
+b->compositor = compositor;
+wl_list_insert(&compositor->backend_list, &b->base.link);
+
+// 2. Add a backend-scoped debug log scope.
+b->debug = weston_compositor_add_log_scope(compositor, "drm-backend", ...);
+
+// 3. Connect to the seat manager (libseat/logind) — DRM needs privileged
+//    access to /dev/dri/cardN and /dev/input/*.
+compositor->launcher = weston_launcher_connect(compositor, seat_id, true);
+
+// 4. Probe udev, find the primary GPU, open the device.
+b->udev = udev_new();
+main_kms_device = config->specific_device
+        ? open_specific_drm_device(...)
+        : find_primary_gpu(...);
+device = drm_device_create(b, main_kms_device);
+
+// 5. Choose renderer (GL preferred, then Vulkan, then Pixman) and init it.
+switch (config->renderer) {
+case WESTON_RENDERER_PIXMAN: init_pixman(b); break;
+case WESTON_RENDERER_GL:     init_egl(b);    break;
+case WESTON_RENDERER_VULKAN: init_vulkan(b); break;
+}
+
+// 6. Install the backend's vtable.
+b->base.shutdown       = drm_shutdown;
+b->base.destroy        = drm_destroy;
+b->base.repaint_begin  = drm_repaint_begin;
+b->base.repaint_flush  = drm_repaint_flush;
+b->base.repaint_cancel = drm_repaint_cancel;
+b->base.create_output  = drm_output_create;
+b->base.device_changed = drm_device_changed;
+b->base.can_scanout_dmabuf = drm_can_scanout_dmabuf;
+
+// 7. VT switching bindings (Ctrl+Alt+F1..F12).
+weston_setup_vt_switch_bindings(compositor);
+
+// 8. Input: udev_input_init() creates a weston_seat and starts libinput.
+udev_input_init(&b->input, compositor, b->udev, seat_id,
+                config->configure_device);
+
+// 9. Hotplug monitor on udev (drm subsystem) so display
+//    connect/disconnect events flow into the compositor.
+b->udev_monitor = udev_monitor_new_from_netlink(b->udev, "udev");
+udev_monitor_filter_add_match_subsystem_devtype(b->udev_monitor, "drm", NULL);
+b->udev_drm_source = wl_event_loop_add_fd(loop,
+                udev_monitor_get_fd(b->udev_monitor),
+                WL_EVENT_READABLE, udev_drm_event, b);
+```
+
+The vtable in step 6 is the libweston ↔ backend contract. The repaint
+hooks (`repaint_begin/flush/cancel`) are how libweston drives the
+backend during the per-output frame cycle (see Stage 6).
+
+Step 8 also discovers DRM **heads** (KMS connectors) and fires
+`heads_changed_signal`. That signal is what wakes up the frontend's
+`drm_heads_changed` listener registered in `wet_compositor_load_backend()`.
+
+### Other backends, at a glance
+
+| Backend | Where state comes from | Renderer support | Notes |
+|---|---|---|---|
+| **DRM** | KMS connectors via udev | GL / Vulkan / Pixman | Must be primary; opens devices via libseat/logind |
+| **Wayland** | A parent Wayland compositor's outputs | GL / Vulkan / Pixman / noop | Each weston.ini `[output]` becomes a parent surface |
+| **X11** | One or more X11 windows | GL / Vulkan / Pixman | Each output is a top-level X window |
+| **Headless** | Nothing (virtual outputs only) | Pixman / GL / Vulkan / noop | For tests, off-screen rendering, capture |
+| **RDP** | Network: RDP peer connections | Pixman | One output, one or more remote sessions |
+| **VNC** | Network: VNC peer connections | Pixman | One output |
+| **PipeWire** | Virtual outputs streamed via PipeWire | Pixman / GL | Mostly used as a secondary backend |
+
+Multi-backend examples (the comma-separated form): `--backends=drm,vnc`
+boots on real hardware *and* exposes a VNC-attached virtual output.
+`compositor->multi_backend` (set in Stage 2) relaxes the
+"DRM must be primary" check appropriately.
+
+### After every backend has loaded: `weston_compositor_backends_loaded()`
+
+Once `load_backends()` returns, the frontend calls one more libweston
+function to finalise multi-backend setup:
+
+```c
+// frontend/main.c:5553 -> libweston/compositor.c:10374
+weston_compositor_backends_loaded(compositor);
+```
+
+This does three things:
+
+1. **Pick a primary backend.** `compositor->primary_backend` is set to
+   the last-loaded backend. (DRM is required to be the *only* backend it
+   could ever be, by virtue of its `compositor->renderer` check at
+   init time.)
+2. **Negotiate the presentation clock.** Each backend advertises a
+   bitmask of supported `CLOCK_*` ids in its
+   `supported_presentation_clocks`; the compositor picks the best clock
+   in *all* backends' intersection. The preference order is
+   `CLOCK_MONOTONIC_RAW` → `CLOCK_MONOTONIC_COARSE` → `CLOCK_MONOTONIC`
+   (`weston_compositor_set_presentation_clock()`,
+   libweston/compositor.c:10336). This clock is what every
+   `wp_presentation` event will be timestamped against.
+3. **Set up the color manager.** If `[core] color-management=true` was
+   set, the LCMS-based manager was loaded in Stage 2; otherwise the
+   no-op manager is installed here as a fallback. The
+   `wp_color_management_v1` and `wp_color_representation_v1` Wayland
+   globals are registered as protocols at the same time, when supported.
+
+After this returns, the backends are fully constructed but most
+outputs are still "pending" — they live on `compositor->pending_output_list`
+waiting for the frontend to configure and enable them. That happens
+synchronously next, in Stage 4.
