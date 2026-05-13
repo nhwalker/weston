@@ -65,8 +65,13 @@ pinned_config_match(const struct pinned_config *pc,
 
 /* Re-evaluate every shell_surface against the current rule set and
  * apply layer/geometry changes. V1 calls this once at startup; V2
- * will call it whenever the rule table changes via protocol. */
+ * calls it after each successful commit via the runtime protocol. */
 void
 pinned_reapply_all(struct desktop_shell *shell);
+
+/* Register the weston_pinned_windows_v1 global on the shell's
+ * wl_display. Bind is open to any client (no privilege gate). */
+void
+pinned_windows_global_create(struct desktop_shell *shell);
 
 #endif

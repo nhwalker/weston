@@ -5087,6 +5087,8 @@ wet_shell_init(struct weston_compositor *ec,
 			     shell, bind_desktop_shell) == NULL)
 		return -1;
 
+	pinned_windows_global_create(shell);
+
 	weston_compositor_get_time(&shell->child.deathstamp);
 
 	shell->panel_position = WESTON_DESKTOP_SHELL_PANEL_POSITION_TOP;

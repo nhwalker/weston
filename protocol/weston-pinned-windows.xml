@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="weston_pinned_windows">
+
+  <copyright>
+    Copyright © 2026 Weston contributors
+
+    Permission is hereby granted, free of charge, to any person obtaining a
+    copy of this software and associated documentation files (the "Software"),
+    to deal in the Software without restriction, including without limitation
+    the rights to use, copy, modify, merge, publish, distribute, sublicense,
+    and/or sell copies of the Software, and to permit persons to whom the
+    Software is furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice (including the next
+    paragraph) shall be included in all copies or substantial portions of the
+    Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+    THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+    FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+    DEALINGS IN THE SOFTWARE.
+  </copyright>
+
+  <interface name="weston_pinned_windows_v1" version="1">
+    <description summary="runtime control of desktop-shell pinned-window rules">
+      Mutates the desktop-shell pinned-window rule table at runtime.
+      Clients stage rules with add_rule and clear, then atomically swap
+      the staged set into the live table with commit.
+
+      WARNING: any connected client may bind this interface and remap
+      arbitrary windows. It is the moral equivalent of weston_debug_v1
+      and MUST NOT be exposed in untrusted environments.
+
+      Rule semantics mirror the [pinned-window] sections of weston.ini:
+      first-match-wins, NULL or empty app_id / title fields are
+      wildcards, width or height of 0 means "leave the surface's
+      intrinsic size". The x, y, width, height values are in global
+      compositor coordinates (the same coordinate space used by
+      weston_view_set_position). On commit the staged set fully replaces
+      any prior rules (including any loaded from weston.ini at startup);
+      merging is not supported.
+    </description>
+
+    <enum name="error">
+      <entry name="invalid_match" value="0"
+             summary="both app_id and title were empty"/>
+      <entry name="invalid_size" value="1"
+             summary="width or height was negative"/>
+    </enum>
+
+    <request name="destroy" type="destructor">
+      <description summary="destroy the factory object">
+        Discards any rules staged on this resource. The live table is
+        left untouched.
+      </description>
+    </request>
+
+    <request name="add_rule">
+      <description summary="append a rule to the staged set">
+        Appends one rule. Both app_id and title null/empty is a protocol
+        error (invalid_match). Negative width or height is invalid_size.
+        Width or height of 0 keeps the surface's intrinsic size.
+      </description>
+      <arg name="app_id" type="string" allow-null="true"/>
+      <arg name="title"  type="string" allow-null="true"/>
+      <arg name="x"      type="int"/>
+      <arg name="y"      type="int"/>
+      <arg name="width"  type="int"/>
+      <arg name="height" type="int"/>
+    </request>
+
+    <request name="clear">
+      <description summary="drop all rules staged on this resource"/>
+    </request>
+
+    <request name="commit">
+      <description summary="atomically replace the live rule table">
+        Swaps the staged set into the shell's live rule table,
+        re-evaluates every mapped surface in a single pass, and
+        re-initialises the staged set so the same resource can build
+        the next batch. Servers respond with one applied event.
+      </description>
+    </request>
+
+    <event name="applied">
+      <description summary="server swapped in a new rule table">
+        Fired once per successful commit. count is the number of rules
+        now live.
+      </description>
+      <arg name="count" type="uint"/>
+    </event>
+  </interface>
+</protocol>

@@ -496,6 +496,12 @@ and
 giving global compositor coordinates and size. A width or height of 0 leaves
 the surface's intrinsic size unchanged. The first matching rule wins.
 Pinned windows ignore client-initiated requests to go fullscreen or maximized.
+The desktop-shell module also advertises the
+.B weston_pinned_windows_v1
+Wayland global which lets any connected client replace this rule table at
+runtime. The first runtime commit fully discards any rules loaded from the
+file above. Do not expose Weston to untrusted clients when relying on
+.B pinned-windows .
 .\"---------------------------------------------------------------------
 .SH "LAUNCHER SECTION"
 There can be multiple launcher sections, one for each launcher.

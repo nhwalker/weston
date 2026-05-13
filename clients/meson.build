@@ -236,6 +236,15 @@ tools_list = [
 		'deps': [ dep_wayland_client ]
 	},
 	{
+		'name': 'pin',
+		'sources': [
+			'weston-pin.c',
+			weston_pinned_windows_client_protocol_h,
+			weston_pinned_windows_protocol_c,
+		],
+		'deps': [ dep_wayland_client ]
+	},
+	{
 		'name': 'terminal',
 		'sources': [ 'terminal.c' ],
 		'deps': [ dep_toytoolkit ],
