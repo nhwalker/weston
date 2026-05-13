@@ -990,3 +990,311 @@ By the end of Stage 4:
   build/version — the order in current code is socket → shell).
 - The `require_outputs` policy has been enforced. If we asked for
   outputs and got none, we're already on the `out:` cleanup path.
+
+---
+
+## Stage 5 — Shell & module loading
+
+By Stage 5 the compositor has its outputs, its renderer, and its
+listening socket. Clients can connect, but with no shell loaded the
+compositor doesn't yet know what to *do* with their windows —
+xdg-shell roles would have nowhere to be placed, no z-ordering policy,
+no global keybindings.
+
+A **shell** in Weston is a DSO that implements the windowing policy
+layer: it owns the layer stack, handles xdg-shell client roles, drives
+input focus, and launches helper clients (panel, background). A
+**module** is anything else that wants to plug into the compositor at
+load time (screen-share, systemd-notify, xwayland, etc.).
+
+The relevant slice of `wet_main()`:
+
+```c
+// frontend/main.c:5603
+if (!shell)
+        weston_config_section_get_string(section, "shell", &shell, "desktop");
+
+if (wet_load_shell(wet.compositor, shell, &argc, argv) < 0)
+        goto out;
+
+// Xwayland is loaded *before* other modules so that systemd-notify (loaded
+// later) doesn't tell systemd "READY" until xwayland is ready to accept
+// X clients.
+if (!xwayland)
+        weston_config_section_get_bool(section, "xwayland", &xwayland, false);
+if (xwayland) {
+        wet_xwl = wet_load_xwayland(wet.compositor);
+        if (!wet_xwl) goto out;
+}
+
+weston_config_section_get_string(section, "modules", &modules, "");
+if (load_modules(wet.compositor, modules, &argc, argv) < 0)  goto out;
+if (load_modules(wet.compositor, option_modules, &argc, argv) < 0) goto out;
+
+load_additional_modules(wet);   // remoting / pipewire output plugins
+```
+
+### `wet_load_shell()` — `frontend/main.c:1003`
+
+```c
+if (strstr(_name, "-shell.so"))
+        name = strdup(_name);
+else
+        str_printf(&name, "%s-shell.so", _name);
+
+shell_init = weston_load_module(name, "wet_shell_init", MODULEDIR);
+if (!shell_init) return -1;
+return shell_init(compositor, argc, argv);
+```
+
+Two things to notice:
+
+1. **Name mapping.** `--shell=desktop` becomes `desktop-shell.so`,
+   `--shell=kiosk` → `kiosk-shell.so`, `--shell=fullscreen` →
+   `fullscreen-shell.so`. The `-shell.so` suffix can also be supplied
+   explicitly. The shells live in their own top-level directories
+   (`desktop-shell/`, `kiosk-shell/`, `fullscreen-shell/`, `ivi-shell/`,
+   `lua-shell/`).
+2. **Entry point ABI.** Every shell exports `wet_shell_init`. The
+   compositor doesn't care about anything else in the DSO — the rest of
+   the API is established by subscribing to compositor signals and
+   creating Wayland globals.
+
+### Inside `desktop-shell`'s `wet_shell_init()` — `desktop-shell/shell.c:4780`
+
+The desktop shell is the canonical example of what a shell does at load
+time. Compressed:
+
+```c
+shell = zalloc(sizeof *shell);
+shell->compositor = ec;
+
+// 1. Listen for compositor lifecycle events.
+weston_compositor_add_destroy_listener_once(ec, &shell->destroy_listener, shell_destroy);
+wl_signal_add(&ec->idle_signal,      &shell->idle_listener);
+wl_signal_add(&ec->wake_signal,      &shell->wake_listener);
+wl_signal_add(&ec->transform_signal, &shell->transform_listener);
+
+// 2. Set up the layer stack — this is the shell's most visible job.
+weston_layer_init(&shell->fullscreen_layer, ec);
+weston_layer_init(&shell->panel_layer,      ec);
+weston_layer_init(&shell->background_layer, ec);
+weston_layer_init(&shell->lock_layer,       ec);
+weston_layer_init(&shell->input_panel_layer, ec);
+weston_layer_set_position(&shell->fullscreen_layer, WESTON_LAYER_POSITION_FULLSCREEN);
+weston_layer_set_position(&shell->panel_layer,      WESTON_LAYER_POSITION_UI);
+weston_layer_set_position(&shell->background_layer, WESTON_LAYER_POSITION_BACKGROUND);
+// (the compositor itself owns fade_layer & cursor_layer from Stage 2)
+
+// 3. Initialise sub-features.
+input_panel_setup(shell);              // on-screen keyboard plumbing
+shell->text_backend = text_backend_init(ec);   // text-input v1/v3
+shell_configuration(shell);            // read [shell] from weston.ini
+workspace_create(shell);
+
+// 4. xdg-shell role implementation, lives in libweston-desktop.
+shell->desktop = weston_desktop_create(ec, &shell_desktop_api, shell);
+
+// 5. The custom desktop_shell protocol — the back-channel
+//    weston-desktop-shell (the panel/background helper) speaks.
+wl_global_create(ec->wl_display, &weston_desktop_shell_interface, 1,
+                 shell, bind_desktop_shell);
+
+// 6. React to output/seat lifecycle.
+setup_output_destroy_handler(ec, shell);
+wl_list_for_each(seat, &ec->seat_list, link)
+        create_shell_seat(shell, seat);
+wl_signal_add(&ec->seat_created_signal,   &shell->seat_create_listener);
+wl_signal_add(&ec->output_resized_signal, &shell->resized_listener);
+wl_signal_add(&ec->session_signal,        &shell->session_listener);
+
+// 7. Defer spawning the desktop-shell helper client until after the
+//    event loop starts.
+wl_event_loop_add_idle(loop, launch_desktop_shell_process, shell);
+
+// 8. Tools: screenshooter, keybindings, fade animation.
+screenshooter_create(ec);
+shell_add_bindings(ec, shell);
+shell_fade_init(shell);
+```
+
+A few patterns repeat across all shells:
+
+- **Layer Z-position constants** live in `include/libweston/libweston.h`
+  (`WESTON_LAYER_POSITION_BACKGROUND` = 0x00000000,
+  `_FULLSCREEN` = 0x04000000, etc.). Shells pick from a fixed set so
+  their stacks compose predictably with `fade_layer` (very top) and
+  `cursor_layer` (above fullscreen).
+- **xdg-shell support comes from libweston-desktop**, not the shell
+  itself. `libweston/desktop/` implements all the xdg-shell wire
+  protocol; the shell passes a callback table (`shell_desktop_api`) to
+  `weston_desktop_create()` and `libweston-desktop` calls back into the
+  shell when a client maps/configures/destroys an xdg-toplevel.
+- **The "panel + background" client is a separate process.** The shell
+  doesn't draw the panel itself; instead it `fork+exec`s the
+  `weston-desktop-shell` binary as a special privileged Wayland client.
+  This is launched from `wl_event_loop_add_idle()` so it happens
+  *after* `wl_display_run()` starts the event loop in Stage 6 —
+  otherwise the client would try to connect before the listening socket
+  is being serviced.
+
+The other shells follow the same shape with different policy:
+
+| Shell | What it implements |
+|---|---|
+| `desktop-shell` | Floating windows, panel, fade, lock screen, multi-output workspaces. |
+| `kiosk-shell` | One fullscreen client per output, ideal for single-app deployments. |
+| `fullscreen-shell` | Implements `wp_fullscreen_shell_v1` — one client per output, used as a nested compositor surface. |
+| `ivi-shell` | The "In-Vehicle Infotainment" layered model — surfaces placed in fixed regions by an external controller. |
+| `lua-shell` | Experimental: load shell logic from Lua scripts. |
+
+### Xwayland — `wet_load_xwayland()` — `frontend/xwayland.c:240`
+
+Xwayland is its own thing because it needs cooperation from both
+libweston (the wire-protocol bridge) and the frontend (process spawning
+and `SIGUSR1` handling).
+
+```c
+// frontend/xwayland.c:240
+if (weston_compositor_load_xwayland(comp) < 0)
+        return NULL;
+
+api = weston_xwayland_get_api(comp);          // dlsym'd from xwayland.so
+xwayland = api->get(comp);
+
+wxw = zalloc(sizeof *wxw);
+wxw->compositor = comp;
+wxw->api = api;
+wxw->xwayland = xwayland;
+
+api->listen(xwayland, wxw, spawn_xserver);
+```
+
+`weston_compositor_load_xwayland()` is implemented in libweston —
+it dlopens `xwayland.so`, which adds the `xwayland` plugin API to the
+compositor's plugin-API registry. The frontend then retrieves that API
+and calls `api->listen()`, passing a `spawn_xserver` callback.
+
+`api->listen()` reserves an X display number, opens `/tmp/.X11-unix/X*`
+sockets, and registers them on the event loop. When an X client tries to
+connect (`telinit 3 :0`, `xclock`, etc.), `spawn_xserver` is invoked:
+
+- A `socketpair()` is created so Xwayland and Weston can talk via a
+  dedicated Wayland connection.
+- Xwayland is `fork+exec`'d as a child process.
+- The child runs Xwayland with the fd, a "display fd" pipe, and a "wm
+  socket". When Xwayland is ready, it raises **SIGUSR1** — which was
+  intentionally blocked in Stage 1 so plugin threads would inherit it,
+  but is unblocked in the Xwayland helper.
+- The display fd pipe (`handle_display_fd`) fires when Xwayland says
+  "I'm ready"; that's when the X11 DISPLAY env var becomes valid.
+
+That's the lifecycle in flight: Weston spawns Xwayland *lazily on first
+connection*, not at startup. At startup, only the sockets are reserved.
+
+### Generic modules — `load_modules()` — `frontend/main.c:1056`
+
+```c
+while (*p) {
+        end = strchrnul(p, ',');
+        snprintf(buffer, sizeof buffer, "%.*s", (int) (end - p), p);
+
+        if (strstr(buffer, "xwayland.so")) {
+                weston_log("fatal: Old Xwayland module loading detected: ...\n");
+                return -1;
+        }
+        if (wet_load_module(ec, buffer, argc, argv) < 0)
+                return -1;
+        ...
+}
+```
+
+`load_modules()` is called twice from `wet_main()`:
+
+1. With `[core] modules=` from `weston.ini`.
+2. With `--modules=` from the CLI (`option_modules`).
+
+`wet_load_module()` is the generic counterpart of `wet_load_shell()`:
+`dlopen("foo.so")` + `dlsym("wet_module_init")` + call it. Common
+choices: `screen-share.so`, `systemd-notify.so`. The old `xwayland.so`
+entry was deprecated because Xwayland needs special process management
+that doesn't fit the generic module API.
+
+### `load_additional_modules()` — DRM-only output plugins
+
+```c
+// frontend/main.c:1090
+static void
+load_additional_modules(struct wet_compositor wet)
+{
+        if (wet.drm_backend_loaded) {
+                load_remoting(wet.compositor, wet.config);
+                load_pipewire(wet.compositor, wet.config);
+        }
+}
+```
+
+`load_remoting()` and `load_pipewire()` are slightly unusual: they walk
+`weston.ini` for `[remote-output]` / `[pipewire-output]` sections, and
+only if at least one such section exists do they dlopen the
+corresponding plugin. These plugins call back into the DRM backend to
+add *virtual* outputs that mirror or capture content elsewhere — that's
+why they're gated on `drm_backend_loaded`. They're loaded last so they
+can attach to outputs that all the previous stages produced.
+
+### Numlock and the autolaunch helper
+
+The remaining tail of `wet_main()` before the event loop starts is a
+mix of small policy items:
+
+```c
+// frontend/main.c:5637
+section = weston_config_get_section(config, "keyboard", NULL, NULL);
+weston_config_section_get_bool(section, "numlock-on", &numlock_on, false);
+if (numlock_on) {
+        wl_list_for_each(seat, &wet.compositor->seat_list, link) {
+                struct weston_keyboard *keyboard = weston_seat_get_keyboard(seat);
+                if (keyboard)
+                        weston_keyboard_set_locks(keyboard, WESTON_NUM_LOCK,
+                                                  WESTON_NUM_LOCK);
+        }
+}
+```
+
+And the very last thing before `wl_display_run()`:
+
+```c
+// frontend/main.c:5664
+weston_compositor_wake(wet.compositor);
+
+if (argc > 1) {
+        if (execute_command(&wet, argc, argv) < 0) goto out;
+} else {
+        if (execute_autolaunch(&wet, config) < 0) goto out;
+}
+```
+
+`weston_compositor_wake()` brings the compositor out of `STATE_OFFSCREEN`
+state into `STATE_AWAKE`, which the idle/fade machinery uses. It also
+fires `wake_signal` so the shell can react (e.g. the desktop shell uses
+this to unfade the screen at startup).
+
+`execute_command()` (used when extra non-`--` args are present) forks
+and execs that command as a child of weston, tracked so its exit can
+terminate the session. `execute_autolaunch()` does the same with the
+`[autolaunch] path=` from `weston.ini`. The `watch=true` setting causes
+the compositor to exit when that process dies — typical for embedded
+configurations where weston is just a substrate for one specific
+application.
+
+By the end of Stage 5:
+
+- A shell is installed; clients connecting now can create xdg-toplevels
+  and get them placed.
+- The desktop helper client is *queued* to launch from the idle
+  callback the first time the loop spins.
+- Xwayland sockets are listening; an actual Xwayland process will spawn
+  lazily on first X client connection.
+- Optional modules and DRM output plugins are loaded.
+- `compositor->state` is `STATE_AWAKE`. The compositor is fully alive
+  and just waiting for `wl_display_run()` to take over.
