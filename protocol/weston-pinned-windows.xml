@@ -42,6 +42,14 @@
       weston_view_set_position). On commit the staged set fully replaces
       any prior rules (including any loaded from weston.ini at startup);
       merging is not supported.
+
+      Pinned surfaces are also sent the xdg-shell maximized state and
+      all four tiled_* edge states in their configure so cooperating
+      clients (GTK, Qt, libdecor, SDL) suppress client-side decorations.
+      Clients that ignore these signals may still draw their own
+      decorations. When a commit removes a previously-pinned surface
+      from the rule table, these signals are cleared on the next
+      configure so the client may restore its decorations.
     </description>
 
     <enum name="error">

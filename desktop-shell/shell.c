@@ -1649,6 +1649,10 @@ shell_surface_activate(struct shell_surface *shsurf)
 		sync_surface_activated_state(shsurf);
 }
 
+static void
+weston_view_set_initial_position(struct weston_view *view,
+				 struct desktop_shell *shell);
+
 /* Re-evaluate (app_id, title) against the pinned rule set and update
  * shsurf->pinned_rule. Returns the current rule (possibly NULL). */
 static struct pinned_rule *
@@ -1664,8 +1668,11 @@ shell_surface_pinned_recheck(struct shell_surface *shsurf)
 	return shsurf->pinned_rule;
 }
 
-/* Move the view to the rule's (x, y) and, if width/height are set, request
- * the client to resize. Caller is responsible for layer placement. */
+/* Move the view to the rule's (x, y), request the configured size if any,
+ * and signal the client to drop CSD by sending the maximized + all-four
+ * tiled-edge states in the next configure. Cooperating clients (GTK, Qt,
+ * libdecor, SDL) suppress decorations when either signal is present.
+ * Caller is responsible for layer placement. */
 static void
 apply_pinned_geometry(struct shell_surface *shsurf,
 		      const struct pinned_rule *r)
@@ -1677,8 +1684,29 @@ apply_pinned_geometry(struct shell_surface *shsurf,
 						r->width, r->height);
 	}
 
+	weston_desktop_surface_set_maximized(shsurf->desktop_surface, true);
+	weston_desktop_surface_set_orientation(shsurf->desktop_surface,
+		WESTON_TOP_LEVEL_TILED_ORIENTATION_LEFT  |
+		WESTON_TOP_LEVEL_TILED_ORIENTATION_RIGHT |
+		WESTON_TOP_LEVEL_TILED_ORIENTATION_TOP   |
+		WESTON_TOP_LEVEL_TILED_ORIENTATION_BOTTOM);
+
 	pos.c = weston_coord(r->x, r->y);
 	weston_view_set_position(shsurf->view, pos);
+}
+
+/* Undo the decoration-suppression signals from apply_pinned_geometry().
+ * Used when a surface transitions out of the pinned set at runtime
+ * (V2: a commit that removes its matching rule). The client will get
+ * a configure with maximized=false and no tiled edges and is expected
+ * to re-draw at its preferred size with its decorations restored. */
+static void
+clear_pinned_geometry(struct shell_surface *shsurf)
+{
+	weston_desktop_surface_set_maximized(shsurf->desktop_surface, false);
+	weston_desktop_surface_set_orientation(shsurf->desktop_surface,
+					       WESTON_TOP_LEVEL_TILED_ORIENTATION_NONE);
+	weston_view_set_initial_position(shsurf->view, shsurf->shell);
 }
 
 /* The surface will be inserted into the list immediately after the link
@@ -1768,10 +1796,6 @@ shell_surface_set_output(struct shell_surface *shsurf,
 	wl_signal_add(&shsurf->output->destroy_signal,
 		      &shsurf->output_destroy_listener);
 }
-
-static void
-weston_view_set_initial_position(struct weston_view *view,
-				 struct desktop_shell *shell);
 
 static void
 unset_fullscreen(struct shell_surface *shsurf)
@@ -4607,8 +4631,10 @@ pinned_reapply_all(struct desktop_shell *shell)
 {
 	struct shell_surface *shsurf;
 	struct weston_surface *surface;
+	struct pinned_rule *was_pinned;
 
 	wl_list_for_each(shsurf, &shell->shsurf_list, link) {
+		was_pinned = shsurf->pinned_rule;
 		shell_surface_pinned_recheck(shsurf);
 		surface = weston_desktop_surface_get_surface(shsurf->desktop_surface);
 		if (!weston_surface_is_mapped(surface))
@@ -4616,6 +4642,8 @@ pinned_reapply_all(struct desktop_shell *shell)
 		shell_surface_update_layer(shsurf);
 		if (shsurf->pinned_rule)
 			apply_pinned_geometry(shsurf, shsurf->pinned_rule);
+		else if (was_pinned)
+			clear_pinned_geometry(shsurf);
 	}
 }
 
