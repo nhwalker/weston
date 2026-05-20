@@ -30,10 +30,16 @@
 
 struct desktop_shell;
 
-/* A single placement rule. NULL app_id / title fields act as wildcards. */
+/* A single placement rule. Each of the four matcher fields is independent:
+ * a NULL field is a wildcard, a non-NULL field must strcmp-equal the
+ * corresponding surface attribute. app_id / title come from xdg-shell;
+ * x11_wm_class / x11_wm_name come from X11 WM_CLASS / WM_NAME and let
+ * rules target Xwayland clients (whose xdg app_id is typically empty). */
 struct pinned_rule {
 	char *app_id;
 	char *title;
+	char *x11_wm_class;
+	char *x11_wm_name;
 	int32_t x, y;
 	int32_t width, height;	/* 0 = leave intrinsic */
 	struct wl_list link;	/* pinned_config::rules */
@@ -57,11 +63,15 @@ pinned_config_clear(struct pinned_config *pc);
 bool
 pinned_config_load(struct pinned_config *pc, const char *path);
 
-/* First matching rule wins. NULL app_id/title arguments only match
- * wildcard rules for that field. Returns NULL if no rule applies. */
+/* First matching rule wins. A rule matches when every non-NULL matcher
+ * field in the rule strcmp-equals the corresponding argument. NULL
+ * arguments (e.g. an X11 client with no xdg app_id) only match rules
+ * whose corresponding field is also NULL/wildcard. Returns NULL if no
+ * rule applies. */
 struct pinned_rule *
 pinned_config_match(const struct pinned_config *pc,
-		    const char *app_id, const char *title);
+		    const char *app_id, const char *title,
+		    const char *x11_wm_class, const char *x11_wm_name);
 
 /* Re-evaluate every shell_surface against the current rule set and
  * apply layer/geometry changes. V1 calls this once at startup; V2

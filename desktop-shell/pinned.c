@@ -54,9 +54,22 @@ pinned_config_clear(struct pinned_config *pc)
 		wl_list_remove(&r->link);
 		free(r->app_id);
 		free(r->title);
+		free(r->x11_wm_class);
+		free(r->x11_wm_name);
 		free(r);
 	}
 	wl_list_init(&pc->rules);
+}
+
+static void
+take_or_drop(char **dst, char *src)
+{
+	if (str_empty(src)) {
+		free(src);
+		*dst = NULL;
+	} else {
+		*dst = src;
+	}
 }
 
 static void
@@ -65,22 +78,29 @@ parse_one_rule(struct weston_config_section *section,
 {
 	struct pinned_rule *r;
 	char *app_id = NULL, *title = NULL;
+	char *wm_class = NULL, *wm_name = NULL;
 	int32_t x = 0, y = 0, w = 0, h = 0;
 
 	weston_config_section_get_string(section, "app-id", &app_id, NULL);
 	weston_config_section_get_string(section, "title", &title, NULL);
+	weston_config_section_get_string(section, "x11-wm-class",
+					 &wm_class, NULL);
+	weston_config_section_get_string(section, "x11-wm-name",
+					 &wm_name, NULL);
 	weston_config_section_get_int(section, "x", &x, 0);
 	weston_config_section_get_int(section, "y", &y, 0);
 	weston_config_section_get_int(section, "width", &w, 0);
 	weston_config_section_get_int(section, "height", &h, 0);
 
-	if (str_empty(app_id) && str_empty(title)) {
+	if (str_empty(app_id) && str_empty(title) &&
+	    str_empty(wm_class) && str_empty(wm_name)) {
 		/* A rule that matches everything is almost certainly a
 		 * misconfiguration; skip it. */
-		weston_log("pinned-window: rule with no app-id or title; "
-			   "skipping\n");
+		weston_log("pinned-window: rule with no matcher; skipping\n");
 		free(app_id);
 		free(title);
+		free(wm_class);
+		free(wm_name);
 		return;
 	}
 
@@ -88,21 +108,15 @@ parse_one_rule(struct weston_config_section *section,
 	if (!r) {
 		free(app_id);
 		free(title);
+		free(wm_class);
+		free(wm_name);
 		return;
 	}
 
-	if (str_empty(app_id)) {
-		free(app_id);
-		r->app_id = NULL;
-	} else {
-		r->app_id = app_id;
-	}
-	if (str_empty(title)) {
-		free(title);
-		r->title = NULL;
-	} else {
-		r->title = title;
-	}
+	take_or_drop(&r->app_id, app_id);
+	take_or_drop(&r->title, title);
+	take_or_drop(&r->x11_wm_class, wm_class);
+	take_or_drop(&r->x11_wm_name, wm_name);
 	r->x = x;
 	r->y = y;
 	r->width = w;
@@ -137,21 +151,32 @@ pinned_config_load(struct pinned_config *pc, const char *path)
 	return true;
 }
 
+static bool
+field_matches(const char *rule_field, const char *surface_attr)
+{
+	if (!rule_field)
+		return true;	/* wildcard */
+	if (!surface_attr)
+		return false;
+	return strcmp(rule_field, surface_attr) == 0;
+}
+
 struct pinned_rule *
 pinned_config_match(const struct pinned_config *pc,
-		    const char *app_id, const char *title)
+		    const char *app_id, const char *title,
+		    const char *x11_wm_class, const char *x11_wm_name)
 {
 	struct pinned_rule *r;
 
 	wl_list_for_each(r, &pc->rules, link) {
-		if (r->app_id) {
-			if (!app_id || strcmp(r->app_id, app_id) != 0)
-				continue;
-		}
-		if (r->title) {
-			if (!title || strcmp(r->title, title) != 0)
-				continue;
-		}
+		if (!field_matches(r->app_id, app_id))
+			continue;
+		if (!field_matches(r->title, title))
+			continue;
+		if (!field_matches(r->x11_wm_class, x11_wm_class))
+			continue;
+		if (!field_matches(r->x11_wm_name, x11_wm_name))
+			continue;
 		return r;
 	}
 	return NULL;

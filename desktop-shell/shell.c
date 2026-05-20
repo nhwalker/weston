@@ -1653,8 +1653,36 @@ static void
 weston_view_set_initial_position(struct weston_view *view,
 				 struct desktop_shell *shell);
 
-/* Re-evaluate (app_id, title) against the pinned rule set and update
- * shsurf->pinned_rule. Returns the current rule (possibly NULL). */
+/* Read an X11 WM property off an Xwayland-wrapped surface via the
+ * xwayland_surface_api. Returns NULL for non-Xwayland surfaces and
+ * for builds where Xwayland is not loaded. */
+static const char *
+shell_surface_xwayland_name(struct shell_surface *shsurf,
+			    enum window_atom_type atype)
+{
+	const struct weston_xwayland_surface_api *api;
+	struct weston_surface *surface;
+
+	api = shsurf->shell->xwayland_surface_api;
+	if (!api) {
+		api = weston_xwayland_surface_get_api(shsurf->shell->compositor);
+		shsurf->shell->xwayland_surface_api = api;
+	}
+	if (!api)
+		return NULL;
+
+	surface = weston_desktop_surface_get_surface(shsurf->desktop_surface);
+	if (!api->is_xwayland_surface(surface))
+		return NULL;
+
+	return api->get_xwayland_window_name(surface, atype);
+}
+
+/* Re-evaluate the four matcher keys against the pinned rule set and
+ * update shsurf->pinned_rule. xdg app_id/title are always queried;
+ * X11 WM_CLASS/WM_NAME are queried only for Xwayland surfaces, so
+ * pure-Wayland clients pay no Xwayland lookup cost. Returns the
+ * current rule (possibly NULL). */
 static struct pinned_rule *
 shell_surface_pinned_recheck(struct shell_surface *shsurf)
 {
@@ -1662,9 +1690,14 @@ shell_surface_pinned_recheck(struct shell_surface *shsurf)
 		weston_desktop_surface_get_app_id(shsurf->desktop_surface);
 	const char *title =
 		weston_desktop_surface_get_title(shsurf->desktop_surface);
+	const char *wm_class =
+		shell_surface_xwayland_name(shsurf, WM_CLASS);
+	const char *wm_name =
+		shell_surface_xwayland_name(shsurf, WM_NAME);
 
 	shsurf->pinned_rule =
-		pinned_config_match(&shsurf->shell->pinned, app_id, title);
+		pinned_config_match(&shsurf->shell->pinned,
+				    app_id, title, wm_class, wm_name);
 	return shsurf->pinned_rule;
 }
 

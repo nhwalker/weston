@@ -51,18 +51,31 @@ handle_destroy(struct wl_client *client, struct wl_resource *resource)
 	wl_resource_destroy(resource);
 }
 
+static int
+copy_if_set(char **dst, const char *src)
+{
+	if (str_empty(src)) {
+		*dst = NULL;
+		return 0;
+	}
+	*dst = strdup(src);
+	return *dst ? 0 : -1;
+}
+
 static void
 handle_add_rule(struct wl_client *client, struct wl_resource *resource,
 		const char *app_id, const char *title,
+		const char *x11_wm_class, const char *x11_wm_name,
 		int32_t x, int32_t y, int32_t width, int32_t height)
 {
 	struct pinned_resource *pr = wl_resource_get_user_data(resource);
 	struct pinned_rule *r;
 
-	if (str_empty(app_id) && str_empty(title)) {
+	if (str_empty(app_id) && str_empty(title) &&
+	    str_empty(x11_wm_class) && str_empty(x11_wm_name)) {
 		wl_resource_post_error(resource,
 			WESTON_PINNED_WINDOWS_V1_ERROR_INVALID_MATCH,
-			"add_rule needs at least one of app_id or title");
+			"add_rule needs at least one matcher field");
 		return;
 	}
 	if (width < 0 || height < 0) {
@@ -78,16 +91,12 @@ handle_add_rule(struct wl_client *client, struct wl_resource *resource,
 		return;
 	}
 
-	if (!str_empty(app_id)) {
-		r->app_id = strdup(app_id);
-		if (!r->app_id)
-			goto err_oom;
-	}
-	if (!str_empty(title)) {
-		r->title = strdup(title);
-		if (!r->title)
-			goto err_oom;
-	}
+	if (copy_if_set(&r->app_id, app_id) < 0 ||
+	    copy_if_set(&r->title, title) < 0 ||
+	    copy_if_set(&r->x11_wm_class, x11_wm_class) < 0 ||
+	    copy_if_set(&r->x11_wm_name, x11_wm_name) < 0)
+		goto err_oom;
+
 	r->x = x;
 	r->y = y;
 	r->width = width;
@@ -98,6 +107,8 @@ handle_add_rule(struct wl_client *client, struct wl_resource *resource,
 err_oom:
 	free(r->app_id);
 	free(r->title);
+	free(r->x11_wm_class);
+	free(r->x11_wm_name);
 	free(r);
 	wl_client_post_no_memory(client);
 }

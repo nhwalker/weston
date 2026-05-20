@@ -54,7 +54,7 @@
 
     <enum name="error">
       <entry name="invalid_match" value="0"
-             summary="both app_id and title were empty"/>
+             summary="all four matcher fields were null or empty"/>
       <entry name="invalid_size" value="1"
              summary="width or height was negative"/>
     </enum>
@@ -68,16 +68,26 @@
 
     <request name="add_rule">
       <description summary="append a rule to the staged set">
-        Appends one rule. Both app_id and title null/empty is a protocol
-        error (invalid_match). Negative width or height is invalid_size.
+        Appends one rule. Each of the four matcher fields (app_id,
+        title, x11_wm_class, x11_wm_name) is independent: a null or
+        empty field is a wildcard, a non-empty field must equal the
+        corresponding surface attribute. app_id / title come from
+        xdg-shell; x11_wm_class / x11_wm_name come from the X11
+        WM_CLASS / WM_NAME properties and let rules target Xwayland
+        clients (whose xdg app_id is typically empty in Weston).
+
+        All four matcher fields null/empty is a protocol error
+        (invalid_match). Negative width or height is invalid_size.
         Width or height of 0 keeps the surface's intrinsic size.
       </description>
-      <arg name="app_id" type="string" allow-null="true"/>
-      <arg name="title"  type="string" allow-null="true"/>
-      <arg name="x"      type="int"/>
-      <arg name="y"      type="int"/>
-      <arg name="width"  type="int"/>
-      <arg name="height" type="int"/>
+      <arg name="app_id"       type="string" allow-null="true"/>
+      <arg name="title"        type="string" allow-null="true"/>
+      <arg name="x11_wm_class" type="string" allow-null="true"/>
+      <arg name="x11_wm_name"  type="string" allow-null="true"/>
+      <arg name="x"            type="int"/>
+      <arg name="y"            type="int"/>
+      <arg name="width"        type="int"/>
+      <arg name="height"       type="int"/>
     </request>
 
     <request name="clear">

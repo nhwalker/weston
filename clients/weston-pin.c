@@ -92,16 +92,19 @@ usage(FILE *out, int status)
 "Drives the weston_pinned_windows_v1 protocol against the running\n"
 "compositor. Commands are processed in order:\n"
 "\n"
-"  clear                                  drop staged rules\n"
-"  add APP_ID TITLE X Y WIDTH HEIGHT      stage one rule\n"
-"  commit                                 apply staged rules atomically\n"
+"  clear                                                drop staged rules\n"
+"  add APP_ID TITLE X11_CLASS X11_NAME X Y WIDTH HEIGHT  stage one rule\n"
+"  commit                                               apply atomically\n"
 "\n"
-"Empty string for APP_ID or TITLE is a wildcard (use '').  WIDTH/HEIGHT\n"
-"of 0 keep the surface's intrinsic size.  X, Y, WIDTH, HEIGHT are in\n"
-"global compositor coordinates.\n"
+"Empty string for any matcher field is a wildcard (use '').  At least one\n"
+"matcher must be non-empty.  X11_CLASS and X11_NAME match Xwayland\n"
+"WM_CLASS and WM_NAME and exist because Xwayland clients usually have an\n"
+"empty xdg app_id.  WIDTH/HEIGHT of 0 keep the surface's intrinsic size.\n"
+"X, Y, WIDTH, HEIGHT are in global compositor coordinates.\n"
 "\n"
-"Example:\n"
-"  weston-pin add weston-terminal '' 100 100 400 300 commit\n");
+"Examples:\n"
+"  weston-pin add weston-terminal '' '' '' 100 100 400 300 commit\n"
+"  weston-pin add '' '' xterm '' 0 0 800 600 commit\n");
 	exit(status);
 }
 
@@ -157,22 +160,24 @@ main(int argc, char *argv[])
 		} else if (strcmp(cmd, "add") == 0) {
 			int x, y, w, h;
 
-			if (i + 6 >= argc) {
+			if (i + 8 >= argc) {
 				fprintf(stderr,
-					"weston-pin: 'add' needs 6 args\n");
+					"weston-pin: 'add' needs 8 args\n");
 				return 2;
 			}
-			if (parse_int(argv[i + 3], &x) < 0 ||
-			    parse_int(argv[i + 4], &y) < 0 ||
-			    parse_int(argv[i + 5], &w) < 0 ||
-			    parse_int(argv[i + 6], &h) < 0)
+			if (parse_int(argv[i + 5], &x) < 0 ||
+			    parse_int(argv[i + 6], &y) < 0 ||
+			    parse_int(argv[i + 7], &w) < 0 ||
+			    parse_int(argv[i + 8], &h) < 0)
 				return 2;
 
 			weston_pinned_windows_v1_add_rule(app.iface,
 							  argv[i + 1],
 							  argv[i + 2],
+							  argv[i + 3],
+							  argv[i + 4],
 							  x, y, w, h);
-			i += 6;
+			i += 8;
 		} else if (strcmp(cmd, "commit") == 0) {
 			weston_pinned_windows_v1_commit(app.iface);
 		} else {
