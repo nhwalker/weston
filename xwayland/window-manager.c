@@ -1156,8 +1156,9 @@ weston_wm_window_create_frame(struct weston_wm_window *window)
 	if (window->decorate & MWM_DECOR_MAXIMIZE)
 		buttons |= FRAME_BUTTON_MAXIMIZE;
 
-	if (window->decorate & MWM_DECOR_MINIMIZE)
-		buttons |= FRAME_BUTTON_MINIMIZE;
+	/* Minimize is disabled compositor-wide (desktop-shell does not
+	 * register weston_desktop_api::minimized_requested), so don't
+	 * draw the X11 frame's minimize button -- it would be inert. */
 
 	window->frame = frame_create(window->wm->theme,
 				     window->width, window->height,

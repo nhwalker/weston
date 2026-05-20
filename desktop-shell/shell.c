@@ -143,6 +143,9 @@ struct shell_surface {
 
 	int focus_count;
 
+	struct pinned_rule *pinned_rule;	/* NULL = not pinned */
+	bool decoration_suppressed;		/* maximize/tile signals sent? */
+
 	bool destroying;
 	struct wl_list link;	/** desktop_shell::shsurf_list */
 };
@@ -563,6 +566,13 @@ shell_configuration(struct desktop_shell *shell)
 		return false;
 	}
 	free(s);
+
+	weston_config_section_get_string(section, "pinned-windows", &s, NULL);
+	if (s) {
+		if (!pinned_config_load(&shell->pinned, s))
+			weston_log("pinned-window: continuing without rules\n");
+		free(s);
+	}
 
 	return true;
 }
@@ -1640,6 +1650,111 @@ shell_surface_activate(struct shell_surface *shsurf)
 		sync_surface_activated_state(shsurf);
 }
 
+static void
+weston_view_set_initial_position(struct weston_view *view,
+				 struct desktop_shell *shell);
+
+/* Read an X11 WM property off an Xwayland-wrapped surface via the
+ * xwayland_surface_api. Returns NULL for non-Xwayland surfaces and
+ * for builds where Xwayland is not loaded. */
+static const char *
+shell_surface_xwayland_name(struct shell_surface *shsurf,
+			    enum window_atom_type atype)
+{
+	const struct weston_xwayland_surface_api *api;
+	struct weston_surface *surface;
+
+	api = shsurf->shell->xwayland_surface_api;
+	if (!api) {
+		api = weston_xwayland_surface_get_api(shsurf->shell->compositor);
+		shsurf->shell->xwayland_surface_api = api;
+	}
+	if (!api)
+		return NULL;
+
+	surface = weston_desktop_surface_get_surface(shsurf->desktop_surface);
+	if (!api->is_xwayland_surface(surface))
+		return NULL;
+
+	return api->get_xwayland_window_name(surface, atype);
+}
+
+/* Re-evaluate the four matcher keys against the pinned rule set and
+ * update shsurf->pinned_rule. xdg app_id/title are always queried;
+ * X11 WM_CLASS/WM_NAME are queried only for Xwayland surfaces, so
+ * pure-Wayland clients pay no Xwayland lookup cost. Returns the
+ * current rule (possibly NULL). */
+static struct pinned_rule *
+shell_surface_pinned_recheck(struct shell_surface *shsurf)
+{
+	const char *app_id =
+		weston_desktop_surface_get_app_id(shsurf->desktop_surface);
+	const char *title =
+		weston_desktop_surface_get_title(shsurf->desktop_surface);
+	const char *wm_class =
+		shell_surface_xwayland_name(shsurf, WM_CLASS);
+	const char *wm_name =
+		shell_surface_xwayland_name(shsurf, WM_NAME);
+
+	shsurf->pinned_rule =
+		pinned_config_match(&shsurf->shell->pinned,
+				    app_id, title, wm_class, wm_name);
+	return shsurf->pinned_rule;
+}
+
+/* Move the view to the rule's (x, y), and -- if we haven't already -- send
+ * set_size + all-four tiled-edge states in the next configure so cooperating
+ * clients (GTK, Qt, libdecor, SDL) drop CSD. The heavy state is sent
+ * exactly once per pinning so subsequent calls (e.g. on every
+ * desktop_surface_committed for a pinned window) don't churn the client
+ * with redundant configures.
+ *
+ * We deliberately don't send set_maximized(true): xdg-shell (see
+ * libweston/desktop/xdg-shell.c) raises XDG_WM_BASE_ERROR_INVALID_SURFACE_STATE
+ * if the client's committed window geometry doesn't exactly match the
+ * configured size while maximized=true. For pinned windows we can't promise
+ * that match (rules may have no size at all). Tiled state has no such
+ * obligation and is sufficient for CSD suppression in all toolkits we care
+ * about. Caller is responsible for layer placement. */
+static void
+apply_pinned_geometry(struct shell_surface *shsurf,
+		      const struct pinned_rule *r)
+{
+	struct weston_coord_global pos;
+
+	if (!shsurf->decoration_suppressed) {
+		if (r->width > 0 && r->height > 0) {
+			weston_desktop_surface_set_size(shsurf->desktop_surface,
+							r->width, r->height);
+		}
+		weston_desktop_surface_set_orientation(shsurf->desktop_surface,
+			WESTON_TOP_LEVEL_TILED_ORIENTATION_LEFT  |
+			WESTON_TOP_LEVEL_TILED_ORIENTATION_RIGHT |
+			WESTON_TOP_LEVEL_TILED_ORIENTATION_TOP   |
+			WESTON_TOP_LEVEL_TILED_ORIENTATION_BOTTOM);
+		shsurf->decoration_suppressed = true;
+	}
+
+	pos.c = weston_coord(r->x, r->y);
+	weston_view_set_position(shsurf->view, pos);
+}
+
+/* Undo the decoration-suppression signals from apply_pinned_geometry().
+ * Used when a surface transitions out of the pinned set at runtime
+ * (V2: a commit that removes its matching rule). The client will get
+ * a configure with no tiled edges and is expected to re-draw at its
+ * preferred size with its decorations restored. */
+static void
+clear_pinned_geometry(struct shell_surface *shsurf)
+{
+	if (!shsurf->decoration_suppressed)
+		return;
+	weston_desktop_surface_set_orientation(shsurf->desktop_surface,
+					       WESTON_TOP_LEVEL_TILED_ORIENTATION_NONE);
+	weston_view_set_initial_position(shsurf->view, shsurf->shell);
+	shsurf->decoration_suppressed = false;
+}
+
 /* The surface will be inserted into the list immediately after the link
  * returned by this function (i.e. will be stacked immediately above the
  * returned link). */
@@ -1647,6 +1762,9 @@ static struct weston_layer_entry *
 shell_surface_calculate_layer_link (struct shell_surface *shsurf)
 {
 	struct workspace *ws;
+
+	if (shsurf->pinned_rule)
+		return &shsurf->shell->pinned_layer.view_list;
 
 	if (weston_desktop_surface_get_fullscreen(shsurf->desktop_surface) &&
 	    !shsurf->state.lowered) {
@@ -1726,10 +1844,6 @@ shell_surface_set_output(struct shell_surface *shsurf,
 }
 
 static void
-weston_view_set_initial_position(struct weston_view *view,
-				 struct desktop_shell *shell);
-
-static void
 unset_fullscreen(struct shell_surface *shsurf)
 {
 	if (shsurf->fullscreen.black_view)
@@ -1779,32 +1893,6 @@ unset_maximized(struct shell_surface *shsurf)
 		shsurf->saved_rotation_valid = false;
 	}
 }
-
-static void
-set_minimized(struct weston_surface *surface)
-{
-	struct shell_surface *shsurf;
-	struct workspace *current_ws;
-	struct weston_view *view;
-
-	view = get_default_view(surface);
-	if (!view)
-		return;
-
-	assert(weston_surface_get_main_surface(view->surface) == view->surface);
-
-	shsurf = get_shell_surface(surface);
-	current_ws = get_current_workspace(shsurf->shell);
-
-	weston_view_move_to_layer(view,
-				  &shsurf->shell->minimized_layer.view_list);
-
-	drop_focus_state(shsurf->shell, current_ws, view->surface);
-	surface_keyboard_focus_lost(surface);
-
-	shell_surface_update_child_surface_layers(shsurf);
-}
-
 
 static struct desktop_shell *
 shell_surface_get_shell(struct shell_surface *shsurf)
@@ -2251,8 +2339,12 @@ map(struct desktop_shell *shell, struct shell_surface *shsurf)
 	struct weston_compositor *compositor = shell->compositor;
 	struct weston_seat *seat;
 
+	shell_surface_pinned_recheck(shsurf);
+
 	/* initial positioning, see also configure() */
-	if (shsurf->state.fullscreen) {
+	if (shsurf->pinned_rule) {
+		apply_pinned_geometry(shsurf, shsurf->pinned_rule);
+	} else if (shsurf->state.fullscreen) {
 		shell_set_view_fullscreen(shsurf);
 	} else if (shsurf->state.maximized) {
 		set_maximized_position(shell, shsurf);
@@ -2337,6 +2429,26 @@ desktop_surface_committed(struct weston_desktop_surface *desktop_surface,
 				weston_surface_ref(surface);
 		}
 
+		return;
+	}
+
+	/* Late app_id/title may bring us into a pinned rule. */
+	if (!shsurf->pinned_rule)
+		shell_surface_pinned_recheck(shsurf);
+
+	if (shsurf->pinned_rule) {
+		/* Pinned wins. The decoration-suppression signals and the
+		 * client-side fullscreen/maximize requests are already
+		 * gated elsewhere (set_fullscreen/set_maximized, the request
+		 * callbacks, and apply_pinned_geometry's one-shot flag), so
+		 * each commit just re-asserts the layer and position. No
+		 * unset_*() here: re-sending tile/maximize state on every
+		 * commit causes a configure storm that confuses CSD clients
+		 * (e.g. GTK's gnome-calculator). */
+		shell_surface_update_layer(shsurf);
+		apply_pinned_geometry(shsurf, shsurf->pinned_rule);
+		shsurf->last_width = surface->width;
+		shsurf->last_height = surface->height;
 		return;
 	}
 
@@ -2426,6 +2538,11 @@ set_fullscreen(struct shell_surface *shsurf, bool fullscreen,
 	struct weston_desktop_surface *desktop_surface = shsurf->desktop_surface;
 	struct weston_surface *surface =
 		weston_desktop_surface_get_surface(shsurf->desktop_surface);
+
+	if (shsurf->pinned_rule) {
+		apply_pinned_geometry(shsurf, shsurf->pinned_rule);
+		return;
+	}
 
 	weston_desktop_surface_set_fullscreen(desktop_surface, fullscreen);
 	if (fullscreen) {
@@ -2575,6 +2692,11 @@ set_maximized(struct shell_surface *shsurf, bool maximized)
 	struct weston_surface *surface =
 		weston_desktop_surface_get_surface(shsurf->desktop_surface);
 
+	if (shsurf->pinned_rule) {
+		apply_pinned_geometry(shsurf, shsurf->pinned_rule);
+		return;
+	}
+
 	if (weston_desktop_surface_get_fullscreen(desktop_surface))
 		return;
 
@@ -2603,17 +2725,6 @@ desktop_surface_maximized_requested(struct weston_desktop_surface *desktop_surfa
 		weston_desktop_surface_get_user_data(desktop_surface);
 
 	set_maximized(shsurf, maximized);
-}
-
-static void
-desktop_surface_minimized_requested(struct weston_desktop_surface *desktop_surface,
-				    void *shell)
-{
-	struct weston_surface *surface =
-		weston_desktop_surface_get_surface(desktop_surface);
-
-	 /* apply compositor's own minimization logic (hide) */
-	set_minimized(surface);
 }
 
 static void
@@ -2755,7 +2866,10 @@ static const struct weston_desktop_api shell_desktop_api = {
 	.set_parent = desktop_surface_set_parent,
 	.fullscreen_requested = desktop_surface_fullscreen_requested,
 	.maximized_requested = desktop_surface_maximized_requested,
-	.minimized_requested = desktop_surface_minimized_requested,
+	/* .minimized_requested intentionally NULL: omitting it causes
+	 * libweston-desktop to leave XDG_TOPLEVEL_WM_CAPABILITIES_MINIMIZE
+	 * out of the wm_capabilities event, so cooperating CSD toolkits
+	 * (GTK4, Qt, libdecor) hide the minimize button. */
 	.ping_timeout = desktop_surface_ping_timeout,
 	.pong = desktop_surface_pong,
 	.set_xwayland_position = desktop_surface_set_xwayland_position,
@@ -4522,7 +4636,35 @@ shell_for_each_layer(struct desktop_shell *shell,
 	func(shell, &shell->background_layer, data);
 	func(shell, &shell->lock_layer, data);
 	func(shell, &shell->input_panel_layer, data);
+	func(shell, &shell->pinned_layer, data);
 	func(shell, &shell->workspace.layer, data);
+}
+
+void
+pinned_reapply_all(struct desktop_shell *shell)
+{
+	struct shell_surface *shsurf;
+	struct weston_surface *surface;
+	struct pinned_rule *was_pinned;
+
+	wl_list_for_each(shsurf, &shell->shsurf_list, link) {
+		was_pinned = shsurf->pinned_rule;
+		shell_surface_pinned_recheck(shsurf);
+		surface = weston_desktop_surface_get_surface(shsurf->desktop_surface);
+		if (!weston_surface_is_mapped(surface))
+			continue;
+		/* If the rule object changed (V2 commit replaced the table)
+		 * force apply_pinned_geometry to re-send size + state, since
+		 * the new rule may carry a different geometry than the one
+		 * the one-shot flag remembers. */
+		if (shsurf->pinned_rule && shsurf->pinned_rule != was_pinned)
+			shsurf->decoration_suppressed = false;
+		shell_surface_update_layer(shsurf);
+		if (shsurf->pinned_rule)
+			apply_pinned_geometry(shsurf, shsurf->pinned_rule);
+		else if (was_pinned)
+			clear_pinned_geometry(shsurf);
+	}
 }
 
 static void
@@ -4794,6 +4936,9 @@ shell_destroy(struct wl_listener *listener, void *data)
 	desktop_shell_destroy_layer(&shell->input_panel_layer);
 	desktop_shell_destroy_layer(&shell->minimized_layer);
 	desktop_shell_destroy_layer(&shell->fullscreen_layer);
+	desktop_shell_destroy_layer(&shell->pinned_layer);
+
+	pinned_config_clear(&shell->pinned);
 
 	free(shell->client);
 	free(shell);
@@ -4946,6 +5091,7 @@ wet_shell_init(struct weston_compositor *ec,
 	weston_layer_init(&shell->background_layer, ec);
 	weston_layer_init(&shell->lock_layer, ec);
 	weston_layer_init(&shell->input_panel_layer, ec);
+	weston_layer_init(&shell->pinned_layer, ec);
 
 	weston_layer_set_position(&shell->fullscreen_layer,
 				  WESTON_LAYER_POSITION_FULLSCREEN);
@@ -4953,6 +5099,9 @@ wet_shell_init(struct weston_compositor *ec,
 				  WESTON_LAYER_POSITION_UI);
 	weston_layer_set_position(&shell->background_layer,
 				  WESTON_LAYER_POSITION_BACKGROUND);
+	weston_layer_set_position(&shell->pinned_layer,
+				  WESTON_LAYER_POSITION_BOTTOM_UI);
+	pinned_config_init(&shell->pinned);
 
 	wl_list_init(&shell->seat_list);
 	wl_list_init(&shell->shsurf_list);
@@ -4985,6 +5134,8 @@ wet_shell_init(struct weston_compositor *ec,
 			     &weston_desktop_shell_interface, 1,
 			     shell, bind_desktop_shell) == NULL)
 		return -1;
+
+	pinned_windows_global_create(shell);
 
 	weston_compositor_get_time(&shell->child.deathstamp);
 

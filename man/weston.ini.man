@@ -479,6 +479,45 @@ sets the cursor theme (string).
 .TP 7
 .BI "cursor-size=" 24
 sets the cursor size (unsigned integer).
+.TP 7
+.BI "pinned-windows=" /path/to/pinned.ini
+path to a secondary configuration file that places matching toplevels on a
+dedicated layer above the background and below the normal application layer.
+The file uses the same syntax as
+.IR weston.ini ;
+each rule is a
+.B [pinned-window]
+section with optional string keys
+.BR app-id ", " title ", " x11-wm-class ", " x11-wm-name
+(at least one must be set) and integer keys
+.BR x ", " y ", " width ", " height
+giving global compositor coordinates and size. The
+.B x11-wm-class
+and
+.B x11-wm-name
+keys match against the X11
+.B WM_CLASS
+and
+.B WM_NAME
+properties of Xwayland-wrapped clients (whose xdg-shell app-id is typically
+empty under Weston) and are ignored for pure-Wayland surfaces. Each rule
+field is independent: any combination may be set, and every non-empty field
+must equal the corresponding surface attribute for the rule to match. A width or height of 0 leaves
+the surface's intrinsic size unchanged. The first matching rule wins.
+Pinned windows ignore client-initiated requests to go fullscreen or maximized.
+Pinned windows are also sent the xdg-shell
+.B maximized
+state and all four
+.B tiled_*
+edge states in their configure so cooperating clients (GTK, Qt, libdecor,
+SDL) suppress client-side decorations. Clients that ignore these signals
+may still draw their own decorations.
+The desktop-shell module also advertises the
+.B weston_pinned_windows_v1
+Wayland global which lets any connected client replace this rule table at
+runtime. The first runtime commit fully discards any rules loaded from the
+file above. Do not expose Weston to untrusted clients when relying on
+.B pinned-windows .
 .\"---------------------------------------------------------------------
 .SH "LAUNCHER SECTION"
 There can be multiple launcher sections, one for each launcher.

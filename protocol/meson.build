@@ -36,6 +36,7 @@ generated_protocols = [
 	[ 'viewporter', 'stable' ],
 	[ 'weston-debug', 'internal' ],
 	[ 'weston-desktop-shell', 'internal' ],
+	[ 'weston-pinned-windows', 'internal' ],
 	[ 'weston-output-capture', 'internal' ],
 	[ 'weston-content-protection', 'internal' ],
 	[ 'weston-test', 'internal' ],
