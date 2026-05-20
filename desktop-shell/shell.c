@@ -1703,11 +1703,19 @@ shell_surface_pinned_recheck(struct shell_surface *shsurf)
 }
 
 /* Move the view to the rule's (x, y), and -- if we haven't already -- send
- * set_size + maximized + all-four tiled-edge states in the next configure
- * so cooperating clients (GTK, Qt, libdecor, SDL) drop CSD. The heavy state
- * is sent exactly once per pinning so subsequent calls (e.g. on every
+ * set_size + all-four tiled-edge states in the next configure so cooperating
+ * clients (GTK, Qt, libdecor, SDL) drop CSD. The heavy state is sent
+ * exactly once per pinning so subsequent calls (e.g. on every
  * desktop_surface_committed for a pinned window) don't churn the client
- * with redundant configures. Caller is responsible for layer placement. */
+ * with redundant configures.
+ *
+ * We deliberately don't send set_maximized(true): xdg-shell (see
+ * libweston/desktop/xdg-shell.c) raises XDG_WM_BASE_ERROR_INVALID_SURFACE_STATE
+ * if the client's committed window geometry doesn't exactly match the
+ * configured size while maximized=true. For pinned windows we can't promise
+ * that match (rules may have no size at all). Tiled state has no such
+ * obligation and is sufficient for CSD suppression in all toolkits we care
+ * about. Caller is responsible for layer placement. */
 static void
 apply_pinned_geometry(struct shell_surface *shsurf,
 		      const struct pinned_rule *r)
@@ -1719,7 +1727,6 @@ apply_pinned_geometry(struct shell_surface *shsurf,
 			weston_desktop_surface_set_size(shsurf->desktop_surface,
 							r->width, r->height);
 		}
-		weston_desktop_surface_set_maximized(shsurf->desktop_surface, true);
 		weston_desktop_surface_set_orientation(shsurf->desktop_surface,
 			WESTON_TOP_LEVEL_TILED_ORIENTATION_LEFT  |
 			WESTON_TOP_LEVEL_TILED_ORIENTATION_RIGHT |
@@ -1735,14 +1742,13 @@ apply_pinned_geometry(struct shell_surface *shsurf,
 /* Undo the decoration-suppression signals from apply_pinned_geometry().
  * Used when a surface transitions out of the pinned set at runtime
  * (V2: a commit that removes its matching rule). The client will get
- * a configure with maximized=false and no tiled edges and is expected
- * to re-draw at its preferred size with its decorations restored. */
+ * a configure with no tiled edges and is expected to re-draw at its
+ * preferred size with its decorations restored. */
 static void
 clear_pinned_geometry(struct shell_surface *shsurf)
 {
 	if (!shsurf->decoration_suppressed)
 		return;
-	weston_desktop_surface_set_maximized(shsurf->desktop_surface, false);
 	weston_desktop_surface_set_orientation(shsurf->desktop_surface,
 					       WESTON_TOP_LEVEL_TILED_ORIENTATION_NONE);
 	weston_view_set_initial_position(shsurf->view, shsurf->shell);
