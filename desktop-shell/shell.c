@@ -144,6 +144,7 @@ struct shell_surface {
 	int focus_count;
 
 	struct pinned_rule *pinned_rule;	/* NULL = not pinned */
+	bool decoration_suppressed;		/* maximize/tile signals sent? */
 
 	bool destroying;
 	struct wl_list link;	/** desktop_shell::shsurf_list */
@@ -1701,28 +1702,31 @@ shell_surface_pinned_recheck(struct shell_surface *shsurf)
 	return shsurf->pinned_rule;
 }
 
-/* Move the view to the rule's (x, y), request the configured size if any,
- * and signal the client to drop CSD by sending the maximized + all-four
- * tiled-edge states in the next configure. Cooperating clients (GTK, Qt,
- * libdecor, SDL) suppress decorations when either signal is present.
- * Caller is responsible for layer placement. */
+/* Move the view to the rule's (x, y), and -- if we haven't already -- send
+ * set_size + maximized + all-four tiled-edge states in the next configure
+ * so cooperating clients (GTK, Qt, libdecor, SDL) drop CSD. The heavy state
+ * is sent exactly once per pinning so subsequent calls (e.g. on every
+ * desktop_surface_committed for a pinned window) don't churn the client
+ * with redundant configures. Caller is responsible for layer placement. */
 static void
 apply_pinned_geometry(struct shell_surface *shsurf,
 		      const struct pinned_rule *r)
 {
 	struct weston_coord_global pos;
 
-	if (r->width > 0 && r->height > 0) {
-		weston_desktop_surface_set_size(shsurf->desktop_surface,
-						r->width, r->height);
+	if (!shsurf->decoration_suppressed) {
+		if (r->width > 0 && r->height > 0) {
+			weston_desktop_surface_set_size(shsurf->desktop_surface,
+							r->width, r->height);
+		}
+		weston_desktop_surface_set_maximized(shsurf->desktop_surface, true);
+		weston_desktop_surface_set_orientation(shsurf->desktop_surface,
+			WESTON_TOP_LEVEL_TILED_ORIENTATION_LEFT  |
+			WESTON_TOP_LEVEL_TILED_ORIENTATION_RIGHT |
+			WESTON_TOP_LEVEL_TILED_ORIENTATION_TOP   |
+			WESTON_TOP_LEVEL_TILED_ORIENTATION_BOTTOM);
+		shsurf->decoration_suppressed = true;
 	}
-
-	weston_desktop_surface_set_maximized(shsurf->desktop_surface, true);
-	weston_desktop_surface_set_orientation(shsurf->desktop_surface,
-		WESTON_TOP_LEVEL_TILED_ORIENTATION_LEFT  |
-		WESTON_TOP_LEVEL_TILED_ORIENTATION_RIGHT |
-		WESTON_TOP_LEVEL_TILED_ORIENTATION_TOP   |
-		WESTON_TOP_LEVEL_TILED_ORIENTATION_BOTTOM);
 
 	pos.c = weston_coord(r->x, r->y);
 	weston_view_set_position(shsurf->view, pos);
@@ -1736,10 +1740,13 @@ apply_pinned_geometry(struct shell_surface *shsurf,
 static void
 clear_pinned_geometry(struct shell_surface *shsurf)
 {
+	if (!shsurf->decoration_suppressed)
+		return;
 	weston_desktop_surface_set_maximized(shsurf->desktop_surface, false);
 	weston_desktop_surface_set_orientation(shsurf->desktop_surface,
 					       WESTON_TOP_LEVEL_TILED_ORIENTATION_NONE);
 	weston_view_set_initial_position(shsurf->view, shsurf->shell);
+	shsurf->decoration_suppressed = false;
 }
 
 /* The surface will be inserted into the list immediately after the link
@@ -2450,12 +2457,14 @@ desktop_surface_committed(struct weston_desktop_surface *desktop_surface,
 		shell_surface_pinned_recheck(shsurf);
 
 	if (shsurf->pinned_rule) {
-		/* Pinned wins over fullscreen/maximized: drop any prior
-		 * state, place on the pinned layer and re-assert geometry. */
-		if (was_fullscreen || shsurf->state.fullscreen)
-			unset_fullscreen(shsurf);
-		if (was_maximized || shsurf->state.maximized)
-			unset_maximized(shsurf);
+		/* Pinned wins. The decoration-suppression signals and the
+		 * client-side fullscreen/maximize requests are already
+		 * gated elsewhere (set_fullscreen/set_maximized, the request
+		 * callbacks, and apply_pinned_geometry's one-shot flag), so
+		 * each commit just re-asserts the layer and position. No
+		 * unset_*() here: re-sending tile/maximize state on every
+		 * commit causes a configure storm that confuses CSD clients
+		 * (e.g. GTK's gnome-calculator). */
 		shell_surface_update_layer(shsurf);
 		apply_pinned_geometry(shsurf, shsurf->pinned_rule);
 		shsurf->last_width = surface->width;
@@ -4672,6 +4681,12 @@ pinned_reapply_all(struct desktop_shell *shell)
 		surface = weston_desktop_surface_get_surface(shsurf->desktop_surface);
 		if (!weston_surface_is_mapped(surface))
 			continue;
+		/* If the rule object changed (V2 commit replaced the table)
+		 * force apply_pinned_geometry to re-send size + state, since
+		 * the new rule may carry a different geometry than the one
+		 * the one-shot flag remembers. */
+		if (shsurf->pinned_rule && shsurf->pinned_rule != was_pinned)
+			shsurf->decoration_suppressed = false;
 		shell_surface_update_layer(shsurf);
 		if (shsurf->pinned_rule)
 			apply_pinned_geometry(shsurf, shsurf->pinned_rule);
