@@ -1894,32 +1894,6 @@ unset_maximized(struct shell_surface *shsurf)
 	}
 }
 
-static void
-set_minimized(struct weston_surface *surface)
-{
-	struct shell_surface *shsurf;
-	struct workspace *current_ws;
-	struct weston_view *view;
-
-	view = get_default_view(surface);
-	if (!view)
-		return;
-
-	assert(weston_surface_get_main_surface(view->surface) == view->surface);
-
-	shsurf = get_shell_surface(surface);
-	current_ws = get_current_workspace(shsurf->shell);
-
-	weston_view_move_to_layer(view,
-				  &shsurf->shell->minimized_layer.view_list);
-
-	drop_focus_state(shsurf->shell, current_ws, view->surface);
-	surface_keyboard_focus_lost(surface);
-
-	shell_surface_update_child_surface_layers(shsurf);
-}
-
-
 static struct desktop_shell *
 shell_surface_get_shell(struct shell_surface *shsurf)
 {
@@ -2754,17 +2728,6 @@ desktop_surface_maximized_requested(struct weston_desktop_surface *desktop_surfa
 }
 
 static void
-desktop_surface_minimized_requested(struct weston_desktop_surface *desktop_surface,
-				    void *shell)
-{
-	struct weston_surface *surface =
-		weston_desktop_surface_get_surface(desktop_surface);
-
-	 /* apply compositor's own minimization logic (hide) */
-	set_minimized(surface);
-}
-
-static void
 set_busy_cursor(struct shell_surface *shsurf, struct weston_pointer *pointer)
 {
 	struct shell_grab *grab;
@@ -2903,7 +2866,10 @@ static const struct weston_desktop_api shell_desktop_api = {
 	.set_parent = desktop_surface_set_parent,
 	.fullscreen_requested = desktop_surface_fullscreen_requested,
 	.maximized_requested = desktop_surface_maximized_requested,
-	.minimized_requested = desktop_surface_minimized_requested,
+	/* .minimized_requested intentionally NULL: omitting it causes
+	 * libweston-desktop to leave XDG_TOPLEVEL_WM_CAPABILITIES_MINIMIZE
+	 * out of the wm_capabilities event, so cooperating CSD toolkits
+	 * (GTK4, Qt, libdecor) hide the minimize button. */
 	.ping_timeout = desktop_surface_ping_timeout,
 	.pong = desktop_surface_pong,
 	.set_xwayland_position = desktop_surface_set_xwayland_position,
