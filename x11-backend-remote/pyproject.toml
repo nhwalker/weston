@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "x11-backend-remote"
+version = "0.1.0"
+description = "REST wrapper around xdotool for controlling Weston backend-x11 output windows."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "httpx>=0.27",
+]
+
+[project.scripts]
+x11-backend-remote = "x11_backend_remote.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["x11_backend_remote*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
