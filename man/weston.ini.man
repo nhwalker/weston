@@ -533,6 +533,16 @@ See
 .B "weston-drm(7)"
 for examples of modes-formats supported by DRM backend.
 .TP 7
+.BI "position=" x,y
+Sets the position of the output in the global compositor coordinate space, in
+integer pixels, formatted as
+.IR X , Y
+\&. Currently honored by the VNC and X11 backends. If omitted, outputs are
+placed automatically to the right of previously\-enabled outputs. Ignored
+when the output is
+.BR mirror-of
+another output, in which case the mirrored output's position is used.
+.TP 7
 .BI "transform=" normal
 How you have rotated your monitor from its normal orientation (string).
 The transform key can be one of the following 8 strings:

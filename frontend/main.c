@@ -1844,6 +1844,30 @@ parse_simple_mode(struct weston_output *output,
 		*height = parsed_options->height;
 }
 
+static void
+wet_output_set_position_from_section(struct weston_output *output,
+				     struct weston_config_section *section)
+{
+	char *position = NULL;
+	int x, y;
+
+	if (!section)
+		return;
+
+	weston_config_section_get_string(section, "position", &position, NULL);
+	if (!position)
+		return;
+
+	if (sscanf(position, "%d,%d", &x, &y) == 2) {
+		struct weston_coord_global pos = { .c = weston_coord(x, y) };
+		weston_output_set_position(output, pos);
+	} else {
+		weston_log("Invalid position '%s' for output %s. Ignoring.\n",
+			   position, output->name);
+	}
+	free(position);
+}
+
 static int
 wet_configure_windowed_output_from_config(struct weston_output *output,
 					  struct wet_output_config *defaults,
@@ -3836,6 +3860,10 @@ vnc_backend_output_configure(struct weston_output *output)
 			   output->name);
 		return -1;
 	}
+
+	if (!output->mirror_of)
+		wet_output_set_position_from_section(output, section);
+
 	weston_log("vnc_backend_output_configure.. Done\n");
 
 	return 0;
@@ -3921,9 +3949,19 @@ x11_backend_output_configure(struct weston_output *output)
 		.scale = 1,
 		.transform = WL_OUTPUT_TRANSFORM_NORMAL
 	};
+	struct weston_config *wc = wet_get_config(output->compositor);
+	struct weston_config_section *section;
+	int ret;
 
-	return wet_configure_windowed_output_from_config(output, &defaults,
-							 WESTON_WINDOWED_OUTPUT_X11);
+	ret = wet_configure_windowed_output_from_config(output, &defaults,
+							WESTON_WINDOWED_OUTPUT_X11);
+	if (ret < 0)
+		return ret;
+
+	section = weston_config_get_section(wc, "output", "name", output->name);
+	wet_output_set_position_from_section(output, section);
+
+	return 0;
 }
 
 static int

@@ -34,6 +34,12 @@ Specifies the desktop redraw rate in Hz. If unspecified, the default is 60Hz. Ch
 this may be useful if you have a faster than 60Hz display, or if you want to reduce updates to
 reduce network traffic.
 .TP
+\fBnum\-outputs\fR=\fIN\fR
+Number of independent VNC outputs to create. Defaults to 1. Each output gets
+its own VNC server on a sequential port starting from the base port (5900 by
+default), and is configured via an \fB[output]\fR section matching its head
+name (\fBvnc\-0\fR, \fBvnc\-1\fR, ...).
+.TP
 \fBtls\-key\fR=\fIfile\fR
 The file containing the key for doing TLS security. To have TLS security you also need
 to ship a file containing a certificate.
@@ -44,13 +50,21 @@ to ship a key file.
 
 .SS Section output
 .TP
-\fBname\fR=\fIvnc\fR
-The name
-.BR vnc
-is used to identify the VNC output.
+\fBname\fR=\fIvnc\-N\fR
+Identifies the VNC output. With \fBnum\-outputs\fR > 1 the backend creates
+outputs named \fBvnc\-0\fR, \fBvnc\-1\fR, ..., each listening on its own port
+starting from the base port. Use the matching head name here to configure
+that specific output.
 .TP
 \fBmode\fR=\fIwidth\fBx\fIheight\fR
 Specifies the (initial) size for the output.
+.TP
+\fBposition\fR=\fIx\fB,\fIy\fR
+Specifies the position of this output in the global compositor coordinate
+space, in integer pixels. If omitted, outputs are placed automatically to
+the right of previously\-enabled outputs. Ignored when the output is
+\fBmirror\-of\fR another output, in which case the position of the mirrored
+output is used.
 .TP
 \fBresizeable\fR=\fIboolean\fR
 Specifies whether the VNC client is allowed to resize the output.
