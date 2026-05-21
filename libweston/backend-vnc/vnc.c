@@ -785,9 +785,16 @@ vnc_new_client(struct nvnc_client *client)
 
 	/*
 	 * Make up for repaints that were skipped when no clients were
-	 * connected.
+	 * connected. Use weston_output_damage() so the next repaint forces
+	 * a full-region update; weston_output_schedule_repaint() alone is
+	 * not enough, because surface commits that happened while the
+	 * output was FORCED_OFF were no-ops, leaving the per-output paint
+	 * nodes without damage. Without forcing full damage here,
+	 * vnc_output_repaint() may see an empty damage region, skip
+	 * vnc_update_buffer(), and leave neatvnc with no buffer to send to
+	 * the newly-connected client.
 	 */
-	weston_output_schedule_repaint(&output->base);
+	weston_output_damage(&output->base);
 }
 
 static int
