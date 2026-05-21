@@ -498,7 +498,6 @@ static void
 vnc_client_cleanup(struct nvnc_client *client)
 {
 	struct vnc_peer *peer = nvnc_get_userdata(client);
-	struct vnc_output *output = peer->output;
 
 	wl_list_remove(&peer->link);
 	weston_seat_release_keyboard(peer->seat);
@@ -506,9 +505,6 @@ vnc_client_cleanup(struct nvnc_client *client)
 	weston_seat_release(peer->seat);
 	free(peer);
 	weston_log("VNC Client disconnected\n");
-
-	if (output && wl_list_empty(&output->peers))
-		weston_output_power_off(&output->base);
 }
 
 static struct weston_pointer *
@@ -775,25 +771,12 @@ vnc_new_client(struct nvnc_client *client)
 	weston_seat_init_pointer(peer->seat);
 	weston_seat_init_keyboard(peer->seat, backend->xkb_keymap);
 
-	if (wl_list_empty(&output->peers))
-		weston_output_power_on(&output->base);
-
 	wl_list_insert(&output->peers, &peer->link);
 
 	nvnc_set_userdata(client, peer, NULL);
 	nvnc_set_client_cleanup_fn(client, vnc_client_cleanup);
 
-	/*
-	 * Make up for repaints that were skipped when no clients were
-	 * connected. Use weston_output_damage() so the next repaint forces
-	 * a full-region update; weston_output_schedule_repaint() alone is
-	 * not enough, because surface commits that happened while the
-	 * output was FORCED_OFF were no-ops, leaving the per-output paint
-	 * nodes without damage. Without forcing full damage here,
-	 * vnc_output_repaint() may see an empty damage region, skip
-	 * vnc_update_buffer(), and leave neatvnc with no buffer to send to
-	 * the newly-connected client.
-	 */
+	/* Push the current scene to the newly-connected client. */
 	weston_output_damage(&output->base);
 }
 
@@ -1123,9 +1106,6 @@ vnc_output_repaint(struct weston_output *base)
 	pixman_region32_t damage;
 
 	assert(output);
-
-	if (wl_list_empty(&output->peers))
-		weston_output_power_off(base);
 
 	vnc_output_update_cursor(output);
 
