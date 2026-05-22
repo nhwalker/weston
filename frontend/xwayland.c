@@ -33,6 +33,7 @@
 #include <fcntl.h>
 
 #include <libweston/libweston.h>
+#include <libweston/backend-drm.h>
 #include "frontend/weston.h"
 #include <libweston/xwayland-api.h>
 #include "shared/helpers.h"
@@ -102,6 +103,44 @@ xserver_cleanup(struct wet_process *process, int status, void *data)
 	wxw->process = NULL;
 }
 
+/*
+ * Tell Xwayland (and any X clients it spawns) which DRM render node the
+ * compositor is rendering on, so its independent EGL/glamor probe lands on
+ * the same GPU instead of defaulting to /dev/dri/renderD128 or llvmpipe.
+ *
+ * There is no Xwayland CLI option for this, so we set well-known env vars:
+ *  - WAYLAND_DRM_DEVICE: read by various Wayland-aware EGL/Vulkan loaders.
+ *  - LIBVA_DRM_DEVICE:   used by libva (VA-API) clients.
+ *  - VDPAU_DRIVER_PATH / __NV_PRIME_RENDER_OFFLOAD-style hints are left to
+ *    the user's session env; we don't try to guess vendor-specific names
+ *    here.
+ *
+ * On systems where Xwayland honors the linux-dmabuf-v1 main_device hint
+ * (Xwayland >= 22.x), this is a redundant safety net; on older Xwayland it
+ * is the only signal that reaches the X server before glamor_egl_init().
+ */
+static void
+set_xwayland_render_device_env(struct weston_compositor *compositor,
+			       struct custom_env *child_env)
+{
+	const struct weston_drm_backend_api *drm_api;
+	char *render_node;
+
+	drm_api = weston_drm_backend_get_api(compositor);
+	if (!drm_api || !drm_api->get_render_node)
+		return;
+
+	render_node = drm_api->get_render_node(compositor);
+	if (!render_node)
+		return;
+
+	weston_log("Xwayland: hinting render node %s via env\n", render_node);
+	custom_env_set_env_var(child_env, "WAYLAND_DRM_DEVICE", render_node);
+	custom_env_set_env_var(child_env, "LIBVA_DRM_DEVICE", render_node);
+
+	free(render_node);
+}
+
 static struct wl_client *
 spawn_xserver(void *user_data, const char *display, int abstract_fd, int unix_fd)
 {
@@ -155,6 +194,7 @@ spawn_xserver(void *user_data, const char *display, int abstract_fd, int unix_fd
 					 &xserver, XSERVER_PATH);
 	custom_env_init_from_environ(&child_env);
 	custom_env_set_env_var(&child_env, "WAYLAND_SOCKET", wayland_socket.str1);
+	set_xwayland_render_device_env(wxw->compositor, &child_env);
 
 	custom_env_add_arg(&child_env, xserver);
 	custom_env_add_arg(&child_env, display);

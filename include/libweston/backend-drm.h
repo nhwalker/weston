@@ -193,6 +193,34 @@ weston_drm_virtual_output_get_api(struct weston_compositor *compositor)
 	return (const struct weston_drm_virtual_output_api *)api;
 }
 
+#define WESTON_DRM_BACKEND_API_NAME "weston_drm_backend_api_v1"
+
+struct weston_drm_backend_api {
+	/** Return the path of the DRM render node associated with the
+	 * primary KMS device used by the DRM backend.
+	 *
+	 * This is the device on which the compositor performs its GL
+	 * rendering. It can be passed to client processes (notably
+	 * Xwayland) so they initialize their own EGL/glamor stack on the
+	 * same GPU rather than falling back to llvmpipe or picking a
+	 * different render node.
+	 *
+	 * Returns a newly-allocated string the caller must free(), or
+	 * NULL if no render node could be determined (e.g. the KMS device
+	 * has no render node, or libdrm probing failed).
+	 */
+	char *(*get_render_node)(struct weston_compositor *compositor);
+};
+
+static inline const struct weston_drm_backend_api *
+weston_drm_backend_get_api(struct weston_compositor *compositor)
+{
+	const void *api;
+	api = weston_plugin_api_get(compositor, WESTON_DRM_BACKEND_API_NAME,
+				    sizeof(struct weston_drm_backend_api));
+	return (const struct weston_drm_backend_api *)api;
+}
+
 /** The backend configuration struct.
  *
  * weston_drm_backend_config contains the configuration used by a DRM

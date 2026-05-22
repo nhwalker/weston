@@ -3953,6 +3953,30 @@ static const struct weston_drm_output_api api = {
 	drm_output_set_content_type,
 };
 
+static char *
+drm_backend_get_render_node(struct weston_compositor *compositor)
+{
+	struct weston_backend *backend = compositor->primary_backend;
+	struct drm_backend *b = container_of(backend, struct drm_backend, base);
+	char *render_node = NULL;
+
+	if (b->drm->drm.fd < 0)
+		return NULL;
+
+	/* drmGetRenderDeviceNameFromFd returns a heap-allocated string
+	 * (e.g. "/dev/dri/renderD128") that the caller must free, or NULL
+	 * if the device has no render node. */
+	render_node = drmGetRenderDeviceNameFromFd(b->drm->drm.fd);
+	if (!render_node)
+		return NULL;
+
+	return render_node;
+}
+
+static const struct weston_drm_backend_api backend_api = {
+	drm_backend_get_render_node,
+};
+
 static struct drm_backend *
 drm_backend_create(struct weston_compositor *compositor,
 		   struct weston_drm_backend_config *config)
@@ -4190,6 +4214,13 @@ drm_backend_create(struct weston_compositor *compositor,
 
 	if (ret < 0) {
 		weston_log("Failed to register output API.\n");
+		goto err_udev_monitor;
+	}
+
+	ret = weston_plugin_api_register(compositor, WESTON_DRM_BACKEND_API_NAME,
+					 &backend_api, sizeof(backend_api));
+	if (ret < 0) {
+		weston_log("Failed to register backend API.\n");
 		goto err_udev_monitor;
 	}
 
