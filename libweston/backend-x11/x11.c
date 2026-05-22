@@ -35,6 +35,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
+#include <sys/mman.h>
 #include <sys/time.h>
 #include <sys/shm.h>
 #include <linux/input.h>
@@ -56,6 +57,7 @@
 #include "shared/image-loader.h"
 #include "shared/timespec-util.h"
 #include "shared/file-util.h"
+#include "shared/os-compatibility.h"
 #include "renderer-gl/gl-renderer.h"
 #include "shared/weston-drm-fourcc.h"
 #include "shared/weston-egl-ext.h"
@@ -123,6 +125,9 @@ struct x11_backend {
 
 	const struct pixel_format_info **formats;
 	unsigned int formats_count;
+
+	bool			 has_shm;
+	bool			 has_shm_fd;
 };
 
 struct x11_head {
@@ -143,6 +148,8 @@ struct x11_output {
 	struct weston_renderbuffer *renderbuffer;
 	int			shm_id;
 	void		       *buf;
+	size_t			buf_size;
+	bool			shm_using_fd;
 	uint8_t			depth;
 	int32_t                 scale;
 	bool			resize_pending;
@@ -576,7 +583,12 @@ x11_output_deinit_shm(struct x11_backend *b, struct x11_output *output)
 		weston_log("xcb_shm_detach failed, error %d\n", err->error_code);
 		free(err);
 	}
-	shmdt(output->buf);
+	if (output->shm_using_fd)
+		munmap(output->buf, output->buf_size);
+	else
+		shmdt(output->buf);
+	output->buf = NULL;
+	output->buf_size = 0;
 }
 
 static void
@@ -729,6 +741,34 @@ get_depth_of_visual(xcb_screen_t *screen,
 	return 0;
 }
 
+static void
+x11_backend_query_shm(struct x11_backend *b)
+{
+	const xcb_query_extension_reply_t *ext;
+	xcb_shm_query_version_cookie_t cookie;
+	xcb_shm_query_version_reply_t *reply;
+
+	b->has_shm = false;
+	b->has_shm_fd = false;
+
+	ext = xcb_get_extension_data(b->conn, &xcb_shm_id);
+	if (ext == NULL || !ext->present)
+		return;
+
+	cookie = xcb_shm_query_version(b->conn);
+	reply = xcb_shm_query_version_reply(b->conn, cookie, NULL);
+	if (!reply)
+		return;
+
+	b->has_shm = true;
+	/* FD passing (xcb_shm_attach_fd) was introduced in MIT-SHM 1.2. */
+	if (reply->major_version > 1 ||
+	    (reply->major_version == 1 && reply->minor_version >= 2))
+		b->has_shm_fd = true;
+
+	free(reply);
+}
+
 static const struct pixel_format_info *
 x11_output_get_shm_pixel_format(struct x11_output *output)
 {
@@ -736,13 +776,9 @@ x11_output_get_shm_pixel_format(struct x11_output *output)
 	xcb_visualtype_t *visual_type;
 	xcb_screen_t *screen;
 	xcb_format_iterator_t fmt;
-	const xcb_query_extension_reply_t *ext;
 	int bitsperpixel = 0;
 
-	/* Check if SHM is available */
-	ext = xcb_get_extension_data(b->conn, &xcb_shm_id);
-	if (ext == NULL || !ext->present) {
-		/* SHM is missing */
+	if (!b->has_shm) {
 		weston_log("SHM extension is not available\n");
 		errno = ENOENT;
 		return NULL;
@@ -794,36 +830,119 @@ x11_output_get_shm_pixel_format(struct x11_output *output)
 }
 
 static int
+x11_output_init_shm_fd(struct x11_backend *b, struct x11_output *output,
+		       size_t size)
+{
+	xcb_void_cookie_t cookie;
+	xcb_generic_error_t *err;
+	xcb_shm_seg_t segment;
+	void *buf;
+	int fd;
+
+	fd = os_create_anonymous_file((off_t) size);
+	if (fd < 0) {
+		weston_log("x11shm: failed to create anonymous file: %s\n",
+			   strerror(errno));
+		return -1;
+	}
+
+	buf = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+	if (buf == MAP_FAILED) {
+		weston_log("x11shm: mmap failed: %s\n", strerror(errno));
+		close(fd);
+		return -1;
+	}
+
+	segment = xcb_generate_id(b->conn);
+	/* xcb_shm_attach_fd takes ownership of fd: it is sent over the X
+	 * socket via SCM_RIGHTS and then closed by libxcb. */
+	cookie = xcb_shm_attach_fd_checked(b->conn, segment, fd, 1);
+	err = xcb_request_check(b->conn, cookie);
+	if (err) {
+		weston_log("x11shm: xcb_shm_attach_fd error %d\n",
+			   err->error_code);
+		free(err);
+		munmap(buf, size);
+		return -1;
+	}
+
+	output->segment = segment;
+	output->buf = buf;
+	output->buf_size = size;
+	output->shm_using_fd = true;
+	return 0;
+}
+
+static int
+x11_output_init_shm_sysv(struct x11_backend *b, struct x11_output *output,
+			 size_t size)
+{
+	xcb_void_cookie_t cookie;
+	xcb_generic_error_t *err;
+	xcb_shm_seg_t segment;
+	void *buf;
+	int shm_id;
+
+	shm_id = shmget(IPC_PRIVATE, size, IPC_CREAT | S_IRWXU);
+	if (shm_id == -1) {
+		weston_log("x11shm: failed to allocate SHM segment: %s\n",
+			   strerror(errno));
+		return -1;
+	}
+
+	buf = shmat(shm_id, NULL, 0 /* read/write */);
+	if (buf == (void *) -1) {
+		weston_log("x11shm: failed to attach SHM segment: %s\n",
+			   strerror(errno));
+		shmctl(shm_id, IPC_RMID, NULL);
+		return -1;
+	}
+
+	segment = xcb_generate_id(b->conn);
+	cookie = xcb_shm_attach_checked(b->conn, segment, shm_id, 1);
+	err = xcb_request_check(b->conn, cookie);
+	if (err) {
+		weston_log("x11shm: xcb_shm_attach error %d, op code %d, "
+			   "resource id %d (likely IPC namespace mismatch; "
+			   "try MIT-SHM 1.2 FD passing or run with --ipc=host)\n",
+			   err->error_code, err->major_code, err->minor_code);
+		free(err);
+		shmdt(buf);
+		shmctl(shm_id, IPC_RMID, NULL);
+		return -1;
+	}
+
+	/* Mark the segment for destruction now that the X server has it
+	 * attached; the kernel will release it once all attachers detach. */
+	shmctl(shm_id, IPC_RMID, NULL);
+
+	output->segment = segment;
+	output->buf = buf;
+	output->buf_size = size;
+	output->shm_id = shm_id;
+	output->shm_using_fd = false;
+	return 0;
+}
+
+static int
 x11_output_init_shm(struct x11_backend *b, struct x11_output *output,
 		    const struct pixel_format_info *pfmt, int width, int height)
 {
 	struct weston_renderer *renderer = output->base.compositor->renderer;
 	int bitsperpixel = pfmt->bpp;
-	xcb_void_cookie_t cookie;
-	xcb_generic_error_t *err;
+	size_t size = (size_t) width * height * (bitsperpixel / 8);
+	int ret = -1;
 
-	/* Create SHM segment and attach it */
-	output->shm_id = shmget(IPC_PRIVATE, width * height * (bitsperpixel / 8), IPC_CREAT | S_IRWXU);
-	if (output->shm_id == -1) {
-		weston_log("x11shm: failed to allocate SHM segment\n");
-		return -1;
+	if (b->has_shm_fd) {
+		ret = x11_output_init_shm_fd(b, output, size);
+		if (ret < 0)
+			weston_log("x11shm: MIT-SHM FD passing failed; "
+				   "falling back to SysV SHM\n");
 	}
-	output->buf = shmat(output->shm_id, NULL, 0 /* read/write */);
-	if (-1 == (long)output->buf) {
-		weston_log("x11shm: failed to attach SHM segment\n");
+	if (ret < 0)
+		ret = x11_output_init_shm_sysv(b, output, size);
+	if (ret < 0)
 		return -1;
-	}
-	output->segment = xcb_generate_id(b->conn);
-	cookie = xcb_shm_attach_checked(b->conn, output->segment, output->shm_id, 1);
-	err = xcb_request_check(b->conn, cookie);
-	if (err) {
-		weston_log("x11shm: xcb_shm_attach error %d, op code %d, resource id %d\n",
-			   err->error_code, err->major_code, err->minor_code);
-		free(err);
-		return -1;
-	}
-
-	shmctl(output->shm_id, IPC_RMID, NULL);
 
 	/* Now create pixman image */
 	output->renderbuffer =
@@ -1918,6 +2037,7 @@ x11_backend_create(struct weston_compositor *compositor,
 
 	x11_backend_get_resources(b);
 	x11_backend_get_wm_info(b);
+	x11_backend_query_shm(b);
 
 	if (!b->has_net_wm_state_fullscreen && config->fullscreen) {
 		weston_log("Can not fullscreen without window manager support"
