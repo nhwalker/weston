@@ -1,0 +1,24 @@
+option(
+	'moduledir',
+	type: 'string',
+	value: '',
+	description: 'Directory to install the shell plugin in. Must match the weston frontend\'s module dir ($libdir/weston of the weston installation). Defaults to $libdir/weston of this build\'s prefix.'
+)
+option(
+	'clients',
+	type: 'boolean',
+	value: true,
+	description: 'Build the helper clients (weston-desktop-shell, weston-keyboard)'
+)
+option(
+	'shell-client-default',
+	type: 'string',
+	value: 'weston-desktop-shell',
+	description: 'Default helper client the shell plugin launches'
+)
+option(
+	'resize-pool',
+	type: 'boolean',
+	value: false,
+	description: 'Allocate a big resize pool in the toytoolkit'
+)
