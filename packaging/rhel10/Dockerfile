@@ -1,10 +1,17 @@
-# RHEL 10-compatible build environment for weston-desktop-shell.
+# RHEL 10 build environment for weston-desktop-shell.
 #
-# Based on CentOS Stream 10, which is binary-compatible with RHEL 10 and
-# freely pullable. RHEL 10 does not package Weston at all, so this image
-# builds and installs Weston 14 from source into /usr to act as the
-# libweston "SDK" the out-of-tree shell compiles against, and adds the
-# RPM build toolchain.
+# Based on the Red Hat UBI 10 image. Repo layout, by dnf priority
+# (lower number wins):
+#   10  UBI 10 BaseOS / AppStream / CodeReady Builder (Red Hat content)
+#   20  EPEL 10
+#  200  Rocky Linux 10 BaseOS / AppStream / CRB — a RHEL 10 rebuild,
+#       consulted only for packages the unentitled UBI repos do not
+#       carry (compositor dev packages such as libinput-devel).
+#
+# RHEL 10 does not package Weston at all, so this image also builds and
+# installs Weston 14 from source into /usr to act as the libweston
+# "SDK" the out-of-tree shell compiles against, registers that SDK with
+# the RPM database, and adds the RPM build toolchain.
 #
 # Build the image and the RPM with:
 #     packaging/rhel10/build-rpm.sh
@@ -12,15 +19,29 @@
 # which may be an empty file):
 #     docker build -t weston-desktop-shell-rhel10 .
 
-FROM quay.io/centos/centos:stream10
+FROM registry.access.redhat.com/ubi10/ubi
 
 # Extra CA certificates, for build environments behind a TLS-intercepting
 # proxy. build-rpm.sh always creates this file; it may be empty.
 COPY ca-extra.crt /etc/pki/ca-trust/source/anchors/ca-extra.crt
 RUN update-ca-trust
 
-RUN dnf -y install dnf-plugins-core && \
-    dnf config-manager --set-enabled crb && \
+RUN sed -i '/^\[.*\]$/a priority=10' /etc/yum.repos.d/ubi.repo && \
+    dnf -y install \
+        https://dl.fedoraproject.org/pub/epel/epel-release-latest-10.noarch.rpm && \
+    sed -i '/^\[.*\]$/a priority=20' /etc/yum.repos.d/epel*.repo && \
+    { \
+    for repo in BaseOS AppStream CRB; do \
+        lc=$(echo "$repo" | tr '[:upper:]' '[:lower:]'); \
+        printf '%s\n' \
+            "[rocky-$lc]" \
+            "name=Rocky Linux 10 - $repo" \
+            "baseurl=https://dl.rockylinux.org/pub/rocky/10/$repo/x86_64/os/" \
+            'gpgcheck=1' \
+            'gpgkey=https://dl.rockylinux.org/pub/rocky/RPM-GPG-KEY-Rocky-10' \
+            'priority=200' \
+            ''; \
+    done > /etc/yum.repos.d/rocky.repo; } && \
     dnf -y install \
         gcc meson ninja-build pkgconf-pkg-config git-core xz \
         rpm-build rpmdevtools \

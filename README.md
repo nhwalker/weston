@@ -92,10 +92,12 @@ experience.)
 
 ## RPM packaging
 
-`packaging/weston-desktop-shell.spec` builds the shell as an RPM. Since
-RHEL 10 does not package Weston, `packaging/rhel10/` provides a
-RHEL 10-compatible build container (CentOS Stream 10) that carries a
-minimal Weston 14 SDK built from source. Build the RPM with:
+`packaging/weston-desktop-shell.spec` builds the shell as an RPM.
+`packaging/rhel10/` provides a RHEL 10 build container based on UBI 10,
+with EPEL 10 and (at lower dnf priority) Rocky Linux 10 repos supplying
+the packages unentitled UBI repos don't carry. Since RHEL 10 does not
+package Weston, the image carries a minimal Weston 14 SDK built from
+source. Build the RPM with:
 
 ```sh
 packaging/rhel10/build-rpm.sh          # results land in ./rpms
