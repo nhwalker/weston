@@ -56,6 +56,6 @@ docker run --rm -v "$out:/out:ro" "$img" sh -ec '
 		--shell=desktop-shell.so --idle-time=0 \
 		--log=/tmp/weston.log || true)
 	grep "Loading module .*/desktop-shell.so" /tmp/weston.log
-	grep "launching./usr/libexec/weston-desktop-shell" /tmp/weston.log
+	grep "launching.*/usr/libexec/weston-desktop-shell" /tmp/weston.log
 	echo "install + load smoke test passed"
 '
