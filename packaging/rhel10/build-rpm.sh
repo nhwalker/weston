@@ -45,3 +45,17 @@ docker run --rm \
 
 echo "RPMs in $out:"
 ls -l "$out"
+
+# Install the freshly built RPM in a clean container and prove the
+# weston frontend loads the packaged shell.
+docker run --rm -v "$out:/out:ro" "$img" sh -ec '
+	dnf -y install /out/weston-desktop-shell-*.x86_64.rpm
+	export XDG_RUNTIME_DIR=/tmp/xdg
+	mkdir -p "$XDG_RUNTIME_DIR" && chmod 700 "$XDG_RUNTIME_DIR"
+	(timeout 10 weston --backend=headless-backend.so \
+		--shell=desktop-shell.so --idle-time=0 \
+		--log=/tmp/weston.log || true)
+	grep "Loading module .*/desktop-shell.so" /tmp/weston.log
+	grep "launching./usr/libexec/weston-desktop-shell" /tmp/weston.log
+	echo "install + load smoke test passed"
+'

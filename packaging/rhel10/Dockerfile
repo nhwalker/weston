@@ -53,4 +53,27 @@ RUN curl -fsSL -o /tmp/weston.tar.xz \
     ninja -C build install && \
     cd / && rm -rf /tmp/weston /tmp/weston.tar.xz
 
+# Register the source-installed SDK with the RPM database via a
+# provides-only package, so rpmbuild's BuildRequires check and the built
+# package's auto-generated Requires (weston, libweston-14.so.0) resolve
+# without weakening dependency checking with --nodeps.
+RUN printf '%s\n' \
+        'Name: weston-sdk-local' \
+        "Version: ${WESTON_VERSION}" \
+        'Release: 0' \
+        'Summary: Weston installed from source, registered with RPM' \
+        'License: MIT' \
+        "Provides: weston = ${WESTON_VERSION}" \
+        "Provides: pkgconfig(libweston-14) = ${WESTON_VERSION}" \
+        "Provides: pkgconfig(weston) = ${WESTON_VERSION}" \
+        'Provides: libweston-14.so.0()(64bit)' \
+        '%description' \
+        'Registers the /usr-installed Weston SDK of this build container' \
+        'with the RPM database.' \
+        '%files' \
+        > /tmp/weston-sdk-local.spec && \
+    rpmbuild -bb --define '_rpmdir /tmp' /tmp/weston-sdk-local.spec && \
+    rpm -i /tmp/x86_64/weston-sdk-local-*.rpm && \
+    rm -rf /tmp/weston-sdk-local.spec /tmp/x86_64
+
 WORKDIR /work
