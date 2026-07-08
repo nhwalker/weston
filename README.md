@@ -90,6 +90,20 @@ WESTON_MODULE_MAP=desktop-shell.so=$PWD/build/desktop-shell/desktop-shell.so \
 libexecdir of the Weston installation, so install them for the full
 experience.)
 
+## RPM packaging
+
+`packaging/weston-desktop-shell.spec` builds the shell as an RPM. Since
+RHEL 10 does not package Weston, `packaging/rhel10/` provides a
+RHEL 10-compatible build container (CentOS Stream 10) that carries a
+minimal Weston 14 SDK built from source. Build the RPM with:
+
+```sh
+packaging/rhel10/build-rpm.sh          # results land in ./rpms
+```
+
+Behind a TLS-intercepting proxy, point `EXTRA_CA_BUNDLE` at the proxy's
+CA bundle first.
+
 ## Differences from the in-tree build
 
 - toytoolkit is built without EGL (SHM rendering only) and without the

@@ -11,3 +11,7 @@ TAGS
 00*.patch
 
 build/
+
+# packaging artifacts
+packaging/rhel10/ca-extra.crt
+rpms/
