@@ -51,6 +51,7 @@ struct automation_toplevel {
 struct automation {
 	struct weston_compositor *compositor;
 	struct wl_listener compositor_destroy_listener;
+	struct wl_listener screenshot_authority;
 	struct wl_global *global;
 	struct wl_event_source *scan_timer;
 	struct wl_list toplevel_list;	/* automation_toplevel::link */
@@ -58,6 +59,29 @@ struct automation {
 	struct weston_seat seat;
 	bool seat_initialized;
 };
+
+static bool
+client_is_trusted(struct wl_client *client)
+{
+	uid_t uid;
+	gid_t gid;
+	pid_t pid;
+
+	wl_client_get_credentials(client, &pid, &uid, &gid);
+	return uid == getuid();
+}
+
+/* Screenshots through weston-capture-v1 need an authority to allow
+ * them (without one, all captures fail "unauthorized"). Testing wants
+ * screenshots, so authorize captures from clients running as the
+ * compositor's uid - the same trust policy the automation global uses. */
+static void
+automation_authorize_screenshot(struct wl_listener *listener,
+				struct weston_output_capture_attempt *att)
+{
+	if (client_is_trusted(att->who->client))
+		att->authorized = true;
+}
 
 static void
 current_time(struct timespec *ts)
@@ -603,9 +627,6 @@ automation_bind(struct wl_client *client, void *data,
 	struct automation *automation = data;
 	struct wl_resource *resource;
 	struct automation_toplevel *toplevel;
-	uid_t uid;
-	gid_t gid;
-	pid_t pid;
 	bool was_idle;
 
 	resource = wl_resource_create(client, &weston_automation_v1_interface,
@@ -615,8 +636,7 @@ automation_bind(struct wl_client *client, void *data,
 		return;
 	}
 
-	wl_client_get_credentials(client, &pid, &uid, &gid);
-	if (uid != getuid()) {
+	if (!client_is_trusted(client)) {
 		wl_resource_post_error(resource,
 				       WL_DISPLAY_ERROR_IMPLEMENTATION,
 				       "weston_automation_v1: "
@@ -672,6 +692,7 @@ automation_destroy(struct wl_listener *listener, void *data)
 	if (automation->seat_initialized)
 		weston_seat_release(&automation->seat);
 
+	wl_list_remove(&automation->screenshot_authority.link);
 	wl_list_remove(&automation->compositor_destroy_listener.link);
 	free(automation);
 }
@@ -716,6 +737,10 @@ wet_module_init(struct weston_compositor *compositor,
 				 automation, automation_bind);
 	if (!automation->global)
 		goto err;
+
+	weston_compositor_add_screenshot_authority(
+		compositor, &automation->screenshot_authority,
+		automation_authorize_screenshot);
 
 	weston_log("automation: weston-automation-v1 enabled "
 		   "(test sessions only)\n");
