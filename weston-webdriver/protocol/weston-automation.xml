@@ -146,7 +146,12 @@
     </request>
 
     <request name="set_fullscreen">
-      <description summary="set or unset fullscreen state"/>
+      <description summary="set or unset fullscreen state">
+        Best-effort: the compositor may ignore this request entirely if
+        the running shell cannot apply externally-imposed fullscreen
+        state (Weston's desktop-shell cannot). Watch state events to
+        learn the outcome.
+      </description>
       <arg name="fullscreen" type="uint" summary="1 for fullscreen, 0 to restore"/>
     </request>
 

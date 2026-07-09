@@ -93,8 +93,12 @@ class Compositor:
         self.display = Display(self.display_name)
         self.display.connect()
 
-        registry = self.display.get_registry()
-        registry.dispatcher["global"] = self._on_global
+        # keep the registry proxy referenced for the connection's whole
+        # lifetime: pywayland resolves incoming new_id arguments (e.g.
+        # our toplevel events) through the live WlRegistry instances,
+        # and a garbage-collected registry breaks all such events
+        self._registry = self.display.get_registry()
+        self._registry.dispatcher["global"] = self._on_global
 
         # two blocking roundtrips during startup are fine: one to get
         # globals, one to receive initial toplevels and their properties

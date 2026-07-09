@@ -62,7 +62,16 @@ async def run(args: argparse.Namespace) -> int:
         delegates[app_id] = url.rstrip("/")
 
     compositor = Compositor(args.wayland_display)
-    await compositor.connect()
+    # the compositor may still be starting up (test harnesses launch
+    # weston and the daemon back to back): retry for a few seconds
+    for attempt in range(25):
+        try:
+            await compositor.connect()
+            break
+        except (ValueError, RuntimeError):
+            if attempt == 24:
+                raise
+            await asyncio.sleep(0.2)
 
     server = WebDriverServer(compositor, delegates, args.xkb_layout)
     await server.delegate_proxy.start()

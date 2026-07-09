@@ -34,7 +34,6 @@ struct automation;
 struct automation_toplevel {
 	struct wl_list link;		/* automation::toplevel_list */
 	struct automation *automation;
-	struct weston_desktop_surface *desktop_surface;
 	struct weston_surface *surface;
 	struct wl_listener surface_destroy_listener;
 	struct wl_list resource_list;	/* bound client toplevel resources */
@@ -92,6 +91,18 @@ current_time(struct timespec *ts)
 /* ------------------------------------------------------------------ */
 /* toplevel property collection                                        */
 
+/* The weston_desktop_surface can be freed while its weston_surface is
+ * still alive (e.g. desktop-shell keeps the surface for a close
+ * animation), so never cache the desktop-surface pointer - re-derive
+ * it from the surface, which is guarded by our destroy listener. */
+static struct weston_desktop_surface *
+toplevel_get_desktop_surface(struct automation_toplevel *toplevel)
+{
+	if (!weston_surface_is_desktop_surface(toplevel->surface))
+		return NULL;
+	return weston_surface_get_desktop_surface(toplevel->surface);
+}
+
 static struct weston_view *
 toplevel_get_view(struct automation_toplevel *toplevel)
 {
@@ -106,9 +117,9 @@ toplevel_get_view(struct automation_toplevel *toplevel)
 }
 
 static uint32_t
-toplevel_read_state(struct automation_toplevel *toplevel)
+toplevel_read_state(struct automation_toplevel *toplevel,
+		    struct weston_desktop_surface *ds)
 {
-	struct weston_desktop_surface *ds = toplevel->desktop_surface;
 	uint32_t state = 0;
 
 	if (weston_desktop_surface_get_activated(ds))
@@ -123,10 +134,11 @@ toplevel_read_state(struct automation_toplevel *toplevel)
 
 static bool
 toplevel_read_geometry(struct automation_toplevel *toplevel,
+		       struct weston_desktop_surface *ds,
 		       int32_t *x, int32_t *y, int32_t *w, int32_t *h)
 {
 	struct weston_geometry geom =
-		weston_desktop_surface_get_geometry(toplevel->desktop_surface);
+		weston_desktop_surface_get_geometry(ds);
 	struct weston_view *view = toplevel_get_view(toplevel);
 	struct weston_coord_global pos;
 
@@ -169,19 +181,30 @@ str_changed(const char *cached, const char *fresh)
 	return strcmp(cached ?: "", fresh ?: "") != 0;
 }
 
-/* Re-read properties; broadcast changed ones to every bound resource. */
-static void
+/* Re-read properties; broadcast changed ones to every bound resource.
+ * Returns false if the toplevel's desktop surface is gone (the caller
+ * must treat the toplevel as closed). */
+static bool
 toplevel_refresh(struct automation_toplevel *toplevel)
 {
-	struct weston_desktop_surface *ds = toplevel->desktop_surface;
-	const char *title = weston_desktop_surface_get_title(ds);
-	const char *app_id = weston_desktop_surface_get_app_id(ds);
-	pid_t pid = weston_desktop_surface_get_pid(ds);
-	uint32_t state = toplevel_read_state(toplevel);
+	struct weston_desktop_surface *ds =
+		toplevel_get_desktop_surface(toplevel);
+	const char *title;
+	const char *app_id;
+	pid_t pid;
+	uint32_t state;
 	int32_t x, y, w, h;
 	bool have_geom, geom_changed = false;
 	bool title_changed, app_id_changed, pid_changed, state_changed;
 	struct wl_resource *resource;
+
+	if (!ds)
+		return false;
+
+	title = weston_desktop_surface_get_title(ds);
+	app_id = weston_desktop_surface_get_app_id(ds);
+	pid = weston_desktop_surface_get_pid(ds);
+	state = toplevel_read_state(toplevel, ds);
 
 	title_changed = str_changed(toplevel->title, title);
 	if (title_changed) {
@@ -201,7 +224,7 @@ toplevel_refresh(struct automation_toplevel *toplevel)
 	state_changed = state != toplevel->state;
 	toplevel->state = state;
 
-	have_geom = toplevel_read_geometry(toplevel, &x, &y, &w, &h);
+	have_geom = toplevel_read_geometry(toplevel, ds, &x, &y, &w, &h);
 	if (have_geom &&
 	    (!toplevel->have_geometry ||
 	     x != toplevel->x || y != toplevel->y ||
@@ -216,7 +239,7 @@ toplevel_refresh(struct automation_toplevel *toplevel)
 
 	if (!title_changed && !app_id_changed && !pid_changed &&
 	    !state_changed && !geom_changed)
-		return;
+		return true;
 
 	wl_resource_for_each(resource, &toplevel->resource_list) {
 		if (title_changed)
@@ -237,6 +260,8 @@ toplevel_refresh(struct automation_toplevel *toplevel)
 				resource, toplevel->state);
 		weston_automation_toplevel_v1_send_done(resource);
 	}
+
+	return true;
 }
 
 /* ------------------------------------------------------------------ */
@@ -248,15 +273,30 @@ toplevel_handle_destroy(struct wl_client *client, struct wl_resource *resource)
 	wl_resource_destroy(resource);
 }
 
+static struct weston_desktop_surface *
+toplevel_from_resource(struct wl_resource *resource,
+		       struct automation_toplevel **toplevel_out)
+{
+	struct automation_toplevel *toplevel =
+		wl_resource_get_user_data(resource);
+
+	if (toplevel_out)
+		*toplevel_out = toplevel;
+	if (!toplevel)
+		return NULL;
+	return toplevel_get_desktop_surface(toplevel);
+}
+
 static void
 toplevel_handle_activate(struct wl_client *client,
 			 struct wl_resource *resource)
 {
-	struct automation_toplevel *toplevel =
-		wl_resource_get_user_data(resource);
+	struct automation_toplevel *toplevel;
+	struct weston_desktop_surface *ds =
+		toplevel_from_resource(resource, &toplevel);
 	struct weston_view *view;
 
-	if (!toplevel)
+	if (!ds)
 		return;
 
 	view = toplevel_get_view(toplevel);
@@ -265,19 +305,44 @@ toplevel_handle_activate(struct wl_client *client,
 
 	weston_view_activate_input(view, &toplevel->automation->seat,
 				   WESTON_ACTIVATE_FLAG_CLICKED);
-	weston_desktop_surface_set_activated(toplevel->desktop_surface, true);
+	weston_desktop_surface_set_activated(ds, true);
 }
 
 static void
 toplevel_handle_close(struct wl_client *client, struct wl_resource *resource)
 {
-	struct automation_toplevel *toplevel =
-		wl_resource_get_user_data(resource);
+	struct weston_desktop_surface *ds =
+		toplevel_from_resource(resource, NULL);
 
-	if (!toplevel)
+	if (!ds)
 		return;
 
-	weston_desktop_surface_close(toplevel->desktop_surface);
+	weston_desktop_surface_close(ds);
+}
+
+/* Pick a size to accompany a maximize/fullscreen configure. A shell
+ * would use its layout knowledge (work area minus panels); we use the
+ * full output the window is on. xdg-shell requires maximized
+ * configures to carry a size the client must obey - a stateless
+ * set_maximized would get the client killed with
+ * XDG_WM_BASE_ERROR_INVALID_SURFACE_STATE on its next commit. */
+static bool
+toplevel_output_size(struct automation_toplevel *toplevel,
+		     int32_t *width, int32_t *height)
+{
+	struct weston_view *view = toplevel_get_view(toplevel);
+	struct weston_output *output = view ? view->output : NULL;
+
+	if (!output && !wl_list_empty(&toplevel->automation->compositor->output_list))
+		output = wl_container_of(
+			toplevel->automation->compositor->output_list.next,
+			output, link);
+	if (!output)
+		return false;
+
+	*width = output->width;
+	*height = output->height;
+	return true;
 }
 
 static void
@@ -285,14 +350,23 @@ toplevel_handle_set_maximized(struct wl_client *client,
 			      struct wl_resource *resource,
 			      uint32_t maximized)
 {
-	struct automation_toplevel *toplevel =
-		wl_resource_get_user_data(resource);
+	struct automation_toplevel *toplevel;
+	struct weston_desktop_surface *ds =
+		toplevel_from_resource(resource, &toplevel);
+	int32_t width, height;
 
-	if (!toplevel)
+	if (!ds)
 		return;
 
-	weston_desktop_surface_set_maximized(toplevel->desktop_surface,
-					     maximized != 0);
+	if (maximized) {
+		if (!toplevel_output_size(toplevel, &width, &height))
+			return;
+		weston_desktop_surface_set_size(ds, width, height);
+		weston_desktop_surface_set_maximized(ds, true);
+	} else {
+		weston_desktop_surface_set_size(ds, 0, 0);
+		weston_desktop_surface_set_maximized(ds, false);
+	}
 }
 
 static void
@@ -300,14 +374,16 @@ toplevel_handle_set_fullscreen(struct wl_client *client,
 			       struct wl_resource *resource,
 			       uint32_t fullscreen)
 {
-	struct automation_toplevel *toplevel =
-		wl_resource_get_user_data(resource);
-
-	if (!toplevel)
-		return;
-
-	weston_desktop_surface_set_fullscreen(toplevel->desktop_surface,
-					      fullscreen != 0);
+	/* Fullscreen needs the shell's cooperation: desktop-shell keeps
+	 * per-surface fullscreen bookkeeping (fullscreen_output, black
+	 * curtain) that is only set up when the *client* requests
+	 * fullscreen through the shell's desktop-api callback. Setting
+	 * the state behind the shell's back makes desktop-shell
+	 * dereference NULL on the surface's next commit and brings the
+	 * whole compositor down. The desktop-api entry points are not
+	 * exported to modules, so refuse rather than crash. */
+	weston_log("automation: set_fullscreen ignored "
+		   "(requires shell cooperation)\n");
 }
 
 static void
@@ -315,14 +391,13 @@ toplevel_handle_set_size(struct wl_client *client,
 			 struct wl_resource *resource,
 			 int32_t width, int32_t height)
 {
-	struct automation_toplevel *toplevel =
-		wl_resource_get_user_data(resource);
+	struct weston_desktop_surface *ds =
+		toplevel_from_resource(resource, NULL);
 
-	if (!toplevel)
+	if (!ds)
 		return;
 
-	weston_desktop_surface_set_size(toplevel->desktop_surface,
-					width, height);
+	weston_desktop_surface_set_size(ds, width, height);
 }
 
 static void
@@ -330,13 +405,14 @@ toplevel_handle_set_position(struct wl_client *client,
 			     struct wl_resource *resource,
 			     int32_t x, int32_t y)
 {
-	struct automation_toplevel *toplevel =
-		wl_resource_get_user_data(resource);
+	struct automation_toplevel *toplevel;
+	struct weston_desktop_surface *ds =
+		toplevel_from_resource(resource, &toplevel);
 	struct weston_view *view;
 	struct weston_geometry geom;
 	struct weston_coord_global pos;
 
-	if (!toplevel)
+	if (!ds)
 		return;
 
 	view = toplevel_get_view(toplevel);
@@ -344,7 +420,7 @@ toplevel_handle_set_position(struct wl_client *client,
 		return;
 
 	/* x/y address the window geometry corner, like the geometry event */
-	geom = weston_desktop_surface_get_geometry(toplevel->desktop_surface);
+	geom = weston_desktop_surface_get_geometry(ds);
 	pos.c = weston_coord(x - geom.x, y - geom.y);
 	weston_view_set_position(view, pos);
 	weston_surface_damage(toplevel->surface);
@@ -421,12 +497,12 @@ toplevel_handle_surface_destroy(struct wl_listener *listener, void *data)
 
 static struct automation_toplevel *
 automation_find_toplevel(struct automation *automation,
-			 struct weston_desktop_surface *ds)
+			 struct weston_surface *surface)
 {
 	struct automation_toplevel *toplevel;
 
 	wl_list_for_each(toplevel, &automation->toplevel_list, link)
-		if (toplevel->desktop_surface == ds)
+		if (toplevel->surface == surface)
 			return toplevel;
 
 	return NULL;
@@ -446,7 +522,6 @@ automation_add_toplevel(struct automation *automation,
 		return;
 
 	toplevel->automation = automation;
-	toplevel->desktop_surface = ds;
 	toplevel->surface = surface;
 	toplevel->pid = -1;
 	wl_list_init(&toplevel->resource_list);
@@ -462,9 +537,10 @@ automation_add_toplevel(struct automation *automation,
 	toplevel->title = strdup(weston_desktop_surface_get_title(ds) ?: "");
 	toplevel->app_id = strdup(weston_desktop_surface_get_app_id(ds) ?: "");
 	toplevel->pid = weston_desktop_surface_get_pid(ds);
-	toplevel->state = toplevel_read_state(toplevel);
+	toplevel->state = toplevel_read_state(toplevel, ds);
 	toplevel->have_geometry =
-		toplevel_read_geometry(toplevel, &toplevel->x, &toplevel->y,
+		toplevel_read_geometry(toplevel, ds,
+				       &toplevel->x, &toplevel->y,
 				       &toplevel->width, &toplevel->height);
 
 	/* announce to every bound automation client */
@@ -502,12 +578,17 @@ automation_scan(struct automation *automation)
 			continue;
 
 		ds = weston_surface_get_desktop_surface(surface);
-		if (!automation_find_toplevel(automation, ds))
+		if (!automation_find_toplevel(automation, surface))
 			automation_add_toplevel(automation, ds, surface);
 	}
 
-	wl_list_for_each_safe(toplevel, tmp, &automation->toplevel_list, link)
-		toplevel_refresh(toplevel);
+	wl_list_for_each_safe(toplevel, tmp, &automation->toplevel_list, link) {
+		/* the desktop surface can disappear while the surface
+		 * lingers (close animation): retire the toplevel */
+		if (!toplevel_refresh(toplevel))
+			toplevel_handle_surface_destroy(
+				&toplevel->surface_destroy_listener, NULL);
+	}
 }
 
 static int

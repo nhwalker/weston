@@ -266,6 +266,11 @@ class WebDriverServer:
                 raise errors.invalid_argument(f"{key} must be a number")
             return int(value)
 
+        # per spec, setting the rect restores a maximized window first
+        if toplevel.state & 0x2:  # maximized
+            await self.compositor.set_maximized(toplevel, False)
+            await asyncio.sleep(0.15)
+
         await self.compositor.set_rect(
             toplevel, _num("x"), _num("y"), _num("width"), _num("height")
         )
@@ -277,9 +282,11 @@ class WebDriverServer:
         return await self.h_get_rect(request, session)
 
     async def h_fullscreen(self, request, session) -> web.Response:
-        toplevel = self._current_window(session)
-        await self.compositor.set_fullscreen(toplevel, True)
-        return await self.h_get_rect(request, session)
+        raise errors.unsupported_operation(
+            "fullscreen cannot be imposed from outside the shell in "
+            "Weston (desktop-shell only supports client-initiated "
+            "fullscreen); drive the application itself instead"
+        )
 
     async def h_minimize(self, request, session) -> web.Response:
         raise errors.unsupported_operation(
