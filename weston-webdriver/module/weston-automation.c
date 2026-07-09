@@ -626,14 +626,17 @@ automation_bind(struct wl_client *client, void *data,
 
 	was_idle = wl_list_empty(&automation->resource_list);
 
+	/* Pick up anything that appeared while nobody was bound, before
+	 * this resource is registered — otherwise the scan itself would
+	 * announce new toplevels to it and the loop below would announce
+	 * them a second time. */
+	automation_scan(automation);
+
 	wl_resource_set_implementation(resource, &automation_implementation,
 				       automation,
 				       automation_manager_resource_destroyed);
 	wl_list_insert(&automation->resource_list,
 		       wl_resource_get_link(resource));
-
-	/* pick up anything that appeared while nobody was bound */
-	automation_scan(automation);
 
 	wl_list_for_each(toplevel, &automation->toplevel_list, link) {
 		struct wl_resource *toplevel_resource =
