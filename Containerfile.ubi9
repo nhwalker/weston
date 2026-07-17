@@ -1,0 +1,160 @@
+# Containerfile.ubi9 — build Weston 14 RPMs for RHEL 9.8 from this source tree.
+#
+# ── Repository stack ──────────────────────────────────────────────────────────
+# Lower priority number wins when the same package name exists in two repos:
+#
+#   priority=10  UBI 9 repos (BaseOS, AppStream, CodeReady Builder subset)
+#                — genuine Red Hat content, always preferred.
+#   priority=20  EPEL 9 and CRB
+#                — EPEL supplies libseat/seatd, libdisplay-info, neatvnc, aml,
+#                  libunwind.  CRB supplies the -devel packages RHEL keeps out
+#                  of AppStream (colord-devel, libinput-devel, libevdev-devel,
+#                  Xwayland-devel, …).  On a subscribed RHEL 9.8 host CRB would
+#                  be codeready-builder-for-rhel-9-$(arch)-rpms; a UBI container
+#                  has no entitlement, so binary-compatible Rocky 9.8 CRB is
+#                  used as the CRB content source.
+#   priority=30  Rocky Linux 9.8 BaseOS + AppStream
+#                — last-resort gap filler for RHEL packages that UBI does not
+#                  redistribute (mesa, pango, cairo, pipewire, gstreamer1,
+#                  wayland, systemd-devel dep closure, …).
+#
+# ── Dependency gaps in this stack, and how they are resolved ──────────────────
+#   1. wayland 1.21 < 1.22 required by weston 14:
+#      RHEL 9.8 still ships wayland 1.21.0.  The `wayland` stage below rebuilds
+#      the Fedora 39 wayland-1.22.0 SRPM for EL9 and both uses it for the build
+#      and ships the resulting RPMs in the output — target RHEL 9.8 hosts must
+#      install them alongside weston (libwayland-* 1.22 upgrade cleanly over
+#      the stock 1.21 packages, same package names, no soname change).
+#   2. pkgconfig(freerdp-server2): EL9 builds FreeRDP 2.11 without the server
+#      library, so the weston RDP backend and screenshare cannot link.  They
+#      are disabled in weston.spec (-Dbackend-rdp=false -Dscreenshare=false).
+#      To re-enable instead: rebuild the Rocky 9.8 freerdp SRPM with
+#      -DWITH_SERVER=ON and add it to the stack, then drop those two -D flags
+#      and restore `BuildRequires: pkgconfig(freerdp-server2)` plus
+#      libweston-14/rdp-backend.so + weston/screen-share.so in weston.spec.
+#   Everything else weston 14 needs resolves from the stack (VNC backend via
+#   EPEL neatvnc 0.7.1 + aml 0.3.0, DRM via EPEL libdisplay-info, seatd, …).
+#
+# ── Usage ─────────────────────────────────────────────────────────────────────
+#   Build and extract the RPMs (docker BuildKit or podman):
+#     docker build -f Containerfile.ubi9 -o type=local,dest=./rpms-out .
+#     podman build -f Containerfile.ubi9 -t weston-el9-rpms . \
+#         && podman create --name w weston-el9-rpms sh \
+#         && podman cp w:/ ./rpms-out && podman rm w
+#   The default target also runs the `verify` stage, which proves the built
+#   RPMs install on a clean UBI 9.8 + EPEL/CRB/Rocky system; its transcript is
+#   written to install-test.log in the output.
+#
+# Overridable so CI can pin mirrors or point at an internally cached base.
+ARG BASE_IMAGE=registry.access.redhat.com/ubi9/ubi:9.8
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Stage: repos — UBI 9.8 with the prioritized ubi > epel/crb > rocky repo stack
+# ══════════════════════════════════════════════════════════════════════════════
+FROM ${BASE_IMAGE} AS repos
+
+ARG ROCKY_MIRROR=https://dl.rockylinux.org/pub/rocky
+ARG ROCKY_VERSION=9.8
+ARG EPEL_RELEASE_URL=https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
+
+RUN set -eux; \
+    # containers are not subscription-managed; silence/skip the plugin
+    sed -i 's/^enabled=1/enabled=0/' /etc/yum/pluginconf.d/subscription-manager.conf; \
+    # UBI repos shipped in the image -> priority 10
+    sed -i '/^\[/a priority=10' /etc/yum.repos.d/ubi.repo; \
+    # EPEL 9 -> priority 20
+    dnf install -y "${EPEL_RELEASE_URL}"; \
+    sed -i '/^\[/a priority=20' /etc/yum.repos.d/epel.repo; \
+    dnf clean all
+
+COPY <<EOF /etc/yum.repos.d/rocky.repo
+[crb]
+name=Rocky Linux ${ROCKY_VERSION} - CRB
+baseurl=${ROCKY_MIRROR}/${ROCKY_VERSION}/CRB/\$basearch/os/
+gpgcheck=1
+gpgkey=${ROCKY_MIRROR}/RPM-GPG-KEY-Rocky-9
+enabled=1
+priority=20
+
+[rocky-baseos]
+name=Rocky Linux ${ROCKY_VERSION} - BaseOS
+baseurl=${ROCKY_MIRROR}/${ROCKY_VERSION}/BaseOS/\$basearch/os/
+gpgcheck=1
+gpgkey=${ROCKY_MIRROR}/RPM-GPG-KEY-Rocky-9
+enabled=1
+priority=30
+
+[rocky-appstream]
+name=Rocky Linux ${ROCKY_VERSION} - AppStream
+baseurl=${ROCKY_MIRROR}/${ROCKY_VERSION}/AppStream/\$basearch/os/
+gpgcheck=1
+gpgkey=${ROCKY_MIRROR}/RPM-GPG-KEY-Rocky-9
+enabled=1
+priority=30
+EOF
+
+RUN dnf -q repolist
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Stage: build — rebuild wayland 1.22 for EL9, then build the weston RPMs
+# ══════════════════════════════════════════════════════════════════════════════
+FROM repos AS build
+
+# Fedora 39 wayland 1.22.0 SRPM (weston 14 needs wayland >= 1.22; EL9 has 1.21)
+ARG WAYLAND_SRPM_URL=https://kojipkgs.fedoraproject.org/packages/wayland/1.22.0/1.fc39/src/wayland-1.22.0-1.fc39.src.rpm
+
+RUN dnf install -y rpm-build dnf-plugins-core xz tar && dnf clean all
+
+# ── wayland 1.22 rebuild ──────────────────────────────────────────────────────
+RUN set -eux; \
+    curl -sSfL -o /tmp/wayland.src.rpm "${WAYLAND_SRPM_URL}"; \
+    dnf builddep -y /tmp/wayland.src.rpm; \
+    rpmbuild --rebuild --define '_topdir /build/wayland' /tmp/wayland.src.rpm; \
+    mkdir -p /out/wayland; \
+    find /build/wayland/RPMS -name '*.rpm' \
+        ! -name '*debuginfo*' ! -name '*debugsource*' \
+        -exec cp -t /out/wayland {} +; \
+    # install it: the weston build below compiles against wayland 1.22
+    dnf install -y /out/wayland/*.rpm; \
+    dnf clean all
+
+# ── weston RPM build ──────────────────────────────────────────────────────────
+COPY . /src/weston
+
+RUN set -eux; \
+    mkdir -p /build/rpmbuild/SOURCES /build/rpmbuild/SPECS; \
+    cp /src/weston/weston.spec /build/rpmbuild/SPECS/; \
+    tar -C /src/weston -cJf /build/rpmbuild/SOURCES/weston-14.0.2.tar.xz \
+        --exclude-vcs --exclude=./weston.spec \
+        --transform 's,^\.,weston-14.0.2,' .; \
+    dnf builddep -y /build/rpmbuild/SPECS/weston.spec; \
+    rpmbuild -ba --define '_topdir /build/rpmbuild' \
+        /build/rpmbuild/SPECS/weston.spec; \
+    mkdir -p /out/weston; \
+    find /build/rpmbuild/RPMS /build/rpmbuild/SRPMS -name '*.rpm' \
+        -exec cp -t /out/weston {} +; \
+    dnf clean all
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Stage: verify — prove the RPMs install on a clean EL9 system with this stack
+# ══════════════════════════════════════════════════════════════════════════════
+FROM repos AS verify
+
+COPY --from=build /out /out
+
+RUN set -eux; \
+    find /out -name '*.rpm' \
+        ! -name '*.src.rpm' ! -name '*debuginfo*' ! -name '*debugsource*' \
+        > /tmp/rpmlist; \
+    xargs -a /tmp/rpmlist dnf install -y 2>&1 | tee /out/install-test.log; \
+    rpm -q weston weston-libs weston-session weston-demo weston-devel \
+        libwayland-client libwayland-server | tee -a /out/install-test.log; \
+    # smoke-test: the compositor binary must at least link and print its version
+    weston --version | tee -a /out/install-test.log
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Stage: rpms (default) — bare output image; use `docker build -o` to extract
+# ══════════════════════════════════════════════════════════════════════════════
+FROM scratch AS rpms
+
+COPY --from=verify /out /
