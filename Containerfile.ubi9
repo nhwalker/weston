@@ -100,7 +100,15 @@ RUN dnf -q repolist
 # ══════════════════════════════════════════════════════════════════════════════
 FROM repos AS build
 
-# Fedora 39 wayland 1.22.0 SRPM (weston 14 needs wayland >= 1.22; EL9 has 1.21)
+# Fedora 39 wayland 1.22.0 SRPM (weston 14 needs wayland >= 1.22; EL9 has 1.21).
+# Fetched from kojipkgs, the package store of Fedora's koji build system, where
+# every Fedora build is permanently addressable by exact name/version/release.
+# 1.22.0 shipped in Fedora 39, which is EOL, so the live mirror repos no longer
+# carry it.  Alternative source: the Fedora 39 archive source repo (the "normal"
+# yum repo layout, relocated to archives.fedoraproject.org for EOL releases)
+# carries the same 1.22.0 as release -2.fc39 (a mass-rebuild bump, same
+# upstream source); usable as a drop-in via --build-arg WAYLAND_SRPM_URL=...:
+#   https://archives.fedoraproject.org/pub/archive/fedora/linux/releases/39/Everything/source/tree/Packages/w/wayland-1.22.0-2.fc39.src.rpm
 ARG WAYLAND_SRPM_URL=https://kojipkgs.fedoraproject.org/packages/wayland/1.22.0/1.fc39/src/wayland-1.22.0-1.fc39.src.rpm
 
 RUN dnf install -y rpm-build dnf-plugins-core xz tar && dnf clean all
