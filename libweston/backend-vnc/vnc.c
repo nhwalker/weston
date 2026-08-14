@@ -53,6 +53,7 @@
 #include <libweston/libweston.h>
 #include <libweston/backend-vnc.h>
 #include <libweston/weston-log.h>
+#include "output-capture.h"
 #include "pixel-formats.h"
 #include "pixman-renderer.h"
 #include "renderer-gl/gl-renderer.h"
@@ -1113,7 +1114,13 @@ vnc_output_repaint(struct weston_output *base)
 
 	weston_output_flush_damage_for_primary_plane(base, &damage);
 
-	if (pixman_region32_not_empty(&damage)) {
+	/*
+	 * Render also when a screenshot/capture was requested with no
+	 * damage pending: the capture tasks are serviced by the renderer,
+	 * and a repaint cycle must never finish with tasks still pending.
+	 */
+	if (pixman_region32_not_empty(&damage) ||
+	    weston_output_has_renderer_capture_tasks(base)) {
 		vnc_update_buffer(output->display, &damage);
 	}
 
