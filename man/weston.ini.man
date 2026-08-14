@@ -662,6 +662,11 @@ will be disabled when mirroring is in effect. Mirroring a DRM native
 output to another DRM native output is yet not supported, being intended
 only for remote outputs.
 
+A VNC output may also be used as the mirror source, for example to stream
+out the contents of a VNC session over PipeWire by setting the PipeWire
+output's mirror-of value to the VNC output's name. RDP and PipeWire outputs
+can only be mirror destinations, not sources.
+
 NOTE: The native outputs created by the DRM backend using the 'clone-of'
 are for cloning the outputs, and not sharing or mirroring. See also
 .BR weston-drm(7).

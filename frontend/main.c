@@ -2613,10 +2613,13 @@ wet_output_handle_create(struct wl_listener *listener, void *data)
 
 	struct wet_backend *wb;
 
-	/* just ignore events from other remote backends */
+	/* Ignore events from other remote backends, with the exception of
+	 * VNC, whose outputs may also act as a mirror source (e.g. a
+	 * PipeWire output with 'mirror-of' pointing at a VNC output). A
+	 * newly created VNC output that has no 'mirror-of' entries
+	 * pointing at it simply finds no head below and returns. */
 	switch (weston_get_backend_type(output->backend)) {
 	case WESTON_BACKEND_RDP:
-	case WESTON_BACKEND_VNC:
 	case WESTON_BACKEND_PIPEWIRE:
 		return;
 	default:
