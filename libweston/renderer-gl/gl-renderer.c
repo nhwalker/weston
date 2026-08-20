@@ -822,6 +822,7 @@ gl_renderer_do_capture(struct gl_renderer *gr, struct gl_output_state *go,
 static struct gl_capture_task*
 create_capture_task(struct weston_capture_task *task,
 		    struct gl_renderer *gr,
+		    struct gl_output_state *go,
 		    const struct weston_geometry *rect)
 {
 	struct gl_capture_task *gl_task = xzalloc(sizeof *gl_task);
@@ -831,7 +832,12 @@ create_capture_task(struct weston_capture_task *task,
 	glGenBuffers(1, &gl_task->pbo);
 	gl_task->stride = (gr->compositor->read_format->bpp / 8) * rect->width;
 	gl_task->height = rect->height;
-	gl_task->reverse = !gr->has_pack_reverse;
+	/*
+	 * glReadPixels() returns the bottom row first, so the result needs to
+	 * be y-flipped only for outputs rendered y-flipped, and only if the
+	 * GPU couldn't reverse the row order at read back time.
+	 */
+	gl_task->reverse = is_y_flipped(go) && !gr->has_pack_reverse;
 	gl_task->sync = EGL_NO_SYNC_KHR;
 	gl_task->fd = EGL_NO_NATIVE_FENCE_FD_ANDROID;
 
@@ -947,7 +953,7 @@ gl_renderer_do_read_pixels_async(struct gl_renderer *gr,
 	if (gr->has_pack_reverse && is_y_flipped(go))
 		glPixelStorei(GL_PACK_REVERSE_ROW_ORDER_ANGLE, GL_TRUE);
 
-	gl_task = create_capture_task(task, gr, rect);
+	gl_task = create_capture_task(task, gr, go, rect);
 
 	glBindBuffer(GL_PIXEL_PACK_BUFFER, gl_task->pbo);
 	glBufferData(GL_PIXEL_PACK_BUFFER, gl_task->stride * gl_task->height,
