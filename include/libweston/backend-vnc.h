@@ -66,6 +66,7 @@ struct weston_vnc_backend_config {
 	char *server_cert;
 	char *server_key;
 	bool disable_tls;
+	int num_outputs;
 };
 
 #ifdef  __cplusplus
