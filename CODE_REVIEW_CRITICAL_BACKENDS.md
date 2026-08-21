@@ -1354,3 +1354,465 @@ path — the x11 backend frees it in both places.
 ```
 
 ---
+
+## Screenshots / output capture
+
+(`libweston/output-capture.c`, `libweston/screenshooter.c`,
+`frontend/weston-screenshooter.c`, and the capture implementations in
+`libweston/pixman-renderer.c` and `libweston/renderer-gl/gl-renderer.c` —
+the pixman one is what the x11, VNC and PipeWire backends use.)
+
+### SC-1 — A capture buffer whose stride is not a multiple of 4 aborts the compositor (pixman renderer)
+
+**Severity: high (`abort()` driven by a client-supplied buffer).**
+`libweston/pixman-renderer.c:584`
+
+```c
+static void
+pixman_renderer_do_capture(struct weston_buffer *into, pixman_image_t *from)
+{
+	...
+	dest = pixman_image_create_bits(into->pixel_format->pixman_format,
+					into->width, into->height,
+					wl_shm_buffer_get_data(shm),
+					into->stride);
+	abort_oom_if_null(dest);
+```
+
+`pixman_image_create_bits()` returns `NULL` — not only on OOM — when the
+row stride is not a whole number of `uint32_t`:
+
+```c
+    /* must be a whole number of uint32_t's */
+    return_val_if_fail (
+	bits == NULL || (rowstride_bytes % sizeof (uint32_t)) == 0, NULL);
+```
+
+`into->stride` is the stride the client declared in
+`wl_shm_pool.create_buffer`. libwayland validates only `stride >= width`
+(**in bytes**), so `stride = width * 4 + 1` is accepted by `wl_shm`, passes
+`buffer_is_compatible()` (which checks width, height, format and modifier —
+see SC-2), reaches `pixman_image_create_bits()`, returns `NULL`, and
+`abort_oom_if_null()` **kills the compositor**.
+
+This is not hypothetical-by-analogy: the **GL renderer explicitly defends
+against exactly this case** (`libweston/renderer-gl/gl-renderer.c:1039`):
+
+```c
+		if (buffer->stride % 4 != 0) {
+			weston_capture_task_retire_failed(ct, "GL: buffer stride not multiple of 4");
+			continue;
+		}
+```
+
+The pixman renderer — the capture path used by the x11 (pixman mode), VNC and
+PipeWire backends — has no equivalent check.
+
+Reachability is gated on the capture being authorized
+(`capture_is_authorized()` runs before `buffer_is_compatible()` in
+`weston_output_pull_capture_task()`), so in stock weston it needs the
+`weston-screenshooter` client. That gate is exactly what a downstream
+integration widens — the whole point of
+`weston_compositor_add_screenshot_authority()` is to let a product authorize
+its own capture clients — and an authorized-but-not-trusted client should not
+be able to halt the compositor.
+
+**Minimal patch** — mirror the GL renderer's check:
+
+```c
+--- a/libweston/pixman-renderer.c
++++ b/libweston/pixman-renderer.c
+@@ pixman_renderer_do_capture_tasks
+ 		if (buffer->type != WESTON_BUFFER_SHM) {
+ 			weston_capture_task_retire_failed(ct, "pixman: unsupported buffer");
+ 			continue;
+ 		}
++		if (buffer->stride % 4 != 0 ||
++		    buffer->stride < buffer->width * (pfmt->bpp / 8)) {
++			weston_capture_task_retire_failed(ct,
++				"pixman: unsupported buffer stride");
++			continue;
++		}
+ 
+ 		pixman_renderer_do_capture(buffer, from);
+```
+
+and demote the `abort_oom_if_null(dest)` to a `retire_failed`.
+
+---
+
+### SC-2 — `buffer_is_compatible()` never validates stride, but every capture consumer assumes one
+
+**Severity: high (silently corrupted screenshots; out-of-bounds write on the async GL path).**
+`libweston/output-capture.c:290`, `libweston/renderer-gl/gl-renderer.c:832`,
+`libweston/renderer-gl/gl-renderer.c:860`
+
+```c
+static bool
+buffer_is_compatible(struct weston_buffer *buffer,
+		     struct weston_output_capture_source_info *csi)
+{
+	return buffer->width == csi->width &&
+	       buffer->height == csi->height &&
+	       buffer->pixel_format->format == csi->drm_format &&
+	       buffer->format_modifier == DRM_FORMAT_MOD_LINEAR;
+}
+```
+
+Stride is not part of the contract, yet the capture implementations disagree
+about what it is:
+
+* **Synchronous GL** (`gl_renderer_do_capture()`) passes `into->stride` down to
+  `gl_renderer_do_read_pixels()`. But `gl_renderer_do_read_pixels()` then calls
+  `glReadPixels()` straight into the destination without setting
+  `GL_PACK_ROW_LENGTH`, so GL writes rows packed to `GL_PACK_ALIGNMENT` (4) and
+  the `stride` argument is honoured only in the pixman y-flip fallback — where
+  `glReadPixels()` is nevertheless made to write into a `tmp` image *declared*
+  with that stride. All three branches are only correct when
+  `stride == width * bpp / 8`.
+* **Asynchronous GL** (the PBO path, `gr->has_pbo`) ignores `buffer->stride`
+  entirely:
+
+  ```c
+  gl_task->stride = (gr->compositor->read_format->bpp / 8) * rect->width;
+  ...
+  memcpy(dst, src, gl_task->stride * gl_task->height);   /* dst = shm data */
+  ```
+
+  A client that allocates its capture buffer with row padding (stride aligned to
+  64/256 bytes is completely ordinary, and is what most GPU-oriented allocators
+  produce) gets a **sheared image**: rows are written back-to-back while the
+  client reads them at its own stride. Nothing errors; the screenshot is just
+  wrong. In a system where screenshots are evidence or an operator's view, a
+  silently wrong image is worse than a failed capture.
+* Conversely, a client that declares `stride < width * bpp / 8` (legal under
+  `wl_shm`'s `stride >= width` byte check) makes that same `memcpy()` write up
+  to 4× the buffer's declared size — past the buffer, into whatever else the
+  client put in that `wl_shm_pool`, with no `SIGBUS` to stop it because the
+  write stays inside the mapping.
+
+**Minimal patch** — make stride part of the compatibility contract, so every
+consumer's assumption is enforced in one place:
+
+```c
+--- a/libweston/output-capture.c
++++ b/libweston/output-capture.c
+@@
+ static bool
+ buffer_is_compatible(struct weston_buffer *buffer,
+ 		     struct weston_output_capture_source_info *csi)
+ {
++	const struct pixel_format_info *fmt = buffer->pixel_format;
++
+ 	return buffer->width == csi->width &&
+ 	       buffer->height == csi->height &&
+ 	       buffer->pixel_format->format == csi->drm_format &&
++	       buffer->stride == csi->width * (fmt->bpp / 8) &&
+ 	       buffer->format_modifier == DRM_FORMAT_MOD_LINEAR;
+ }
+```
+
+A client with an incompatible stride then gets a `retry` event (the mechanism
+already in place for size/format changes) instead of a corrupt image, an
+overwrite, or an `abort()`. This also subsumes SC-1. If padded strides must
+stay supported, the alternative is to fix `copy_capture()` to copy row by row at
+`buffer->stride` and to set `GL_PACK_ROW_LENGTH` in
+`gl_renderer_do_read_pixels()` — but the one-line contract fix is the safer
+minimal change.
+
+---
+
+### SC-3 — `weston_output_update_capture_info()` dereferences `format` although its documented contract allows NULL
+
+**Severity: medium (landmine for every backend/renderer that follows the doc).**
+`libweston/output-capture.c:251`
+
+The doc comment immediately above the function states:
+
+```
+ * If any one of width, height or format is zero/NULL, the source becomes
+ * unavailable to clients. Otherwise the source becomes available.
+```
+
+The body does:
+
+```c
+	if (csi->width == width &&
+	    csi->height == height &&
+	    csi->drm_format == format->format)     /* <-- unconditional deref */
+		return;
+
+	csi->width = width;
+	csi->height = height;
+	csi->drm_format = format->format;          /* <-- and again */
+```
+
+Passing `NULL` — the documented way to mark a pixel source unavailable — is an
+immediate `NULL` dereference. Today every in-tree caller happens to guard the
+call (e.g. `pixman_renderer_resize_output()` only calls it
+`if (po->hw_format)`), so this is latent; it fires the first time a backend or
+renderer takes the documentation at its word. Note also that the "became
+unavailable" branch can currently only ever be reached via `width`/`height` of
+zero, because `source_info_is_available()` tests
+`drm_format != DRM_FORMAT_INVALID` and a real `pixel_format_info` never has
+format 0.
+
+**Minimal patch:**
+
+```c
+ 	struct weston_output_capture_source_info *csi;
++	uint32_t drm_format = format ? format->format : DRM_FORMAT_INVALID;
+ 
+ 	csi = capture_info_get_csi(ci, src);
+ 
+ 	if (csi->width == width &&
+ 	    csi->height == height &&
+-	    csi->drm_format == format->format)
++	    csi->drm_format == drm_format)
+ 		return;
+ 
+ 	csi->width = width;
+ 	csi->height = height;
+-	csi->drm_format = format->format;
++	csi->drm_format = drm_format;
+```
+
+---
+
+### SC-4 — `weston_capture_v1.create` on a stale `wl_output` hits `assert(ci)` → `abort()`
+
+**Severity: medium (client-triggerable abort in a 5-second race window).**
+`libweston/output-capture.c:612`, `libweston/output-capture.c:219`
+
+```c
+	head = weston_head_from_resource(output_resource);
+	if (head) {
+		struct weston_output *output = head->output;
+		struct weston_output_capture_info *ci = output->capture_info;
+		...
+		csi = capture_info_get_csi(ci, csrc->pixel_source);   /* assert(ci) */
+		wl_list_insert(&ci->capture_source_list, &csrc->link);
+```
+
+`head` is checked; `head->output` and `output->capture_info` are not. Both can
+be stale:
+
+* `weston_compositor_remove_output()` (`libweston/compositor.c:7711`) sets
+  `enabled = false`, calls `weston_head_remove_global()` for each head, then
+  `weston_output_capture_info_destroy(&output->capture_info)` — which sets
+  `output->capture_info = NULL`. It does **not** clear `head->output`.
+* `weston_head_remove_global()` orphans the *existing* `wl_output` resources
+  (`wl_resource_set_user_data(resource, NULL)`), but the global itself is torn
+  down by `weston_global_destroy_save()` (`libweston/compositor.c:6330`), which
+  does `wl_global_remove()` and only calls `wl_global_destroy()` **5 seconds
+  later**. That grace period exists precisely so that in-flight
+  `wl_registry.bind` requests still succeed.
+* A `bind_output()` inside that window sees `head->output != NULL` (nothing
+  cleared it) and therefore takes the full path, setting
+  `wl_resource_set_user_data(resource, head)`.
+
+So: disable an output — an ordinary operation (config reload, output hotplug,
+`weston_head_detach()`) — and within five seconds a client that binds the
+lingering `wl_output` and calls `weston_capture_v1.create` reaches
+`capture_info_get_csi(NULL, …)` → `assert(ci)` → `abort()` (and a `NULL`
+dereference with `-DNDEBUG`).
+
+**Minimal patch:**
+
+```c
+ 	head = weston_head_from_resource(output_resource);
+-	if (head) {
++	if (head && head->output && head->output->capture_info) {
+ 		struct weston_output *output = head->output;
+```
+
+`bind_output()` should arguably also refuse the non-orphaned path for a
+disabled output, but the one-line guard above closes the crash.
+
+---
+
+### SC-5 — `weston_screenshooter_shoot()` reads the scratch buffer at the client's stride but allocates it at its own
+
+**Severity: medium (heap over-read; exported libweston API).**
+`libweston/screenshooter.c:120`
+
+```c
+	stride = l->buffer->width * (PIXMAN_FORMAT_BPP(pixman_format) / 8);
+	pixels = malloc(stride * l->buffer->height);          /* (1) our stride */
+	...
+	compositor->renderer->read_pixels(output, compositor->read_format, pixels,
+					  0, 0, output->current_mode->width,
+					  output->current_mode->height);
+
+	stride = l->buffer->stride;                           /* (2) their stride */
+
+	d = wl_shm_buffer_get_data(l->buffer->shm_buffer);
+	s = pixels + stride * (l->buffer->height - 1);        /* (2) into (1) */
+	...
+		copy_bgra_yflip(d, s, output->current_mode->height, stride);
+	...
+		copy_bgra(d, pixels, output->current_mode->height, stride);
+```
+
+`pixels` is sized `width * bpp/8 * height`, but every subsequent read uses the
+client's `buffer->stride`, which is only required to be `>= buffer->width`
+bytes and may be arbitrarily larger. With `stride > width * bpp/8`:
+
+* `s = pixels + stride * (height - 1)` already points **past the end** of
+  `pixels`, and `copy_bgra_yflip()` then `memcpy()`s `stride` bytes from there;
+* `copy_bgra()` copies `mode->height * stride` bytes out of a
+  `height * width * bpp/8` allocation.
+
+Both are heap over-reads whose contents are copied into a buffer the client can
+read back — an information leak of adjacent heap, sized by the client.
+
+`weston_screenshooter_shoot()` has no in-tree caller in 14.0 (it is
+`WL_EXPORT` and declared in `include/libweston/libweston.h:2525`), so this is a
+landmine for downstream users of libweston rather than a live weston bug — but
+it is exported, documented API.
+
+Two further problems on the same path: the function validates
+`buffer->width/height >= output->current_mode->width/height`, so the shm buffer
+may be *larger* than the mode while `read_pixels()` fills only
+`mode->width × mode->height` — the remainder of `pixels` is copied out
+uninitialised; and if the output is disabled while a shot is in flight,
+`l->frame_listener` remains linked into the freed output's `frame_signal`, so
+the later `buffer_destroy_handle()` does `wl_list_remove()` into freed memory
+and `weston_output_disable_planes_decr()` on a freed output.
+
+**Minimal patch:**
+
+```c
+-	stride = l->buffer->stride;
+-
+-	d = wl_shm_buffer_get_data(l->buffer->shm_buffer);
+-	s = pixels + stride * (l->buffer->height - 1);
++	/* keep using our own tightly packed stride for `pixels` */
++	if (l->buffer->stride != stride) {
++		free(pixels);
++		l->done(l->data, WESTON_SCREENSHOOTER_BAD_BUFFER);
++		free(l);
++		return;
++	}
++
++	d = wl_shm_buffer_get_data(l->buffer->shm_buffer);
++	s = pixels + stride * (output->current_mode->height - 1);
+```
+
+(plus zeroing `pixels` or requiring an exact size match, and removing the
+listener from `output->frame_signal` on output destruction).
+
+---
+
+### SC-6 — `recorder_binding()` fabricates an output from an empty list, and teardown leaves live listeners behind
+
+**Severity: medium.** `frontend/weston-screenshooter.c:84`,
+`frontend/weston-screenshooter.c:119`
+
+```c
+		if (keyboard->focus && keyboard->focus->output)
+			output = keyboard->focus->output;
+		else
+			output = container_of(ec->output_list.next,
+					      struct weston_output, link);
+
+		shooter->recorder = weston_recorder_start(output, filename);
+```
+
+When `ec->output_list` is empty, `ec->output_list.next` is the **list head
+itself**, and `container_of()` produces a bogus `struct weston_output *` that is
+immediately dereferenced by `weston_recorder_start()` (`output->frame_signal`,
+`output->name`, `output->current_mode->width`). A compositor can legitimately be
+running with zero enabled outputs (all heads disconnected, config reload in
+progress) — `Super+R` then corrupts memory.
+
+Two teardown problems in the same file:
+
+* `screenshooter_destroy()` (fired from `ec->destroy_signal`) removes
+  `compositor_destroy_listener` and `authorization`, but **not**
+  `client_destroy_listener`, and then `free(shooter)`. If the screenshooter
+  client is still alive, its later destruction calls
+  `screenshooter_client_destroy()` on freed memory and writes
+  `shooter->client = NULL` into it.
+* `screenshooter_destroy()` also does not stop a running recorder, so the
+  `weston_recorder`, its open fd and its `weston_output_disable_planes_incr()`
+  refcount are all leaked. Relatedly, `weston_recorder_stop()`
+  (`libweston/screenshooter.c:517`) only sets `destroying = 1` and schedules a
+  repaint — if that repaint never happens (output already disabled, nothing to
+  draw) the recorder is never destroyed and the capture file is never closed.
+
+**Minimal patch:**
+
+```c
+ 		if (keyboard->focus && keyboard->focus->output)
+ 			output = keyboard->focus->output;
+-		else
+-			output = container_of(ec->output_list.next,
+-					      struct weston_output, link);
++		else if (!wl_list_empty(&ec->output_list))
++			output = container_of(ec->output_list.next,
++					      struct weston_output, link);
++		else
++			return;
+@@ screenshooter_destroy
++	if (shooter->recorder)
++		weston_recorder_stop(shooter->recorder);
++	if (shooter->client)
++		wl_list_remove(&shooter->client_destroy_listener.link);
+ 	wl_list_remove(&shooter->compositor_destroy_listener.link);
+ 	wl_list_remove(&shooter->authorization.link);
+```
+
+---
+
+### SC-7 — The `.wcap` recorder ignores every write error and short write
+
+**Severity: low-medium (silent data loss).** `libweston/screenshooter.c:339`,
+`libweston/screenshooter.c:381`, `libweston/screenshooter.c:475`
+
+```c
+	recorder->total += writev(recorder->fd, v, 2);
+	...
+	recorder->total += write(recorder->fd, outbuf, (p - outbuf) * 4);
+	...
+	recorder->total += write(recorder->fd, &header, sizeof header);
+```
+
+Neither the return value nor a short write is checked. On `ENOSPC`, `EIO` or a
+signal-interrupted partial write the recorder keeps going and produces a
+**silently truncated, structurally corrupt `.wcap` file** — the per-frame
+`nrects` header no longer matches the payload that follows, so the whole
+remainder of the recording is unrecoverable rather than just the tail. `-1` is
+also added to `recorder->total`, corrupting the size reported at stop.
+
+For a system that records evidence of what an operator saw, "the file exists but
+every frame after the first ENOSPC is garbage" is the worst possible failure
+mode.
+
+**Minimal patch:**
+
+```c
++static bool
++recorder_write(struct weston_recorder *r, const void *buf, size_t len)
++{
++	ssize_t n = write(r->fd, buf, len);
++
++	if (n < 0 || (size_t)n != len) {
++		if (!r->write_error) {
++			weston_log("recorder: write failed (%s), stopping\n",
++				   n < 0 ? strerror(errno) : "short write");
++			r->write_error = 1;
++			r->destroying = 1;
++		}
++		return false;
++	}
++	r->total += n;
++	return true;
++}
+```
+
+used for all three call sites (with the `writev()` one checked against
+`sizeof header + n * sizeof *r`), so the recording stops cleanly at the first
+error instead of continuing to append into a file that can no longer be parsed.
+
+---
