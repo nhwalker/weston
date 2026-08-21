@@ -914,3 +914,443 @@ a dangling fd source.
 ```
 
 ---
+
+## PipeWire backend (`libweston/backend-pipewire/pipewire.c`)
+
+### PW-1 — `pipewire_create_output()` frees an output that is still linked into `compositor->pending_output_list`
+
+**Severity: high (dangling list node → wild call at shutdown).**
+`libweston/backend-pipewire/pipewire.c:834`
+
+```c
+	weston_output_init(&output->base, b->compositor, name);
+	...
+	weston_compositor_add_pending_output(&output->base, b->compositor);
+	...
+	output->stream = pw_stream_new(b->core, name, props);
+	if (!output->stream) {
+		weston_log("Cannot initialize PipeWire stream\n");
+		free(output);            /* <-- still on pending_output_list */
+		return NULL;
+	}
+```
+
+`weston_compositor_add_pending_output()` (`libweston/compositor.c:8165`) inserts
+`&output->base.link` into `compositor->pending_output_list`. The error path frees
+the output without `wl_list_remove()`, leaving a freed node spliced into a live
+list. `weston_compositor_shutdown()` (`libweston/compositor.c:9695`) later walks
+that list and calls `output->destroy(output)` on every entry — i.e. an indirect
+call through a function pointer read out of freed heap. It also leaks
+`output->base.name` (strdup'ed by `weston_output_init()`).
+
+**Minimal patch** — create the stream before publishing the output:
+
+```c
++	props = pw_properties_new(NULL, NULL);
++	pw_properties_setf(props, PW_KEY_NODE_NAME, "weston.%s", name);
++
++	output->stream = pw_stream_new(b->core, name, props);
++	if (!output->stream) {
++		weston_log("Cannot initialize PipeWire stream\n");
++		weston_output_release(&output->base);
++		free(output);
++		return NULL;
++	}
++
+ 	weston_compositor_add_pending_output(&output->base, b->compositor);
+-
+-	output->backend = b;
+-	output->pixel_format = b->pixel_format;
+-
+-	wl_list_init(&output->fence_list);
+-
+-	props = pw_properties_new(NULL, NULL);
+-	pw_properties_setf(props, PW_KEY_NODE_NAME, "weston.%s", name);
+-
+-	output->stream = pw_stream_new(b->core, name, props);
+-	if (!output->stream) {
+-		weston_log("Cannot initialize PipeWire stream\n");
+-		free(output);
+-		return NULL;
+-	}
+```
+
+(`output->backend`, `output->pixel_format` and `wl_list_init(&output->fence_list)`
+move up with it.)
+
+---
+
+### PW-2 — Pending GL fences are never cancelled when the output goes away → use-after-free
+
+**Severity: high.** `libweston/backend-pipewire/pipewire.c:1002`,
+`libweston/backend-pipewire/pipewire.c:412`,
+`libweston/backend-pipewire/pipewire.c:439`
+
+With the GL renderer and DMABUF buffers, each submitted frame parks a
+`struct pipewire_fence_data` on `output->fence_list` together with a
+`wl_event_source` watching the GL fence fd:
+
+```c
+	wl_list_insert(&output->fence_list, &fence_data->link);
+	...
+	fence_data->output = output;
+	fence_data->buffer = buffer;
+	fence_data->fence_sync_event_source =
+		wl_event_loop_add_fd(loop, fence_data->fence_sync_fd,
+				     WL_EVENT_READABLE,
+				     pipewire_output_fence_sync_handler,
+				     fence_data);
+```
+
+Neither `pipewire_output_disable()` nor `pipewire_output_destroy()` touches
+`output->fence_list`. `pipewire_output_destroy()` then does
+`weston_output_release()`, `pw_stream_destroy()` and **`free(output)`** while
+those event sources are still armed in the compositor's event loop and still
+hold `fence_data->output == output`.
+
+When the fence later signals, `pipewire_output_fence_sync_handler()` runs and:
+
+* calls `pipewire_submit_buffer(fence_data->output, fence_data->buffer)` if
+  `fence_data->buffer` is still set — reading `output->pixel_format`,
+  `output->base.width/height`, `output->seq` and `output->stream` out of freed
+  memory and queueing onto a **destroyed** `pw_stream`;
+* unconditionally executes `wl_list_remove(&fence_data->link)`, whose `prev`/`next`
+  for the last element point at `&output->fence_list` — **inside the freed
+  `struct pipewire_output`**, so this writes to freed heap even in the "safe"
+  case where `pw_stream_disconnect()` happened to NULL out `fence_data->buffer`
+  first.
+
+The same list-head-in-freed-object pattern as VNC-2, on a path that fires on every
+output hot-unplug and on every clean shutdown that races an in-flight fence.
+
+**Minimal patch:**
+
+```c
++static void
++pipewire_output_cancel_fences(struct pipewire_output *output)
++{
++	struct pipewire_fence_data *fence_data, *tmp;
++
++	wl_list_for_each_safe(fence_data, tmp, &output->fence_list, link) {
++		wl_event_source_remove(fence_data->fence_sync_event_source);
++		close(fence_data->fence_sync_fd);
++		wl_list_remove(&fence_data->link);
++		free(fence_data);
++	}
++}
++
+ static int
+ pipewire_output_disable(struct weston_output *base)
+ {
+ 	...
+ 	if (!output->base.enabled)
+ 		return 0;
+ 
++	pipewire_output_cancel_fences(output);
+ 	pw_stream_disconnect(output->stream);
+```
+
+---
+
+### PW-3 — `pipewire_output_create_memfd()` leaks its fd (and struct) on failure; `mmap()` failure is unchecked
+
+**Severity: high (fd exhaustion + wild-pointer render target).**
+`libweston/backend-pipewire/pipewire.c:655`,
+`libweston/backend-pipewire/pipewire.c:706`
+
+```c
+	memfd = xzalloc(sizeof *memfd);
+	...
+	fd = memfd_create("weston-pipewire", MFD_CLOEXEC);
+	if (fd == -1)
+		return NULL;                     /* leaks `memfd` */
+	if (ftruncate(fd, size) == -1)
+		return NULL;                     /* leaks `memfd` AND leaks `fd` */
+```
+
+and in `pipewire_output_setup_memfd()`:
+
+```c
+	d[0].data = mmap(NULL, d[0].maxsize,
+			 PROT_READ|PROT_WRITE, MAP_SHARED,
+			 d[0].fd, d[0].mapoffset);
+```
+
+* `add_buffer` runs once per stream buffer (the ParamBuffers range is 2–8) and
+  again on every renegotiation. A consumer that repeatedly connects/disconnects
+  under memory pressure therefore leaks one file descriptor per failed
+  `ftruncate()` until the compositor hits `RLIMIT_NOFILE` — at which point
+  *everything* in the compositor that needs an fd (client connections, dmabuf
+  imports, DRM) starts failing.
+* `mmap()` is not checked. On failure `d[0].data == MAP_FAILED` ((void *)-1) is
+  handed to `pixman->create_image_from_ptr()` / `gl->create_fbo()` as the
+  framebuffer address, and the next repaint writes to `0xffff...` →
+  **SIGSEGV**. `pipewire_output_stream_remove_buffer()` will also
+  `munmap(MAP_FAILED, ...)`.
+* `size` is computed as `height * stride` in `unsigned int`, then stored in
+  `unsigned int size` and passed to `ftruncate(fd, size)` (`off_t`): fine today
+  but silently wraps for very large modes.
+
+**Minimal patch:**
+
+```c
+ 	fd = memfd_create("weston-pipewire", MFD_CLOEXEC);
+-	if (fd == -1)
+-		return NULL;
+-	if (ftruncate(fd, size) == -1)
+-		return NULL;
++	if (fd == -1)
++		goto err;
++	if (ftruncate(fd, size) == -1) {
++		close(fd);
++		goto err;
++	}
+ 
+ 	memfd->fd = fd;
+ 	memfd->size = size;
+ 
+ 	return memfd;
++
++err:
++	free(memfd);
++	return NULL;
+ }
+@@ pipewire_output_setup_memfd
+-	d[0].data = mmap(NULL, d[0].maxsize,
+-			 PROT_READ|PROT_WRITE, MAP_SHARED,
+-			 d[0].fd, d[0].mapoffset);
++	d[0].data = mmap(NULL, d[0].maxsize,
++			 PROT_READ|PROT_WRITE, MAP_SHARED,
++			 d[0].fd, d[0].mapoffset);
++	if (d[0].data == MAP_FAILED) {
++		d[0].data = NULL;
++		d[0].maxsize = 0;
++		return false;
++	}
+ 	buf->n_datas = 1;
++	return true;
+```
+
+with `pipewire_output_stream_add_buffer()` propagating the failure the same way
+it already does for the allocation failures (`pw_stream_set_error()`).
+
+---
+
+### PW-4 — `[output] gbm-format=` accepts any DRM format name, including ones this backend cannot encode
+
+**Severity: high (config-triggerable crash / silently broken stream).**
+`libweston/backend-pipewire/pipewire.c:196`,
+`libweston/backend-pipewire/pipewire.c:1189`
+
+```c
+static enum spa_video_format
+spa_video_format_from_drm_fourcc(uint32_t fourcc)
+{
+	switch (fourcc) {
+	case DRM_FORMAT_XRGB8888:	return SPA_VIDEO_FORMAT_BGRx;
+	case DRM_FORMAT_RGB565:		return SPA_VIDEO_FORMAT_RGB16;
+	default:			return SPA_VIDEO_FORMAT_UNKNOWN;
+	}
+}
+```
+
+```c
+	*format = pixel_format_get_info_by_drm_name(gbm_format);
+	if (!*format) { ...use default... }
+	return 0;
+```
+
+`pixel_format_get_info_by_drm_name()` (`libweston/pixel-formats.c:671`) matches
+against the *entire* format table, so any name in it is accepted and stored as
+`output->pixel_format`. Nothing cross-checks it against
+`spa_video_format_from_drm_fourcc()` or against the backend's own
+`pipewire_formats[]`. Consequences:
+
+* **`gbm-format=argb8888`** — a format the backend explicitly advertises in
+  `pipewire_formats[]` — yields `SPA_VIDEO_FORMAT_UNKNOWN` in the EnumFormat POD.
+  The stream negotiates an unknown video format and every consumer gets garbage.
+  Same for `xbgr8888`, `rgba8888`, etc.
+* **Any multi-planar / YUV name** (`nv12`, `yuv420`, …) has `bpp == 0` in the
+  pixel-format table (`bpp` is documented as "for single-planar formats"). Then
+  `stride = width * 0 / 8 == 0` and `size = 0`, so
+  `pipewire_output_create_memfd()` does `ftruncate(fd, 0)` and
+  `pipewire_output_setup_memfd()` calls `mmap(NULL, 0, ...)`, which fails with
+  `EINVAL`. Combined with PW-3's unchecked `mmap()`, the very next repaint
+  dereferences `MAP_FAILED`. A single typo in `weston.ini` is enough.
+
+**Minimal patch** — reject formats the backend cannot actually stream:
+
+```c
+ 	*format = pixel_format_get_info_by_drm_name(gbm_format);
+-	if (!*format) {
++	if (!*format || (*format)->bpp == 0 ||
++	    spa_video_format_from_drm_fourcc((*format)->format) ==
++	    SPA_VIDEO_FORMAT_UNKNOWN) {
+ 		weston_log("Invalid output format %s: using default format (%s)\n",
+ 			   gbm_format, default_format->drm_format_name);
+ 		*format = default_format;
+ 	}
+```
+
+and add `DRM_FORMAT_ARGB8888 -> SPA_VIDEO_FORMAT_BGRA` to
+`spa_video_format_from_drm_fourcc()` so the advertised
+`pipewire_formats[]` entry actually works.
+
+---
+
+### PW-5 — The negotiated stream geometry is trusted without validation
+
+**Severity: medium.** `libweston/backend-pipewire/pipewire.c:521`
+
+```c
+	spa_format_video_raw_parse(format, &video_info.info.raw);
+
+	width  = video_info.info.raw.size.width;    /* uint32_t -> int32_t */
+	height = video_info.info.raw.size.height;
+
+	stride = width * output->pixel_format->bpp / 8;
+	size = height * stride;
+	...
+	SPA_PARAM_BUFFERS_size,   SPA_POD_Int(size),
+	SPA_PARAM_BUFFERS_stride, SPA_POD_Int(stride),
+```
+
+* `spa_format_video_raw_parse()`'s return value is discarded, so an unparseable
+  format leaves `video_info.info.raw` **uninitialised** (it is a bare
+  `struct spa_video_info video_info;` local, and only `media_type`/`media_subtype`
+  are known-good at this point).
+* `size.width`/`size.height` are `uint32_t` on the wire and are assigned to
+  `int32_t`. `width * bpp / 8` and `height * stride` are `int` multiplications:
+  a peer that answers with, say, `0x20000000 × 0x20000000` produces signed
+  overflow (UB) and a nonsensical — possibly negative — `size`/`stride` advertised
+  back over the protocol.
+* Nothing checks that the negotiated size equals `output->base.width/height`,
+  even though every buffer weston subsequently allocates
+  (`pipewire_output_create_memfd()`, `..._add_buffer_pixman()`,
+  `pipewire_submit_buffer()`) is sized from `output->base.width/height`. On a
+  mismatch weston advertises one geometry and delivers another; the consumer
+  reads the buffer with the wrong stride.
+
+**Minimal patch:**
+
+```c
+-	spa_format_video_raw_parse(format, &video_info.info.raw);
++	if (spa_format_video_raw_parse(format, &video_info.info.raw) < 0)
++		return;
+ 
+ 	width = video_info.info.raw.size.width;
+ 	height = video_info.info.raw.size.height;
++
++	if (width != output->base.width || height != output->base.height) {
++		weston_log("PipeWire: refusing negotiated size %dx%d "
++			   "(output is %dx%d)\n", width, height,
++			   output->base.width, output->base.height);
++		return;
++	}
+```
+
+---
+
+### PW-6 — A buffer whose backing storage failed to allocate is still queued to the consumer
+
+**Severity: medium.** `libweston/backend-pipewire/pipewire.c:734`,
+`libweston/backend-pipewire/pipewire.c:1037`
+
+`pipewire_output_stream_add_buffer()` bails out early when
+`pipewire_output_create_dmabuf()` / `..._create_memfd()` fails:
+
+```c
+		if (!memfd) {
+			pw_stream_set_error(output->stream, -ENOMEM,
+					    "failed to allocate MemFd buffer");
+			return;                 /* frame_data->renderbuffer stays NULL,
+						 * buf->n_datas stays 0 */
+		}
+```
+
+`pipewire_output_repaint()` then handles the missing renderbuffer for *rendering*:
+
+```c
+	frame_data = buffer->user_data;
+	if (frame_data->renderbuffer)
+		ec->renderer->repaint_output(...);
+	else
+		output->base.full_repaint_needed = true;
+```
+
+…but falls through and queues the buffer anyway:
+
+```c
+	if (!submit_scheduled)
+		pipewire_submit_buffer(output, buffer);
+```
+
+`pipewire_submit_buffer()` unconditionally writes
+`spa_buffer->datas[0].chunk->{offset,stride,size}` with an output-sized `size`
+onto a `spa_data` that was never populated (`maxsize == 0`, `data == NULL`), and
+queues it. The consumer is told there are `height * stride` valid bytes in a
+buffer that has none.
+
+**Minimal patch:**
+
+```c
+ 	frame_data = buffer->user_data;
+-	if (frame_data->renderbuffer)
+-		ec->renderer->repaint_output(&output->base, &damage, frame_data->renderbuffer);
+-	else
+-		output->base.full_repaint_needed = true;
++	if (!frame_data->renderbuffer) {
++		/* add_buffer failed for this one; give it back untouched. */
++		output->base.full_repaint_needed = true;
++		pw_stream_queue_buffer(output->stream, buffer);
++		goto out;
++	}
++	ec->renderer->repaint_output(&output->base, &damage,
++				     frame_data->renderbuffer);
+```
+
+---
+
+### PW-7 — `pipewire_destroy()` destroys the `pw_loop` while the context and core still reference it, and leaks both
+
+**Severity: medium.** `libweston/backend-pipewire/pipewire.c:875`
+
+```c
+	pw_loop_leave(b->loop);
+	pw_loop_destroy(b->loop);
+	wl_event_source_remove(b->loop_source);
+```
+
+`b->core` (from `pw_context_connect()`) and `b->context` (from
+`pw_context_new(backend->loop, ...)`) are **never** disconnected or destroyed —
+the context outlives the loop it was built on. `weston_pipewire_init()`'s own
+error path gets this right (`pw_context_destroy()` then `pw_loop_destroy()`); the
+teardown path does not. `pw_deinit()` is likewise never called to match
+`pw_init()`.
+
+`backend->formats` (from `pixel_format_get_array()`) is leaked both in
+`pipewire_destroy()` and on `pipewire_backend_create()`'s `err_compositor:`
+path — the x11 backend frees it in both places.
+
+**Minimal patch:**
+
+```c
+ 	wl_list_remove(&b->base.link);
+ 
++	wl_event_source_remove(b->loop_source);
++	if (b->core)
++		pw_core_disconnect(b->core);
++	if (b->context)
++		pw_context_destroy(b->context);
+ 	pw_loop_leave(b->loop);
+ 	pw_loop_destroy(b->loop);
+-	wl_event_source_remove(b->loop_source);
+ 
+ 	wl_list_for_each_safe(head, next, &ec->head_list, compositor_link)
+ 		pipewire_head_destroy(head);
+ 
++	free(b->formats);
+ 	free(b);
+```
+
+---
