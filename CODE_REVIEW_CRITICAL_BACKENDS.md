@@ -2959,3 +2959,307 @@ also depend on the stride being *exactly* `width * bpp / 8`, but it removes the
 under-sized case everywhere at once.
 
 ---
+
+## Second pass — dependencies of the reviewed paths
+
+The first pass covered the named components. This section extends coverage into
+the code those components call into: `shared/image-loader.c` (which X11-7
+depends on), `shared/frame.c` (the XWayland decorations), and the remaining
+client-message and button handling in `xwayland/window-manager.c`.
+
+### IMG-1 — Integer overflow sizing the decoded-image allocation in all three loaders
+
+**Severity: medium (env-controlled input; heap overflow).**
+`shared/image-loader.c:53`, `:126`, `:359`, `:500`
+
+All three decoders compute the pixel-buffer size in 32-bit arithmetic and never
+check for overflow.
+
+PNG (`load_png_image()`):
+
+```c
+static int
+stride_for_width(int width)
+{
+	return width * 4;
+}
+...
+	png_get_IHDR(png, info, &width, &height, ...);   /* png_uint_32 */
+	...
+	stride = stride_for_width(width);                /* int */
+	png_image_data->data = malloc(stride * height);  /* int * png_uint_32 -> uint32 */
+	...
+	for (i = 0; i < height; i++)
+		png_image_data->row_pointers[i] = &png_image_data->data[i * stride];
+
+	png_read_image(png, png_image_data->row_pointers);
+```
+
+`stride * height` is evaluated as **`unsigned int`** and wraps modulo 2^32.
+libpng's default `PNG_USER_WIDTH_MAX`/`PNG_USER_HEIGHT_MAX` are 1,000,000 each,
+so a header declaring **65536 × 16384** is accepted and gives
+`4 · 65536 · 16384 = 2^32 ≡ 0` — i.e. **`malloc(0)`**. The `row_pointers`
+array is then sized correctly from `height` (that multiplication is done in
+`size_t` and does not wrap), so `png_read_image()` proceeds to write
+16384 rows × 256 KB = **4 GB through pointers into a zero-byte allocation**.
+The PNG file itself is a few kilobytes — dimensions live in the IHDR header and
+a uniform image compresses to nothing.
+
+JPEG (`load_jpeg_image()`) is the same shape:
+
+```c
+	stride = cinfo->output_width * 4;
+	jpeg_image_data->data = malloc(stride * cinfo->output_height);
+```
+
+with JPEG's 16-bit dimension fields allowing **32768 × 32768**
+(`4 · 2^15 · 2^15 = 2^32 ≡ 0`).
+
+WebP (`load_webp()`) likewise:
+
+```c
+	config.output.u.RGBA.stride = stride_for_width(config.input.width);
+	config.output.u.RGBA.size =
+		config.output.u.RGBA.stride * config.input.height;
+	config.output.u.RGBA.rgba =
+		malloc(config.output.u.RGBA.stride * config.input.height);
+```
+
+**Reachability.** In the compositor process there is exactly one caller of
+`weston_image_load()`: `x11_output_set_icon()`
+(`libweston/backend-x11/x11.c:622`), loading `wayland.png`. Two things make that
+worth more than "someone replaced a file in `$datadir`":
+
+* the path comes from `file_name_with_datadir()` (`shared/file-util.c:131`),
+  which honours the **`WESTON_DATA_DIR` environment variable** — so anything that
+  can set an env var on the compositor (a unit drop-in, a wrapper script, a less
+  privileged launcher) picks the file;
+* the loader dispatches on **magic bytes**, not the extension
+  (`loaders[]`, `image-loader.c:551`), so a file called `wayland.png` is decoded
+  as JPEG or WebP if it starts with the right bytes — all three code paths are
+  reachable from the one filename.
+
+This is the concrete mechanism behind X11-7: that finding described the
+`malloc(width * height * 4 + 8)` overflow in the *consumer*; this is the same
+class of bug one level down, in the *producer*, and it fires first.
+
+**Minimal patch** — do the arithmetic in `size_t` and bound the result:
+
+```c
+-static int
+-stride_for_width(int width)
+-{
+-	return width * 4;
+-}
++#define IMAGE_MAX_DIM 16384
++
++static int
++stride_for_width(int width)
++{
++	return width * 4;
++}
++
++/* Returns 0 if width/height are unusable or the buffer would overflow. */
++static size_t
++image_buffer_size(uint32_t width, uint32_t height)
++{
++	if (width == 0 || height == 0 ||
++	    width > IMAGE_MAX_DIM || height > IMAGE_MAX_DIM)
++		return 0;
++
++	return (size_t)width * 4 * (size_t)height;
++}
+@@ load_png_image
+ 	stride = stride_for_width(width);
+-	png_image_data->data = malloc(stride * height);
+-	if (!png_image_data->data)
++	size = image_buffer_size(width, height);
++	if (size == 0)
++		return NULL;
++	png_image_data->data = malloc(size);
++	if (!png_image_data->data)
+ 		return NULL;
+```
+
+with the same treatment in `load_jpeg_image()` and `load_webp()`.
+
+Two smaller defects in the same file, worth folding into the same fix:
+
+* `load_jpeg_image()` unconditionally builds **four** row pointers per iteration
+  (`for (i = 0; i < ARRAY_LENGTH(rows); i++) rows[i] = ... + (first + i) * stride;`)
+  even when fewer than four scanlines remain. libjpeg clamps how many it
+  actually writes, so this is out-of-range *pointer arithmetic* (undefined
+  behaviour) rather than an out-of-bounds write — but it costs nothing to clamp
+  the loop to `output_height - first`.
+* `load_webp()` never checks `WebPIAppend()`'s decoded size against the buffer
+  it allocated from the *header's* dimensions, and it leaks nothing but silently
+  produces a `pixman_image` over a partially-written buffer if the file is
+  truncated (`while (!feof(fp))` exits without ever seeing `VP8_STATUS_OK` for
+  the final chunk).
+
+---
+
+### XWL-6 — A forged `MapRequest` trips `assert(!window->shsurf)`
+
+**Severity: high (client-triggerable `abort()`).**
+`xwayland/window-manager.c:1242`
+
+```c
+	/*
+	 * MapRequest only happens for (X11) unmapped Windows. On UnmapNotify,
+	 * we reset shsurf to NULL, so even if X11 connection races far ahead
+	 * of the Wayland connection and the X11 client is repeatedly mapping
+	 * and unmapping, we will never have shsurf set on MapRequest.
+	 */
+	assert(!window->shsurf);
+
+	window->map_request_valid = true;
+	...
+	if (window->frame_id == XCB_WINDOW_NONE)
+		weston_wm_window_create_frame(window); /* sets frame_id */
+	assert(window->frame_id != XCB_WINDOW_NONE);
+```
+
+The comment states the invariant precisely — and it holds only for
+**server-generated** MapRequests. The XWM selects `SubstructureRedirect` on the
+root window, so any X client can synthesise one:
+
+```c
+xcb_map_request_event_t ev = {
+	.response_type = XCB_MAP_REQUEST,
+	.parent = root,
+	.window = <any window id>,          /* including one already mapped */
+};
+xcb_send_event(conn, 0, root, XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT, (char *)&ev);
+```
+
+`weston_wm_handle_map_request()` filters only `our_resource()` (the WM's own id
+range) before `wm_lookup_window(wm, map_request->window, &window)`, so naming an
+already-mapped, already-paired window reaches the assert with
+`window->shsurf != NULL` → **`abort()`** (asserts are live, see the note at the
+top of this document).
+
+The second assert is a different failure: `weston_wm_window_create_frame()`
+returns early *without* setting `frame_id` when `frame_create()` fails —
+
+```c
+	window->frame = frame_create(window->wm->theme, ...);
+	if (!window->frame)
+		return;
+```
+
+— so an allocation failure inside `frame_create()` turns into `abort()` on the
+very next line.
+
+**Minimal patch:**
+
+```c
+-	assert(!window->shsurf);
++	if (window->shsurf) {
++		/* Only server-generated MapRequests guarantee this; a client
++		 * can synthesise one with XSendEvent. Ignore it. */
++		wm_printf(wm, "XCB_MAP_REQUEST (window %d, already mapped)\n",
++			  window->id);
++		return;
++	}
+ 
+ 	window->map_request_valid = true;
+ 	window->map_request = window->pos;
+ 
+ 	if (window->frame_id == XCB_WINDOW_NONE)
+ 		weston_wm_window_create_frame(window);
+-	assert(window->frame_id != XCB_WINDOW_NONE);
++	if (window->frame_id == XCB_WINDOW_NONE) {
++		weston_log("XWM: failed to create frame for window %d\n",
++			   window->id);
++		return;
++	}
+```
+
+---
+
+### XWL-7 — `weston_wm_handle_button()` reaches `set_maximized` / `set_minimized` / `set_toplevel` with a NULL `shsurf`
+
+**Severity: medium-high (NULL dereference from an ordinary titlebar click).**
+`xwayland/window-manager.c:2353`, `:2369`, `:1871`
+
+The handler's only guard is on decoration:
+
+```c
+	if (!wm_lookup_window(wm, button->event, &window) ||
+	    !window->decorate)
+		return;
+```
+
+The `move`/`resize` cases downstream are protected — but only incidentally, by a
+pointer check:
+
+```c
+	if (frame_status(window->frame) & FRAME_STATUS_MOVE) {
+		if (pointer)
+			xwayland_interface->move(window->shsurf, pointer);
+```
+
+The maximize and minimize cases have no such guard:
+
+```c
+	if (frame_status(window->frame) & FRAME_STATUS_MAXIMIZE) {
+		...
+		if (weston_wm_window_is_maximized(window)) {
+			...
+			xwayland_interface->set_maximized(window->shsurf);
+		} else {
+			weston_wm_window_set_toplevel(window);   /* -> set_toplevel(shsurf) */
+		}
+	...
+	if (frame_status(window->frame) & FRAME_STATUS_MINIMIZE) {
+		...
+		xwayland_interface->set_minimized(window->shsurf);
+	}
+```
+
+`set_maximized()` (`libweston/desktop/xwayland.c:449`) immediately calls
+`weston_desktop_xwayland_surface_change_state(surface, ...)`, and
+`set_toplevel()`/`set_minimized()` dereference the surface the same way — a
+`NULL` here is a straight NULL dereference, not a no-op.
+
+`window->shsurf` is NULL for a window that is **framed and mapped but not yet
+paired**. `weston_wm_handle_map_request()` does
+`xcb_map_window(wm->conn, window->frame_id)` and asserts `!window->shsurf` at
+that moment; pairing only happens later, when the `WL_SURFACE_ID` /
+`WL_SURFACE_SERIAL` client message arrives (that lag is exactly why
+`unpaired_window_list` exists). The frame window has `BUTTON_PRESS` selected and
+is on screen throughout. So a **double-click on the titlebar** (which sets
+`FRAME_STATUS_MAXIMIZE`) or a click on the minimize button during that window
+crashes the compositor.
+
+It is also reachable deterministically rather than as a race: the two early
+returns in `xserver_map_shell_surface()` (XWL-5) leave `surface` set and
+`shsurf` permanently NULL while the window stays framed and clickable.
+
+Note the neighbouring handlers get this right — `weston_wm_window_handle_state()`
+(`window-manager.c:1889`) guards **every** `shsurf` use with
+`if (window->shsurf)`, and `weston_wm_window_handle_iconic_state()`
+(`:1942`) opens with `if (!window->shsurf) return;`. `weston_wm_handle_button()`
+is the outlier.
+
+**Minimal patch** — one guard covering the whole block:
+
+```c
+ 	if (!wm_lookup_window(wm, button->event, &window) ||
+ 	    !window->decorate)
+ 		return;
++
++	/* The frame is mapped and clickable before xserver_map_shell_surface()
++	 * has paired a wl_surface with this window. */
++	if (!window->shsurf)
++		return;
+```
+
+(`weston_wm_window_handle_moveresize()`, `window-manager.c:1792`, uses
+`shsurf` unguarded too, but its
+`pointer->focus->surface != window->surface` precondition means `surface` — and
+therefore in practice `shsurf` — is already non-NULL. Adding the same guard
+there is still worthwhile.)
+
+---
