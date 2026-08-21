@@ -15,19 +15,94 @@ critical software, with a minimal suggested patch for each.
 > release builds**. Every `assert()` reachable from untrusted input below is a
 > hard `abort()` of the whole compositor, not a debug-only check.
 
+## Summary
+
+42 findings across the reviewed areas. Ordered by ID; severity is the practical
+impact on a system where the compositor must not crash, hang, corrupt memory, or
+silently produce a wrong image.
+
+| ID | Area | Severity | Finding |
+| --- | --- | --- | --- |
+| [X11-1](#x11-1--any-x-client-on-the-host-display-can-abort-the-compositor-two-reachable-asserts-and-synthetic-button-events-invert-pressrelease) | x11 | high | Synthetic X events hit two live `assert()`s; synthetic button press delivered as release |
+| [X11-2](#x11-2--x11_output_wait_for_map-dereferences-null-on-x-connection-loss-and-leaks-every-event-it-consumes) | x11 | med-high | `x11_output_wait_for_map()`: NULL deref on connection loss, leaks every event |
+| [X11-3](#x11-3--sysv-shared-memory-segments-are-leaked-system-wide-on-every-failed-x11_output_init_shm) | x11 | med-high | SysV SHM segments leaked system-wide on failed `x11_output_init_shm()` |
+| [X11-4](#x11-4--a-failed-x11_output_switch_mode-leaves-the-output-permanently-broken-null-renderbuffer-stuck-resize_pending) | x11 | high | Failed mode switch leaves NULL renderbuffer and stuck `resize_pending` |
+| [X11-5](#x11-5--unchecked-xcb_intern_atom_reply--null-dereference-during-backend-init) | x11 | medium | Unchecked `xcb_intern_atom_reply()` |
+| [X11-6](#x11-6--out-of-bounds-read-parsing-_xkb_rules_names) | x11 | medium | Out-of-bounds read parsing `_XKB_RULES_NAMES` |
+| [X11-7](#x11-7--integer-overflow-in-x11_output_set_icon--heap-buffer-overflow) | x11 | low-med | Integer overflow in `x11_output_set_icon()` |
+| [X11-8](#x11-8--assorted-leaks-on-the-x11-backend-teardown--error-paths) | x11 | low | Teardown / error-path leaks |
+| [VNC-1](#vnc-1--struct-weston_seat-is-leaked-on-every-vnc-client-disconnect) | VNC | high | `struct weston_seat` leaked on every client disconnect |
+| [VNC-2](#vnc-2--use-after-free-of-output-peers-when-the-compositor-shuts-down-with-clients-connected) | VNC | high | Write-after-free of `output->peers` at shutdown with a client connected |
+| [VNC-3](#vnc-3--remote-peers-choose-the-output-resolution-with-no-validation) | VNC | high | Remote peer picks the output resolution unvalidated (0 and 65535 accepted) |
+| [VNC-4](#vnc-4--damage-rectangles-are-silently-truncated-from-32-bit-to-16-bit) | VNC | medium | Damage rectangles silently truncated to 16-bit |
+| [VNC-5](#vnc-5--allocation-failures-are-asserts-and-cursor-size-is-client-controlled) | VNC | med-high | `assert()` on allocation failure; client-controlled cursor size |
+| [VNC-6](#vnc-6--vnc-seats-silently-ignore-keymap_variant-and-keymap_options) | VNC | medium | VNC seats silently ignore `keymap_variant` / `keymap_options` |
+| [VNC-7](#vnc-7--vnc_output_enable-leaves-the-backend-pointing-at-a-half-built-output-on-failure) | VNC | medium | Half-built output published to the backend on enable failure |
+| [PW-1](#pw-1--pipewire_create_output-frees-an-output-that-is-still-linked-into-compositor-pending_output_list) | PipeWire | high | Output freed while still linked into `pending_output_list` |
+| [PW-2](#pw-2--pending-gl-fences-are-never-cancelled-when-the-output-goes-away--use-after-free) | PipeWire | high | GL fence sources never cancelled on output teardown → use-after-free |
+| [PW-3](#pw-3--pipewire_output_create_memfd-leaks-its-fd-and-struct-on-failure-mmap-failure-is-unchecked) | PipeWire | high | memfd fd leak on failure; unchecked `mmap()` |
+| [PW-4](#pw-4--output-gbm-format-accepts-any-drm-format-name-including-ones-this-backend-cannot-encode) | PipeWire | high | `gbm-format` accepts formats the backend cannot encode (incl. `bpp == 0`) |
+| [PW-5](#pw-5--the-negotiated-stream-geometry-is-trusted-without-validation) | PipeWire | medium | Negotiated stream geometry trusted without validation |
+| [PW-6](#pw-6--a-buffer-whose-backing-storage-failed-to-allocate-is-still-queued-to-the-consumer) | PipeWire | medium | Unbacked buffer still queued to the consumer |
+| [PW-7](#pw-7--pipewire_destroy-destroys-the-pw_loop-while-the-context-and-core-still-reference-it-and-leaks-both) | PipeWire | medium | `pw_loop` destroyed before the context/core; both leaked |
+| [SC-1](#sc-1--a-capture-buffer-whose-stride-is-not-a-multiple-of-4-aborts-the-compositor-pixman-renderer) | screenshot | high | Capture buffer with stride not a multiple of 4 `abort()`s the compositor |
+| [SC-2](#sc-2--buffer_is_compatible-never-validates-stride-but-every-capture-consumer-assumes-one) | screenshot | high | Stride absent from the capture contract; async GL path writes at the wrong stride |
+| [SC-3](#sc-3--weston_output_update_capture_info-dereferences-format-although-its-documented-contract-allows-null) | screenshot | medium | `weston_output_update_capture_info()` derefs a documented-nullable `format` |
+| [SC-4](#sc-4--weston_capture_v1create-on-a-stale-wl_output-hits-assertci--abort) | screenshot | medium | `weston_capture_v1.create` on a stale `wl_output` → `assert()` |
+| [SC-5](#sc-5--weston_screenshooter_shoot-reads-the-scratch-buffer-at-the-clients-stride-but-allocates-it-at-its-own) | screenshot | medium | `weston_screenshooter_shoot()` heap over-read (exported API) |
+| [SC-6](#sc-6--recorder_binding-fabricates-an-output-from-an-empty-list-and-teardown-leaves-live-listeners-behind) | screenshot | medium | Recorder binding fabricates an output from an empty list; teardown leaks listeners |
+| [SC-7](#sc-7--the-wcap-recorder-ignores-every-write-error-and-short-write) | screenshot | low-med | `.wcap` recorder ignores all write errors → silently corrupt recordings |
+| [XWL-1](#xwl-1--inner-loops-in-weston_wm_window_read_properties-clobber-the-outer-loop-counter) | XWayland | high | Inner property loops clobber the outer loop counter |
+| [XWL-2](#xwl-2--x11-property-values-are-parsed-without-checking-format-or-value_len) | XWayland | high | Property values decoded without `format`/`value_len` validation |
+| [XWL-3](#xwl-3--weston_wm_kill_client-sends-sigkill-to-a-pid-chosen-by-the-x-client) | XWayland | high | `SIGKILL` sent to a PID chosen by the X client |
+| [XWL-4](#xwl-4--forged-wl_surface_id-client-messages-corrupt-unpaired_window_list-compositor-hang-and-the-looked-up-objects-type-is-never-checked) | XWayland | high | Forged `WL_SURFACE_ID` corrupts a list into a self-loop (hang); no type check |
+| [XWL-5](#xwl-5--window-shsurf-can-be-null-while-window-surface-is-set--null-dereference-on-the-next-repaint) | XWayland | med-high | NULL `shsurf` with non-NULL `surface` → NULL deref on repaint |
+| [DS-1](#ds-1--desktop_shell_set_background--set_panel-dereference-an-unchecked-find_shell_output_from_weston_output-result) | desktop-shell | high | Unchecked `find_shell_output_from_weston_output()` NULL |
+| [DS-2](#ds-2--shell-grab_surface-is-never-tracked-so-it-dangles-when-the-shell-client-dies) | desktop-shell | high | `shell->grab_surface` dangles across shell-client respawn |
+| [DS-3](#ds-3--set_lock_surface-skips-the-role-check-its-siblings-perform-and-its-destroy-handler-leaks-the-listener) | desktop-shell | medium | `set_lock_surface()` missing role check; destroy handler leaks its listener |
+| [DS-4](#ds-4--animate_focus_change-dereferences-the-focus-surfaces-before-checking-whether-they-exist) | desktop-shell | medium | `animate_focus_change()` derefs before its own guard; NULL default output |
+| [DS-5](#ds-5--zwp_input_panel_v1-is-unprivileged-and-double-set_toplevel-corrupts-the-panel-list-into-a-self-loop-compositor-hang) | desktop-shell | high | Unprivileged `zwp_input_panel_v1`; double `set_toplevel` hangs the compositor |
+| [CORE-1](#core-1--weston_output_mode_set_native-stores-a-pointer-to-the-callers-stack-frame-in-output-native_mode) | libweston | medium | `native_mode` left pointing at the caller's stack frame |
+| [CORE-2](#core-2--weston_renderer_resize_output-cannot-fail-it-can-only-log) | libweston | medium | `weston_renderer_resize_output()` cannot report failure |
+| [CORE-3](#core-3--wl_shm-buffer-stride-is-never-validated-against-width--bytes-per-pixel) | libweston | medium | `wl_shm` stride never validated against width × bpp |
+
+### Themes
+
+Four patterns account for most of the high-severity findings, and each is worth
+a targeted sweep beyond the individual fixes below:
+
+1. **`assert()` on attacker- or peer-controlled input.** `b_ndebug` is unset, so
+   asserts are live in release builds. X11-1, SC-1 (`abort_oom_if_null`), SC-4
+   and VNC-5 are all remote- or client-triggerable `abort()`s.
+2. **A list head inside an object that is freed before the list is drained.**
+   VNC-2 (`output->peers`), PW-2 (`output->fence_list`) and PW-1
+   (`pending_output_list`) are the same mistake in three backends.
+3. **`wl_list_insert()` without a matching `wl_list_remove()`**, which turns a
+   node into a self-loop and hangs the next iteration: XWL-4 and DS-5.
+4. **Stride and geometry taken on trust.** CORE-3, SC-1, SC-2, SC-5, VNC-3,
+   VNC-4 and PW-5 all stem from a size or stride crossing a trust boundary
+   without validation.
+
 ## Status
 
-Review in progress. Findings are appended in individual commits as they are
-confirmed; this document is amended incrementally.
+Review complete for the areas in scope. Findings were appended in individual
+commits as they were confirmed; every `file:line` reference was re-checked
+against the base commit after the sweep.
 
 | Area | State |
 | --- | --- |
-| x11 backend | first pass done |
-| VNC backend | pending |
-| PipeWire backend | pending |
-| desktop-shell | pending |
-| screenshot / output-capture | pending |
-| XWayland | pending |
+| x11 backend | done (X11-1 … X11-8) |
+| VNC backend | done (VNC-1 … VNC-7) |
+| PipeWire backend | done (PW-1 … PW-7) |
+| screenshot / output-capture | done (SC-1 … SC-7) |
+| XWayland | done (XWL-1 … XWL-5) |
+| desktop-shell | done (DS-1 … DS-5) |
+| libweston core (shared paths) | done (CORE-1 … CORE-3) |
+
+Not covered, by request: DRM / headless / RDP / wayland backends, kiosk-shell,
+ivi-shell, fullscreen-shell. XWayland's `selection.c` (clipboard) and `dnd.c`
+were only skimmed; they carry the same "X11 property parsed on trust" shape as
+XWL-2 and deserve their own pass.
 
 ---
 
@@ -2032,7 +2107,7 @@ client controls *both* sides of that comparison, so it is not a check at all;
 its own comment calls it "only one heuristic".
 
 The path is reached from `force_kill_binding()`
-(`desktop-shell/shell.c:4434`, bound to **`<super>K`**), which emits
+(`desktop-shell/shell.c:4436`, bound to **`<super>K`**), which emits
 `compositor->kill_signal` with the focused surface. So: a malicious or merely
 buggy X11 application sets `_NET_WM_PID` to the pid of a watchdog, a safety
 daemon, the session manager — or of weston itself — and `WM_CLIENT_MACHINE` to
@@ -2385,6 +2460,11 @@ siblings do.
 +	wl_signal_add(&surface->destroy_signal, &shell->grab_surface_listener);
  }
 ```
+
+(`grab_surface_listener` is a new `struct wl_listener` field in
+`struct desktop_shell`; `shell.h:102` currently declares only the bare
+`grab_surface` pointer, with no listener beside it — unlike `lock_surface` at
+`shell.h:125`.) `shell_destroy()` should drop the listener too.
 
 plus guarding the three `get_default_view(shell->grab_surface)` call sites on
 `shell->grab_surface != NULL` (`get_default_view()` already handles NULL, so the
