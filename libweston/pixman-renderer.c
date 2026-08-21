@@ -796,6 +796,26 @@ pixman_renderer_attach(struct weston_paint_node *pnode)
 		return;
 	}
 
+	/*
+	 * wl_shm only guarantees stride >= width (in pixels), and pixman only
+	 * requires the stride to be a multiple of 4, so a client can attach a
+	 * multi-byte-per-pixel SHM buffer whose stride is smaller than
+	 * width * bytes-per-pixel. Reading width pixels per row from such a
+	 * buffer runs off the end of the shm pool. Reject it.
+	 */
+	if ((uint64_t)buffer->stride <
+	    (uint64_t)(PIXMAN_FORMAT_BPP(pixel_info->pixman_format) / 8) *
+	    (uint64_t)buffer->width) {
+		weston_log("SHM buffer stride %d too small for %dx%d\n",
+			   buffer->stride, buffer->width, buffer->height);
+		weston_buffer_reference(&ps->buffer_ref, NULL,
+					BUFFER_WILL_NOT_BE_ACCESSED);
+		weston_buffer_release_reference(&ps->buffer_release_ref, NULL);
+		weston_buffer_send_server_error(buffer,
+			"SHM buffer stride too small for its dimensions");
+		return;
+	}
+
 	ps->image = pixman_image_create_bits(pixel_info->pixman_format,
 		buffer->width, buffer->height,
 		wl_shm_buffer_get_data(shm_buffer),
