@@ -109,6 +109,10 @@ Verified in this tree:
 | [SHELL-3](#shell-3--assert-aborts-when-an-output-has-no-shell_output) | desktop-shell | Medium | 1 | `get_output_work_area()` asserts `find_shell_output_from_weston_output()` non-NULL |
 | [SHELL-4](#shell-4--null-shell_output-dereferenced-in-setbackgroundpanel-and-resize) | desktop-shell | Medium | 1 | `set_background`/`set_panel`/`handle_output_resized` dereference a NULL `shell_output` |
 | [CAP-2](#cap-2--screenshooter-destroy-leaves-a-client-destroy-listener-dangling) | screenshots | Low | 1 | The screenshooter compositor-destroy handler leaves a client destroy-listener pointing at the freed struct |
+| [SEAT-1](#seat-1--relative-pointer-created-from-an-inert-wl_pointer-dereferences-null) | input | High | 2 | `get_relative_pointer` dereferences a NULL `weston_pointer` from an inert `wl_pointer` |
+| [SEAT-2](#seat-2--fullscreen-pointer-constraint-dereferences-a-null-focus) | input | High | 2 | The fullscreen pointer-constraint fast-path dereferences a NULL `pointer->focus` |
+| [SEAT-3](#seat-3--tablet-tool-button-idle-inhibit-is-never-released) | input | Low | 1 | Tablet-tool idle-inhibit is released on `button_count == 1` instead of `0`, leaking the inhibit |
+| [SEAT-5](#seat-5--weston_tablet_destroy-leaks-the-tablet-when-resources-are-bound) | input | Low | 1 | `weston_tablet_destroy()` leaks the tablet (and name) when a client still has resources bound |
 
 ## 4. Prioritisation
 
@@ -1451,6 +1455,44 @@ client still connected at compositor shutdown). **Area:**
 struct but leaves `client_destroy_listener` registered on the live client, so its
 `notify` fires on freed memory when the client is torn down. Fix: remove the
 listener when `shooter->client` is still set.
+
+### SEAT-1 — relative pointer created from an inert `wl_pointer` dereferences NULL
+
+**Severity:** High (NULL dereference crash). **Likelihood:** 2 (a client asks for
+a relative pointer on a seat with no pointer capability — e.g. a keyboard/VNC
+seat). **Area:** `libweston/input.c`
+`relative_pointer_manager_get_relative_pointer()`. `seat_get_pointer()` hands out
+an inert `wl_pointer` (user_data NULL) when the seat has no pointer;
+`get_relative_pointer` then passes that NULL into
+`weston_pointer_ensure_pointer_client()`, which dereferences it. Fix: bind an
+inert relative-pointer resource when `pointer == NULL`.
+
+### SEAT-2 — fullscreen pointer constraint dereferences a NULL focus
+
+**Severity:** High (NULL dereference crash). **Likelihood:** 2 (a client locks the
+pointer on a fullscreen surface while the pointer has no focus). **Area:**
+`libweston/input.c` `init_pointer_constraint()`. The fullscreen fast-path calls
+`weston_view_update_transform(pointer->focus)` (which dereferences the view)
+without checking `pointer->focus` for NULL. Fix: guard with `pointer->focus &&`
+and fall back to the normal enable-on-entry path.
+
+### SEAT-3 — tablet-tool button idle-inhibit is never released
+
+**Severity:** Low (idle inhibit leak — the screen never blanks after a tablet
+button press). **Likelihood:** 1 (every isolated tablet-tool button press).
+**Area:** `libweston/input.c` `notify_tablet_tool_button()`. `idle_inhibit` is
+taken when `button_count` reaches 1 but released when it reaches 1 again on the way
+down (should be 0), so a single press/release leaks the inhibit and idle
+blanking/DPMS never re-arms. Fix: release on `button_count == 0`.
+
+### SEAT-5 — `weston_tablet_destroy()` leaks the tablet when resources are bound
+
+**Severity:** Low (memory leak). **Likelihood:** 1 (a tablet device removed while
+a client has it open). **Area:** `libweston/input.c`. The destroy sends `removed`
+and NULLs each resource's user_data but leaves them in `resource_list`, so
+`wl_list_empty()` is false and neither the tablet nor its name is ever freed. Fix:
+also take the resources out of the list (re-initialising their links so the later
+`unbind_resource()` stays safe) and free unconditionally.
 
 ## 6. Coverage ledger
 
