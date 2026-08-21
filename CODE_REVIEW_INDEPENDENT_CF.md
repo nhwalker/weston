@@ -206,6 +206,105 @@ A rejected buffer makes `weston_buffer_from_resource()` return NULL, which the
 `wl_surface.attach` handler already turns into a client error — the misbehaving
 client is disconnected instead of corrupting the compositor.
 
+### AUTH-1 — VNC PAM path leaks a copy of the password on every authentication attempt
+
+**Severity:** Medium. **Likelihood:** 5 (the leak happens on every call; the
+call happens on every VNC authentication attempt).
+
+**Area:** `libweston/auth.c` `weston_authenticate_user()`.
+
+`conv.appdata_ptr` is assigned `strdup(password)` twice — once in the
+initialiser and once immediately afterwards — and only the second copy is ever
+freed:
+
+```c
+struct pam_conv conv = {
+        .conv = weston_pam_conv,
+        .appdata_ptr = strdup(password),   /* copy #1 — leaked */
+};
+struct pam_handle *pam;
+int ret;
+
+conv.appdata_ptr = strdup(password);       /* copy #2 overwrites the pointer */
+...
+out:
+        ret = pam_end(pam, ret);
+        assert(ret == PAM_SUCCESS);
+        free(conv.appdata_ptr);            /* frees only copy #2 */
+```
+
+The pointer to copy #1 is overwritten before it is ever used or freed, so every
+call to `weston_authenticate_user()` leaks `strlen(password)+1` bytes. The path
+is reachable on every VNC authentication attempt: neatvnc calls
+`vnc_handle_auth()` → `weston_authenticate_user()` for each attempt, and a
+remote client may reconnect and retry without limit. Over a deployment that runs
+for months and accepts remote VNC clients this is an unbounded leak, and the
+leaked bytes are a **plaintext copy of the submitted password** left in the heap
+(never zeroed), which is worse than a leak of anonymous bytes.
+
+**Patch:** drop the redundant second `strdup` (`libweston/auth.c`):
+
+```diff
+ 	struct pam_conv conv = {
+ 		.conv = weston_pam_conv,
+ 		.appdata_ptr = strdup(password),
+ 	};
+-	struct pam_handle *pam;
++	struct pam_handle *pam = NULL;
+ 	int ret;
+ 
+-	conv.appdata_ptr = strdup(password);
+-
+ 	ret = pam_start("weston-remote-access", username, &conv, &pam);
+```
+
+### AUTH-2 — PAM teardown failure aborts the whole compositor
+
+**Severity:** High (compositor `abort()` = denial of service). **Likelihood:** 1
+(needs a PAM allocation/teardown failure, e.g. OOM under tight memory limits).
+
+**Area:** `libweston/auth.c` `weston_authenticate_user()`.
+
+```c
+out:
+        ret = pam_end(pam, ret);
+        assert(ret == PAM_SUCCESS);
+        free(conv.appdata_ptr);
+```
+
+Two facts established in this tree and in the dependency source make this an
+operational hazard rather than a debugging aid:
+
+1. `assert()` is compiled in by default in this build (section 2), so a failed
+   assertion is a hard `abort()` in production.
+2. `pam_end()` can legitimately return non-`PAM_SUCCESS`. Checked against
+   Linux-PAM 1.5.2: `pam_start()`'s reachable failure in this call site is the
+   `calloc` failure, which sets `*pamh = NULL` and returns `PAM_BUF_ERR`
+   (`pam_start.c`). weston then jumps to `out` and calls `pam_end(NULL, ret)`,
+   which `pam_end.c` immediately turns into `PAM_SYSTEM_ERR`
+   (`IF_NO_PAMH(...)`). `PAM_SYSTEM_ERR != PAM_SUCCESS`, so the assertion fires
+   and the compositor aborts.
+
+The trigger is a memory-allocation failure during PAM startup for a VNC
+authentication attempt. The operating conditions explicitly include running
+"with tight resource limits", so a remote client retrying authentication while
+the compositor is under memory pressure can convert a would-be auth failure into
+a full compositor crash. A compositor that "must not crash" should let the
+authentication fail, not abort.
+
+**Patch** (folded into the AUTH-1 patch; replace the assert with a logged check,
+and initialise `pam` so teardown is well-defined on any `pam_start` failure):
+
+```diff
+ 	authenticated = true;
+ out:
+-	ret = pam_end(pam, ret);
+-	assert(ret == PAM_SUCCESS);
++	if (pam_end(pam, ret) != PAM_SUCCESS)
++		weston_log("PAM: end failed\n");
+ 	free(conv.appdata_ptr);
+```
+
 ## 6. Coverage ledger
 
 *(pending — will state per file: read fully / read reachable parts (with
