@@ -710,12 +710,10 @@ the file descriptor. `pipewire_output_stream_add_buffer()` is driven by the
 PipeWire server's buffer negotiation, so a consumer that keeps re-negotiating
 while allocations fail turns this into a steady fd/memory leak.
 
-A closely related hardening gap sits in `pipewire_output_setup_memfd()`: the
-`mmap()` result is stored into `d[0].data` without a `MAP_FAILED` check, and is
-then used as the renderer's target pointer. On `mmap` failure the renderer would
-write to `(void *)-1`. That one is left unpatched here because handling it
-cleanly means propagating the failure out of a `void` callback; it is noted so a
-later pass can address it deliberately.
+A closely related gap in `pipewire_output_setup_memfd()` — the `mmap()` result
+stored into `d[0].data` without a `MAP_FAILED` check, then used as the renderer's
+target pointer — is tracked and fixed separately as **PW-2** below (that fix
+changes `setup_memfd()` to return an error which `add_buffer()` handles).
 
 **Patch** — release the fd and struct on the error paths
 (`libweston/backend-pipewire/pipewire.c`):
