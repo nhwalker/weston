@@ -2241,3 +2241,396 @@ interface.
 the guard belongs there rather than at each call site.)
 
 ---
+
+## desktop-shell (`desktop-shell/`)
+
+### DS-1 — `desktop_shell_set_background()` / `set_panel()` dereference an unchecked `find_shell_output_from_weston_output()` result
+
+**Severity: high (NULL dereference during output hotplug).**
+`desktop-shell/shell.c:2810`, `desktop-shell/shell.c:2921`
+
+```c
+	struct weston_head *head = weston_head_from_resource(output_resource);
+	...
+	if (!head)
+		return;
+
+	surface->output = head->output;
+	sh_output = find_shell_output_from_weston_output(shell, surface->output);
+	if (sh_output->background_surface) {          /* <-- sh_output may be NULL */
+```
+
+`find_shell_output_from_weston_output()` (`shell.c:239`) explicitly
+`return NULL`s when the output is not in `shell->output_list`, and both callers
+use the result immediately without checking. Reaching NULL is straightforward:
+
+* `head->output` is never cleared by `weston_compositor_remove_output()`, and the
+  `wl_output` global lingers for **5 seconds** after removal
+  (`weston_global_destroy_save()`, `libweston/compositor.c:6330`) so that
+  in-flight `wl_registry.bind`s still succeed. A `bind_output()` in that window
+  hands out a resource whose `head->output` points at an output the shell has
+  already dropped from `shell->output_list` (`handle_output_destroy()` →
+  `shell_output_destroy()`).
+* `weston-desktop-shell` enumerates outputs from the registry and calls
+  `set_background`/`set_panel` for each. Unplug a monitor while it is doing that
+  — an entirely ordinary event — and it calls `set_background` on a stale
+  `wl_output`, and the **compositor** dereferences NULL.
+
+`handle_output_resized()` (`shell.c:4605`) has the same unchecked pattern.
+
+**Minimal patch:**
+
+```c
+ 	surface->output = head->output;
+ 	sh_output = find_shell_output_from_weston_output(shell, surface->output);
++	if (!sh_output)
++		return;
+ 	if (sh_output->background_surface) {
+```
+
+(same in `desktop_shell_set_panel()`, and an early `if (!sh_output) return;` in
+`handle_output_resized()`).
+
+---
+
+### DS-2 — `shell->grab_surface` is never tracked, so it dangles when the shell client dies
+
+**Severity: high (use-after-free on the shell-crash path — precisely the path a
+supervised system relies on).** `desktop-shell/shell.c:3073`,
+`desktop-shell/shell.c:344`, `desktop-shell/shell.c:4157`
+
+```c
+static void
+desktop_shell_set_grab_surface(struct wl_client *client,
+			       struct wl_resource *resource,
+			       struct wl_resource *surface_resource)
+{
+	struct desktop_shell *shell = wl_resource_get_user_data(resource);
+
+	shell->grab_surface = wl_resource_get_user_data(surface_resource);
+	weston_view_create(shell->grab_surface);
+}
+```
+
+That is the entire function. Unlike `set_background`, `set_panel` and
+`set_lock_surface`, it registers **no destroy listener** — `grab_surface` is the
+only one of the four shell surfaces with no tracking at all (grep confirms
+`grab_surface` appears exactly at this assignment and at three uses).
+
+`desktop_shell_client_destroy()` (`shell.c:4157`) respawns the shell client on
+crash but does **not** clear `shell->grab_surface`. When the old client dies all
+its surfaces are destroyed, so from that moment until the respawned client
+re-issues `set_grab_surface`, `shell->grab_surface` points at freed memory. Any
+pointer grab in that window:
+
+```c
+	if (shell->child.desktop_shell) {
+		weston_desktop_shell_send_grab_cursor(shell->child.desktop_shell, cursor);
+		weston_pointer_set_focus(pointer,
+					 get_default_view(shell->grab_surface));
+	}
+```
+
+`get_default_view()` immediately does `wl_list_empty(&surface->views)` and
+`get_shell_surface(surface)` on the freed surface, and the resulting view is
+handed to `weston_pointer_set_focus()`. The same dereference happens in
+`shell_touch_grab_start()` (`shell.c:453`) and
+`shell_tablet_tool_grab_start()` (`shell.c:488`).
+
+Note the guard is on `shell->child.desktop_shell`, not on `grab_surface`. After
+a crash `child.desktop_shell` is NULLed by `unbind_desktop_shell()`, which
+happens to cover the window — until the respawned client binds
+`weston_desktop_shell` and sets a background but has not yet called
+`set_grab_surface`. Between those two requests the guard is true and
+`grab_surface` still points at the **previous** client's freed surface.
+
+Calling `set_grab_surface` twice also leaks a `weston_view` per call, and the
+function performs none of the `surface->committed` role checks its three
+siblings do.
+
+**Minimal patch:**
+
+```c
++static void
++handle_grab_surface_destroy(struct wl_listener *listener, void *data)
++{
++	struct desktop_shell *shell =
++		container_of(listener, struct desktop_shell,
++			     grab_surface_listener);
++
++	wl_list_remove(&shell->grab_surface_listener.link);
++	wl_list_init(&shell->grab_surface_listener.link);
++	shell->grab_surface = NULL;
++}
++
+ static void
+ desktop_shell_set_grab_surface(struct wl_client *client,
+ 			       struct wl_resource *resource,
+ 			       struct wl_resource *surface_resource)
+ {
+ 	struct desktop_shell *shell = wl_resource_get_user_data(resource);
++	struct weston_surface *surface =
++		wl_resource_get_user_data(surface_resource);
+ 
+-	shell->grab_surface = wl_resource_get_user_data(surface_resource);
+-	weston_view_create(shell->grab_surface);
++	if (shell->grab_surface == surface)
++		return;
++	if (shell->grab_surface)
++		wl_list_remove(&shell->grab_surface_listener.link);
++
++	shell->grab_surface = surface;
++	weston_view_create(surface);
++	shell->grab_surface_listener.notify = handle_grab_surface_destroy;
++	wl_signal_add(&surface->destroy_signal, &shell->grab_surface_listener);
+ }
+```
+
+plus guarding the three `get_default_view(shell->grab_surface)` call sites on
+`shell->grab_surface != NULL` (`get_default_view()` already handles NULL, so the
+guard is really about not calling `weston_pointer_set_focus(pointer, NULL)`
+unintentionally).
+
+---
+
+### DS-3 — `set_lock_surface()` skips the role check its siblings perform, and its destroy handler leaks the listener
+
+**Severity: medium.** `desktop-shell/shell.c:3007`,
+`desktop-shell/shell.c:2997`
+
+```c
+static void
+desktop_shell_set_lock_surface(struct wl_client *client, ...)
+{
+	...
+	surface->committed = lock_surface_committed;     /* no `if (surface->committed)` check */
+	surface->committed_private = shell;
+	...
+}
+
+static void
+handle_lock_surface_destroy(struct wl_listener *listener, void *data)
+{
+	struct desktop_shell *shell = ...;
+
+	shell->lock_surface = NULL;                      /* no wl_list_remove() */
+	shell->lock_view = NULL;
+}
+```
+
+* `set_background()` and `set_panel()` both begin with
+  `if (surface->committed) { post_error("surface role already assigned"); return; }`.
+  `set_lock_surface()` does not, so a surface that already has a role — an
+  `xdg_toplevel`, an input-panel surface — has its `committed` /
+  `committed_private` silently overwritten. The previous role's owner keeps a
+  pointer to the surface but stops receiving commits, and
+  `lock_surface_committed()` will `assert(!shell->lock_view)`.
+* `handle_lock_surface_destroy()` is the only one of the three surface-destroy
+  handlers that does not `wl_list_remove()` its own listener
+  (`handle_panel_surface_destroy()` and `handle_background_surface_destroy()`
+  both do). The listener stays linked into the destroyed surface's
+  `destroy_signal` list — memory that is about to be freed. It is not currently
+  fatal only because nothing traverses that list afterwards and a subsequent
+  `wl_signal_add()` overwrites the link, but it is a write-after-free waiting for
+  any future code that walks or removes from it (e.g. adding a
+  `wl_list_remove()` in `shell_destroy()`, which today is also missing).
+
+**Minimal patch:**
+
+```c
+@@ handle_lock_surface_destroy
++	wl_list_remove(&shell->lock_surface_listener.link);
++	wl_list_init(&shell->lock_surface_listener.link);
+ 	shell->lock_surface = NULL;
+ 	shell->lock_view = NULL;
+@@ desktop_shell_set_lock_surface
++	if (surface->committed) {
++		wl_resource_post_error(surface_resource,
++				       WL_DISPLAY_ERROR_INVALID_OBJECT,
++				       "surface role already assigned");
++		return;
++	}
++
+ 	surface->committed = lock_surface_committed;
+```
+
+---
+
+### DS-4 — `animate_focus_change()` dereferences the focus surfaces before checking whether they exist
+
+**Severity: medium.** `desktop-shell/shell.c:633`,
+`desktop-shell/shell.c:879`
+
+```c
+static void
+animate_focus_change(struct desktop_shell *shell, struct workspace *ws,
+		     struct weston_view *from, struct weston_view *to)
+{
+	struct weston_view *front = ws->fsurf_front->curtain->view;
+	struct weston_view *back = ws->fsurf_back->curtain->view;
+	if ((from && from == to) || shell->focus_animation_type == ANIMATION_NONE)
+		return;
+```
+
+`ws->fsurf_front` / `ws->fsurf_back` are explicitly set to `NULL` by
+`workspace_create()` when `focus_animation_type == ANIMATION_NONE` — the exact
+condition the guard on the third line tests, two dereferences too late. Both
+call sites happen to pre-check the same condition today, so this is latent, but
+it is a trap for any future caller and the initialisers are one `if` away.
+
+A related, live problem in the same function's setup: with
+`[shell] focus-animation=dim-layer` configured, `workspace_create()` does
+
+```c
+		struct weston_output *output =
+			weston_shell_utils_get_default_output(shell->compositor);
+		...
+		ws->fsurf_front = create_focus_surface(shell->compositor, output);
+```
+
+and `weston_shell_utils_get_default_output()`
+(`libweston/shell-utils/shell-utils.c:44`) returns `NULL` when
+`compositor->output_list` is empty. `create_focus_surface()` then does
+`.pos = output->pos` — a **NULL dereference at startup** whenever the shell is
+loaded with no enabled output (DRM with nothing connected, a backend whose
+output configuration failed). `wet_load_shell()` runs after
+`weston_compositor_flush_heads_changed()`, so this is a "zero outputs at boot"
+failure rather than a race, but it turns a recoverable
+"no displays yet" state into a crash, and it is a configuration option away.
+
+**Minimal patch:**
+
+```c
+@@ animate_focus_change
+-	struct weston_view *front = ws->fsurf_front->curtain->view;
+-	struct weston_view *back = ws->fsurf_back->curtain->view;
+-	if ((from && from == to) || shell->focus_animation_type == ANIMATION_NONE)
++	struct weston_view *front, *back;
++
++	if ((from && from == to) ||
++	    shell->focus_animation_type == ANIMATION_NONE ||
++	    !ws->fsurf_front || !ws->fsurf_back)
+ 		return;
++
++	front = ws->fsurf_front->curtain->view;
++	back = ws->fsurf_back->curtain->view;
+@@ create_focus_surface
++	if (!output)
++		return NULL;
++
+ 	struct weston_curtain_params curtain_params = {
+```
+
+with `workspace_create()` falling back to `focus_animation_type = ANIMATION_NONE`
+when the focus surfaces cannot be created, instead of `assert()`ing them.
+
+---
+
+### DS-5 — `zwp_input_panel_v1` is unprivileged, and double `set_toplevel` corrupts the panel list into a self-loop (compositor hang)
+
+**Severity: high.** `desktop-shell/input-panel.c:277`,
+`desktop-shell/input-panel.c:297`, `desktop-shell/input-panel.c:374`,
+`desktop-shell/input-panel.c:127`
+
+```c
+static void
+input_panel_surface_set_toplevel(..., struct wl_resource *output_resource,
+				 uint32_t position)
+{
+	...
+	if (head) {
+		wl_list_insert(&shell->input_panel.surfaces,
+			       &input_panel_surface->link);      /* no remove first */
+		...
+	}
+}
+
+static void
+input_panel_surface_set_overlay_panel(...)
+{
+	...
+	wl_list_insert(&shell->input_panel.surfaces,
+		       &input_panel_surface->link);              /* no remove first */
+	input_panel_surface->panel = 1;
+}
+```
+
+`zwp_input_panel_surface_v1` has exactly these two requests, neither is
+declared set-once, and neither removes the node before inserting it. Calling
+either twice on the same object inserts the same `wl_list` node into the same
+list twice, which leaves it pointing at itself:
+
+```
+head->next == elm, elm->next == elm, elm->prev == elm
+```
+
+`show_input_panels()` (`input-panel.c:127`) then runs
+
+```c
+	wl_list_for_each_safe(ipsurf, next, &shell->input_panel.surfaces, link)
+		show_input_panel_surface(ipsurf);
+```
+
+`next` is computed from `pos->link.next`, which is `pos` itself — the loop never
+advances and never reaches the head, so the compositor **spins forever** the
+first time an input panel is shown. Afterwards
+`destroy_input_panel_surface()`'s single `wl_list_remove()` cannot unlink a
+self-referential node, leaving `shell->input_panel.surfaces.next` pointing at
+freed memory.
+
+What makes this more than an input-method-client bug: `bind_input_panel()`
+(`input-panel.c:374`) enforces only that **one** client holds the interface at a
+time — first come, first served, with **no check on which client it is**. Compare
+`bind_desktop_shell()` (`shell.c:4214`), which rejects any client other than
+`shell->child.client`. Any Wayland client that binds `zwp_input_panel_v1` before
+weston's input method does — trivial to win, it can bind at startup — can hang
+the compositor with three requests.
+
+Two further defects in the same file:
+
+* `create_input_panel_surface()` (`input-panel.c:248`) sets
+  `surface->committed = input_panel_committed` **without checking whether the
+  surface already has a role**, and without using `weston_surface_set_role()`.
+  The caller's error string ("surface->committed already set") shows the check
+  was intended; the function can only fail on `calloc()`. A client can therefore
+  hijack the role of one of its own already-roled surfaces (an `xdg_toplevel`,
+  say), leaving the desktop surface with a live `shell_surface` that no longer
+  receives commits.
+* `calc_input_panel_position()` (`input-panel.c:63`) does
+  `pos = ip_surface->output->pos;` in the non-panel branch.
+  `ip_surface->output` is `calloc`'d NULL and is set from
+  `head->output` in `set_toplevel()` or from `focus->output` in
+  `show_input_panel_surface()` — and `weston_surface::output` is NULL for a
+  surface not currently on any output. The `panel` branch right above it
+  correctly returns `-1` on failure; the toplevel branch has no such guard.
+
+**Minimal patch:**
+
+```c
+@@ input_panel_surface_set_toplevel
+ 	if (head) {
++		wl_list_remove(&input_panel_surface->link);
+ 		wl_list_insert(&shell->input_panel.surfaces,
+ 			       &input_panel_surface->link);
+@@ input_panel_surface_set_overlay_panel
++	wl_list_remove(&input_panel_surface->link);
+ 	wl_list_insert(&shell->input_panel.surfaces,
+ 		       &input_panel_surface->link);
+@@ calc_input_panel_position
+ 	} else {
++		if (!ip_surface->output)
++			return -1;
+ 		pos = ip_surface->output->pos;
+@@ create_input_panel_surface
++	if (surface->committed)
++		return NULL;
++
+ 	surface->committed = input_panel_committed;
+```
+
+(`input_panel_surface->link` is `wl_list_init()`ed in
+`create_input_panel_surface()`, so removing an unlinked node is safe.)
+`bind_input_panel()` should additionally restrict the global to the input-method
+client the shell launched, the way `bind_desktop_shell()` does.
+
+---
