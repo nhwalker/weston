@@ -4046,3 +4046,120 @@ next call. Every current caller consumes it immediately, but two
 on the declaration at minimum.
 
 ---
+
+### DS-6 — Closing the last window during Alt+Tab leaves the switcher holding a freed view
+
+**Severity: high (use-after-free from ordinary interaction).**
+`desktop-shell/shell.c:4244`, `desktop-shell/shell.c:4303`
+
+The switcher tracks the highlighted view with a destroy listener that it
+re-points on every step:
+
+```c
+static void
+switcher_next(struct switcher *switcher)
+{
+	...
+	if (next == NULL)
+		next = first;
+
+	if (next == NULL)
+		return;                                  /* <-- early out */
+
+	wl_list_remove(&switcher->listener.link);
+	wl_signal_add(&next->destroy_signal, &switcher->listener);
+
+	switcher->current = next;
+	...
+}
+```
+
+The early `return` is the problem. It is taken exactly when the workspace
+contains no view with a shell surface — and it leaves **both** pieces of state
+pointing at the view that is being destroyed:
+
+* `switcher->current` still holds the dying view;
+* `switcher->listener` is still linked into that view's `destroy_signal`
+  list, whose head lives inside the `weston_view` about to be freed.
+
+That state is reachable through the listener itself.
+`weston_view_destroy()` (`libweston/compositor.c:2710`) unmaps first — which
+removes the view from `ws->layer.view_list` — and only then emits the signal:
+
+```c
+	if (weston_view_is_mapped(view))
+		weston_view_unmap(view);          /* unlinks layer_link */
+
+	wl_signal_emit_mutable(&view->destroy_signal, view);
+	...
+	free(view);
+```
+
+So `switcher_handle_view_destroy()` → `switcher_next()` walks a layer list that
+no longer contains the dying view. With one window open, that list now has no
+shell surfaces at all: `first == NULL`, `next == NULL`, early return, and the
+view is freed moments later.
+
+Releasing the modifier then runs `switcher_destroy()`:
+
+```c
+	if (switcher->current && get_shell_surface(switcher->current->surface)) {
+		activate(switcher->shell, switcher->current, ...);   /* use-after-free */
+	}
+
+	wl_list_remove(&switcher->listener.link);                    /* write into freed view */
+```
+
+— a read of the freed view, an `activate()` on it, and finally a
+`wl_list_remove()` whose `prev`/`next` point into the freed
+`weston_view::destroy_signal`. The trigger is mundane: hold the switcher
+modifier with a single window open and let that window exit (crash, `kill`, a
+scripted close).
+
+Note the first use *is* NULL-guarded (`if (switcher->current && ...)`), so the
+author knew `current` can be unset — but the loop 15 lines further down is not:
+
+```c
+	wl_array_for_each(minimized, &switcher->minimized_array) {
+		if ((*minimized)->surface == switcher->current->surface)   /* no NULL check */
+```
+
+**Minimal patch** — never leave the listener or `current` pointing at a view the
+switcher is not tracking:
+
+```c
+ 	if (next == NULL)
+ 		next = first;
+ 
+-	if (next == NULL)
+-		return;
+-
+ 	wl_list_remove(&switcher->listener.link);
+-	wl_signal_add(&next->destroy_signal, &switcher->listener);
++	wl_list_init(&switcher->listener.link);
++	switcher->current = next;
++
++	if (next == NULL)
++		return;
+ 
+-	switcher->current = next;
++	wl_signal_add(&next->destroy_signal, &switcher->listener);
+ 	wl_list_for_each(view, &next->surface->views, surface_link)
+ 		weston_view_set_alpha(view, 1.0);
+@@ switcher_destroy
+ 	wl_array_for_each(minimized, &switcher->minimized_array) {
+-		if ((*minimized)->surface == switcher->current->surface)
++		if (switcher->current &&
++		    (*minimized)->surface == switcher->current->surface)
+ 			continue;
+```
+
+(`wl_list_remove()` followed by `wl_list_init()` is safe here because
+`switcher_binding()` `wl_list_init()`s the listener before the first
+`switcher_next()`.)
+
+Separately, nothing tears the switcher down if the compositor shuts down while
+the grab is active: `shell_destroy()` (`desktop-shell/shell.c:4741`) does not
+end keyboard grabs, so the `switcher` allocation and its grab outlive the shell.
+
+---
