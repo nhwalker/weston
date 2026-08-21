@@ -66,6 +66,11 @@ Verified in this tree:
 | [VNC-3](#vnc-3--vnc_new_client-dereferences-a-possibly-null-output) | VNC | High | 2 | A client connecting before the output is enabled (or after disable) dereferences `backend->output == NULL` |
 | [VNC-4](#vnc-4--assertfb-on-neatvnc-allocations-aborts-the-compositor-under-memory-pressure) | VNC | Medium | 2 | `assert(fb)` on `nvnc_fb_new`/`nvnc_fb_pool_acquire` turns an allocation failure into a compositor abort |
 | [VNC-5](#vnc-5--vnc-cursor-path-dereferences-a-stale-cursor-surface-without-validation) | VNC | Medium | 2 | `vnc_output_update_cursor()` uses a cached `cursor_surface` and its buffer without a NULL/liveness check |
+| [PW-2](#pw-2--pipewire-mmap-result-is-used-as-a-render-target-without-checking-map_failed) | PipeWire | High | 1 | `pipewire_output_setup_memfd()` uses an unchecked `mmap` result as the render target |
+| [PW-4](#pw-4--pipewire-backend-teardown-leaks-the-core-context-and-destroys-the-loop-out-of-order) | PipeWire | Low | 5 | `pipewire_destroy()` leaks `pw_core`/`pw_context`, and destroys the loop before removing the event source referencing its fd |
+| [TXT-1/2](#txt-12--input-method-key-and-modifiers-dereference-a-null-keyboard) | desktop-shell / text | Medium | 2 | `input_method_context_key`/`_modifiers` dereference `weston_seat_get_keyboard()` without a NULL check |
+| [IP-1](#ip-1--repeated-input-panel-placement-double-inserts-a-list-link) | desktop-shell | High | 2 | Repeated `set_toplevel`/`set_overlay_panel` double-inserts the same link, corrupting the input-panel surfaces list |
+| [IP-2](#ip-2--bind_input_panel-uses-an-unchecked-wl_resource_create) | desktop-shell | Low | 1 | `bind_input_panel()` dereferences a possibly-NULL `wl_resource_create()` result |
 
 ## 4. Prioritisation
 
@@ -845,6 +850,130 @@ case would also add a destroy listener that clears `cursor_surface`).
 +	if (!cursor_surface || !cursor_surface->buffer_ref.buffer)
 +		return;
  	buffer = cursor_surface->buffer_ref.buffer;
+```
+
+### PW-2 — PipeWire `mmap` result is used as a render target without checking `MAP_FAILED`
+
+**Severity:** High (write through `(void *)-1`). **Likelihood:** 1 (mmap failure,
+e.g. under memory pressure). **Area:** `libweston/backend-pipewire/pipewire.c`
+`pipewire_output_setup_memfd()`.
+
+`d[0].data = mmap(...)` was stored and used (via `add_buffer_pixman`/`_gl` →
+renderer) with no `MAP_FAILED` check. On `mmap` failure the renderer would draw
+into `MAP_FAILED`. Made the function return an error and handle it in
+`pipewire_output_stream_add_buffer()` like the adjacent allocation failures.
+
+```diff
+-static void
++static int
+ pipewire_output_setup_memfd(...)
+ {
+ 	...
+ 	d[0].data = mmap(NULL, d[0].maxsize, PROT_READ|PROT_WRITE, MAP_SHARED,
+ 			 d[0].fd, d[0].mapoffset);
++	if (d[0].data == MAP_FAILED)
++		return -1;
+ 	buf->n_datas = 1;
++	return 0;
+ }
+```
+```diff
+-		pipewire_output_setup_memfd(output, buffer, memfd);
++		if (pipewire_output_setup_memfd(output, buffer, memfd) < 0) {
++			pipewire_destroy_memfd(output, memfd);
++			pw_stream_set_error(output->stream, -ENOMEM,
++					    "failed to map MemFd buffer");
++			return;
++		}
+ 		frame_data->memfd = memfd;
+```
+
+### PW-4 — PipeWire backend teardown leaks the core/context and destroys the loop out of order
+
+**Severity:** Low. **Likelihood:** 5 (every backend teardown). **Area:**
+`libweston/backend-pipewire/pipewire.c` `pipewire_destroy()`.
+
+`pipewire_destroy()` never disconnected `b->core` (`pw_context_connect`) or
+destroyed `b->context` (`pw_context_new`) or removed `b->core_listener`, and it
+destroyed the `pw_loop` **before** removing the weston event source
+(`b->loop_source`) that wraps the loop's fd. Reorder and add the missing
+cleanups (all identifiers already used elsewhere in this file).
+
+```diff
+ 	wl_list_remove(&b->base.link);
+-
+-	pw_loop_leave(b->loop);
+-	pw_loop_destroy(b->loop);
+-	wl_event_source_remove(b->loop_source);
++
++	spa_hook_remove(&b->core_listener);
++	wl_event_source_remove(b->loop_source);
++	pw_core_disconnect(b->core);
++	pw_context_destroy(b->context);
++	pw_loop_leave(b->loop);
++	pw_loop_destroy(b->loop);
+```
+
+### TXT-1/2 — input-method `key` and `modifiers` dereference a NULL keyboard
+
+**Severity:** Medium (NULL dereference crash). **Likelihood:** 2 (an
+input-method client sends key/modifiers while the seat has no keyboard — e.g. a
+headless/VNC seat, or after keyboard capability is removed). **Area:**
+`frontend/text-backend.c` `input_method_context_key()`,
+`input_method_context_modifiers()`.
+
+Both compute `default_grab = &keyboard->default_grab` from
+`weston_seat_get_keyboard(seat)` without a NULL check;
+`weston_seat_get_keyboard()` returns NULL when the seat has no keyboard. A
+sibling handler already guards this. Add the same guard:
+
+```diff
+ 	struct weston_keyboard *keyboard = weston_seat_get_keyboard(seat);
+-	struct weston_keyboard_grab *default_grab = &keyboard->default_grab;
++	struct weston_keyboard_grab *default_grab;
++
++	if (!keyboard)
++		return;
++
++	default_grab = &keyboard->default_grab;
+```
+
+### IP-1 — repeated input-panel placement double-inserts a list link
+
+**Severity:** High (list corruption → later crash/loop). **Likelihood:** 2 (a
+misbehaving input-method client calls `set_toplevel`/`set_overlay_panel` more
+than once). **Area:** `desktop-shell/input-panel.c`.
+
+`input_panel_surface_set_toplevel()` and `input_panel_surface_set_overlay_panel()`
+both `wl_list_insert()` the surface's single `link` into
+`shell->input_panel.surfaces` with no dedup. A second call inserts the same node
+twice, corrupting the list (a node linked into itself / iterated forever). Remove
+before insert so placement is idempotent:
+
+```diff
++		wl_list_remove(&input_panel_surface->link);
+ 		wl_list_insert(&shell->input_panel.surfaces,
+ 			&input_panel_surface->link);
+```
+
+(applied in both handlers; the link is `wl_list_init`'d at creation, so the
+first `wl_list_remove` is a safe no-op).
+
+### IP-2 — `bind_input_panel()` uses an unchecked `wl_resource_create()`
+
+**Severity:** Low. **Likelihood:** 1 (resource allocation failure). **Area:**
+`desktop-shell/input-panel.c` `bind_input_panel()`.
+
+`wl_resource_create()` can return NULL, but the result was passed straight to
+`wl_resource_set_implementation()` / `wl_resource_post_error()`.
+
+```diff
+ 	resource = wl_resource_create(client,
+ 				      &zwp_input_panel_v1_interface, 1, id);
++	if (resource == NULL) {
++		wl_client_post_no_memory(client);
++		return;
++	}
 ```
 
 ## 6. Coverage ledger

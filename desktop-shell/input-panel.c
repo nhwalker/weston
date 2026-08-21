@@ -285,6 +285,10 @@ input_panel_surface_set_toplevel(struct wl_client *client,
 	struct weston_head *head = weston_head_from_resource(output_resource);
 
 	if (head) {
+		/* A client may call set_toplevel/set_overlay_panel more than
+		 * once; remove first so the link is never inserted twice, which
+		 * would corrupt the surfaces list. */
+		wl_list_remove(&input_panel_surface->link);
 		wl_list_insert(&shell->input_panel.surfaces,
 			&input_panel_surface->link);
 
@@ -301,6 +305,8 @@ input_panel_surface_set_overlay_panel(struct wl_client *client,
 		wl_resource_get_user_data(resource);
 	struct desktop_shell *shell = input_panel_surface->shell;
 
+	/* Idempotent: avoid inserting the same link twice (see set_toplevel). */
+	wl_list_remove(&input_panel_surface->link);
 	wl_list_insert(&shell->input_panel.surfaces,
 		       &input_panel_surface->link);
 
@@ -379,6 +385,10 @@ bind_input_panel(struct wl_client *client,
 
 	resource = wl_resource_create(client,
 				      &zwp_input_panel_v1_interface, 1, id);
+	if (resource == NULL) {
+		wl_client_post_no_memory(client);
+		return;
+	}
 
 	if (shell->input_panel.binding == NULL) {
 		wl_resource_set_implementation(resource,

@@ -695,7 +695,7 @@ pipewire_destroy_memfd(struct pipewire_output *output,
 	free(memfd);
 }
 
-static void
+static int
 pipewire_output_setup_memfd(struct pipewire_output *output,
 			    struct pw_buffer *buffer,
 			    struct pipewire_memfd *memfd)
@@ -711,7 +711,10 @@ pipewire_output_setup_memfd(struct pipewire_output *output,
 	d[0].data = mmap(NULL, d[0].maxsize,
 			 PROT_READ|PROT_WRITE, MAP_SHARED,
 			 d[0].fd, d[0].mapoffset);
+	if (d[0].data == MAP_FAILED)
+		return -1;
 	buf->n_datas = 1;
+	return 0;
 }
 
 static void
@@ -770,7 +773,12 @@ pipewire_output_stream_add_buffer(void *data, struct pw_buffer *buffer)
 					    "failed to allocate MemFd buffer");
 			return;
 		}
-		pipewire_output_setup_memfd(output, buffer, memfd);
+		if (pipewire_output_setup_memfd(output, buffer, memfd) < 0) {
+			pipewire_destroy_memfd(output, memfd);
+			pw_stream_set_error(output->stream, -ENOMEM,
+					    "failed to map MemFd buffer");
+			return;
+		}
 		frame_data->memfd = memfd;
 	}
 
@@ -888,9 +896,14 @@ pipewire_destroy(struct weston_backend *base)
 
 	wl_list_remove(&b->base.link);
 
+	/* Tear down in reverse order of creation, and remove the weston event
+	 * source that wraps the pw_loop fd before destroying the loop. */
+	spa_hook_remove(&b->core_listener);
+	wl_event_source_remove(b->loop_source);
+	pw_core_disconnect(b->core);
+	pw_context_destroy(b->context);
 	pw_loop_leave(b->loop);
 	pw_loop_destroy(b->loop);
-	wl_event_source_remove(b->loop_source);
 
 	wl_list_for_each_safe(head, next, &ec->head_list, compositor_link)
 		pipewire_head_destroy(head);
