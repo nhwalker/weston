@@ -4199,3 +4199,139 @@ the grab is active: `shell_destroy()` (`desktop-shell/shell.c:4741`) does not
 end keyboard grabs, so the `switcher` allocation and its grab outlive the shell.
 
 ---
+
+### AUTH-1 — A PAM initialisation failure turns every VNC connection attempt into an `abort()`, and each attempt leaks the plaintext password
+
+**Severity: critical (unauthenticated remote denial of service).**
+`libweston/auth.c:75`
+
+This is the function `vnc_handle_auth()` (`libweston/backend-vnc/vnc.c:476`)
+calls for every VNC login attempt, i.e. it is reachable by anyone who can open a
+TCP connection to the VNC port, **before** any credential is accepted.
+
+```c
+WL_EXPORT bool
+weston_authenticate_user(const char *username, const char *password)
+{
+	bool authenticated = false;
+#ifdef HAVE_PAM
+	struct pam_conv conv = {
+		.conv = weston_pam_conv,
+		.appdata_ptr = strdup(password),      /* (1) */
+	};
+	struct pam_handle *pam;
+	int ret;
+
+	conv.appdata_ptr = strdup(password);          /* (2) overwrites (1) */
+
+	ret = pam_start("weston-remote-access", username, &conv, &pam);
+	if (ret != PAM_SUCCESS) {
+		weston_log("PAM: start failed\n");
+		goto out;
+	}
+	...
+out:
+	ret = pam_end(pam, ret);
+	assert(ret == PAM_SUCCESS);                   /* (3) */
+	free(conv.appdata_ptr);
+#endif
+	return authenticated;
+}
+```
+
+**(3) is the serious one.** On the `pam_start()` failure path, `pam` is the
+value PAM left in it. Linux-PAM's `pam_start()` sets `*pamh` to `NULL` on every
+failure weston can actually reach — `PAM_BUF_ERR` assigns the failed `calloc()`
+result, and the `PAM_ABORT` paths end in `_pam_drop(*pamh)`, which is
+`free(x); x = NULL`. `pam_end(NULL, ret)` then hits
+`IF_NO_PAMH(pamh, PAM_SYSTEM_ERR)` and returns `PAM_SYSTEM_ERR`, so
+`assert(ret == PAM_SUCCESS)` **aborts the compositor** — and asserts are live
+here (see the note at the top of this document).
+
+`pam_start()` returns `PAM_ABORT` whenever `_pam_init_handlers()` cannot build
+the stack for the service. Weston does install the service file
+(`pam/weston-remote-access`, installed to `$sysconfdir/pam.d` only when
+`backend-vnc` is enabled), but it is a two-line file that defers everything:
+
+```
+#%PAM-1.0
+auth    include login
+account include login
+```
+
+so initialisation fails if **`/etc/pam.d/login`** is absent or unreadable, if the
+service file landed under a different `sysconfdir` than the running PAM expects,
+if a module in the `login` chain cannot be loaded, or if MAC policy denies
+reading the config. Containers and minimal images routinely have no
+`/etc/pam.d/login`.
+
+The result in all of those cases: **one unauthenticated TCP connection to the
+VNC port terminates the compositor.** There is no credential check first — 
+`vnc_handle_auth()` only does a `getpwnam()`/uid comparison before calling in — 
+and the failure is silent from the attacker's side beyond the compositor
+vanishing. For a system whose availability matters, this is the highest-impact
+item in this review: no credentials, no session, and it survives no retries
+because the compositor is gone.
+
+**(1)/(2): every attempt leaks a plaintext copy of the password.** The
+initialiser's `strdup()` is overwritten by the assignment two lines later and
+that first copy is never freed. So each login attempt — successful or not, and
+attempts are unauthenticated — leaves one heap allocation containing the
+submitted password, forever. It is never zeroed either, so the accumulated
+plaintext is present in any core dump or heap inspection. The surviving copy is
+`free()`d but not scrubbed.
+
+`weston_pam_conv()` (`libweston/auth.c:37`) leaks the same secret again on its
+error path: it `free(rsp)`s but not the `rsp[j].resp` strings already
+`strdup()`ed for `j < i`.
+
+**Minimal patch:**
+
+```c
+ 	struct pam_conv conv = {
+ 		.conv = weston_pam_conv,
+-		.appdata_ptr = strdup(password),
++		.appdata_ptr = NULL,
+ 	};
+-	struct pam_handle *pam;
++	struct pam_handle *pam = NULL;
+ 	int ret;
+ 
+ 	conv.appdata_ptr = strdup(password);
++	if (!conv.appdata_ptr)
++		return false;
+ 
+ 	ret = pam_start("weston-remote-access", username, &conv, &pam);
+ 	if (ret != PAM_SUCCESS) {
+-		weston_log("PAM: start failed\n");
+-		goto out;
++		weston_log("PAM: start failed: %s\n", pam_strerror(NULL, ret));
++		goto out_free;
+ 	}
+ 	...
+ out:
+-	ret = pam_end(pam, ret);
+-	assert(ret == PAM_SUCCESS);
+-	free(conv.appdata_ptr);
++	ret = pam_end(pam, ret);
++	if (ret != PAM_SUCCESS)
++		weston_log("PAM: end failed\n");
++out_free:
++	if (conv.appdata_ptr) {
++		explicit_bzero(conv.appdata_ptr, strlen(conv.appdata_ptr));
++		free(conv.appdata_ptr);
++	}
+ #endif
+ 	return authenticated;
+```
+
+and in `weston_pam_conv()`, free the responses already built before returning
+`PAM_CONV_ERR`.
+
+Two notes in weston's favour, confirmed while checking this: the non-PAM build
+fails **closed** (`authenticated` stays `false`, so VNC auth always rejects), and
+`vnc_handle_auth()` does constrain the username to the compositor's own uid
+before calling in. Neither helps here, because the abort happens inside the
+authentication call itself.
+
+---
