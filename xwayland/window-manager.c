@@ -531,7 +531,7 @@ weston_wm_window_read_properties(struct weston_wm_window *window)
 	void *p;
 	uint32_t *xid;
 	xcb_atom_t *atom;
-	uint32_t i;
+	uint32_t i, j;
 	char name[1024];
 
 	if (!window->properties_dirty)
@@ -589,10 +589,10 @@ weston_wm_window_read_properties(struct weston_wm_window *window)
 			break;
 		case TYPE_WM_PROTOCOLS:
 			atom = xcb_get_property_value(reply);
-			for (i = 0; i < reply->value_len; i++)
-				if (atom[i] == wm->atom.wm_delete_window) {
+			for (j = 0; j < reply->value_len; j++)
+				if (atom[j] == wm->atom.wm_delete_window) {
 					window->delete_window = 1;
-				} else if (atom[i] == wm->atom.wm_take_focus) {
+				} else if (atom[j] == wm->atom.wm_take_focus) {
 					window->take_focus = 1;
 				}
 			break;
@@ -608,19 +608,25 @@ weston_wm_window_read_properties(struct weston_wm_window *window)
 		case TYPE_NET_WM_STATE:
 			window->fullscreen = 0;
 			atom = xcb_get_property_value(reply);
-			for (i = 0; i < reply->value_len; i++) {
-				if (atom[i] == wm->atom.net_wm_state_fullscreen)
+			for (j = 0; j < reply->value_len; j++) {
+				if (atom[j] == wm->atom.net_wm_state_fullscreen)
 					window->fullscreen = 1;
-				if (atom[i] == wm->atom.net_wm_state_maximized_vert)
+				if (atom[j] == wm->atom.net_wm_state_maximized_vert)
 					window->maximized_vert = 1;
-				if (atom[i] == wm->atom.net_wm_state_maximized_horz)
+				if (atom[j] == wm->atom.net_wm_state_maximized_horz)
 					window->maximized_horz = 1;
 			}
 			break;
 		case TYPE_MOTIF_WM_HINTS:
+			/* _MOTIF_WM_HINTS is client-controlled and may be
+			 * shorter than the struct; copy only what was actually
+			 * returned to avoid reading past the reply buffer. */
+			memset(&window->motif_hints, 0,
+			       sizeof window->motif_hints);
 			memcpy(&window->motif_hints,
 			       xcb_get_property_value(reply),
-			       sizeof window->motif_hints);
+			       MIN(sizeof window->motif_hints,
+			           reply->value_len * 4));
 			if (window->motif_hints.flags & MWM_HINTS_DECORATIONS) {
 				if (window->motif_hints.decorations & MWM_DECOR_ALL)
 					/* MWM_DECOR_ALL means all except the other values listed. */

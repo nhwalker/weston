@@ -495,6 +495,7 @@ vnc_client_cleanup(struct nvnc_client *client)
 	weston_seat_release_keyboard(peer->seat);
 	weston_seat_release_pointer(peer->seat);
 	weston_seat_release(peer->seat);
+	free(peer->seat);
 	free(peer);
 	weston_log("VNC Client disconnected\n");
 

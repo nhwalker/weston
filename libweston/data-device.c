@@ -1099,7 +1099,7 @@ data_device_start_drag(struct wl_client *client, struct wl_resource *resource,
 
 	if (ret < 0)
 		wl_resource_post_no_memory(resource);
-	else
+	else if (source)
 		source->seat = seat;
 }
 
@@ -1153,7 +1153,8 @@ weston_seat_send_selection(struct weston_seat *seat, struct wl_client *client)
 		if (seat->selection_data_source) {
 			offer = weston_data_source_send_offer(seat->selection_data_source,
 							      data_device);
-			wl_data_device_send_selection(data_device, offer->resource);
+			if (offer)
+				wl_data_device_send_selection(data_device, offer->resource);
 		} else {
 			wl_data_device_send_selection(data_device, NULL);
 		}

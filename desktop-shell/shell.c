@@ -1568,7 +1568,7 @@ has_keyboard_focused_child_callback(struct weston_desktop_surface *surface,
 
 	weston_desktop_surface_foreach_child(shsurf->desktop_surface,
 					     has_keyboard_focused_child_callback,
-					     &has_keyboard_focus);
+					     has_keyboard_focus);
 }
 
 static bool
