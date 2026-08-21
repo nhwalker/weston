@@ -61,6 +61,11 @@ Verified in this tree:
 | [XSEL-1](#xsel-1--clipboard-bridge-leaks-a-file-descriptor-for-every-unhandled-mime-type) | XWayland / clipboard | High | 2 | `data_source_send()` never closes the passed fd for a mime type it doesn't handle; a Wayland client can leak fds until exhaustion while an X client owns the selection |
 | [XSEL-2](#xsel-2--targets-reply-parsed-without-a-format-check) | XWayland / clipboard | Low | 2 | `TARGETS` reply atoms iterated without a `format == 32` check → out-of-bounds read from a mistyped selection reply |
 | [PW-1](#pw-1--pipewire-memfd-allocation-error-path-leaks-an-fd-and-a-struct) | PipeWire | Low | 1 | `pipewire_output_create_memfd()` leaks the fd and the struct when `ftruncate` fails; `mmap` result is also unchecked |
+| [VNC-1](#vnc-1--per-client-weston_seat-struct-is-leaked-on-every-disconnect) | VNC | Medium | 5 | `vnc_client_cleanup()` frees `peer` but not the separately-allocated `peer->seat`, leaking a seat struct on every VNC disconnect |
+| [VNC-2](#vnc-2--client-controlled-resize-with-zero-or-huge-dimensions-crashes-the-compositor) | VNC | High | 3 | A VNC client's extended-desktop-size request with a 0 or absurd dimension flows unvalidated into renderer/framebuffer allocation → abort or OOM |
+| [VNC-3](#vnc-3--vnc_new_client-dereferences-a-possibly-null-output) | VNC | High | 2 | A client connecting before the output is enabled (or after disable) dereferences `backend->output == NULL` |
+| [VNC-4](#vnc-4--assertfb-on-neatvnc-allocations-aborts-the-compositor-under-memory-pressure) | VNC | Medium | 2 | `assert(fb)` on `nvnc_fb_new`/`nvnc_fb_pool_acquire` turns an allocation failure into a compositor abort |
+| [VNC-5](#vnc-5--vnc-cursor-path-dereferences-a-stale-cursor-surface-without-validation) | VNC | Medium | 2 | `vnc_output_update_cursor()` uses a cached `cursor_surface` and its buffer without a NULL/liveness check |
 
 ## 4. Prioritisation
 
@@ -644,6 +649,202 @@ later pass can address it deliberately.
 +		free(memfd);
 +		return NULL;
 +	}
+```
+
+### VNC-1 — per-client `weston_seat` struct is leaked on every disconnect
+
+**Severity:** Medium. **Likelihood:** 5 (every VNC client disconnect).
+
+**Area:** `libweston/backend-vnc/vnc.c` `vnc_new_client()` / `vnc_client_cleanup()`.
+
+`vnc_new_client()` allocates the seat as a separate heap object:
+
+```c
+peer->seat = xzalloc(sizeof(*peer->seat));
+weston_seat_init(peer->seat, backend->compositor, seat_name);
+```
+
+but the cleanup frees only `peer`:
+
+```c
+weston_seat_release(peer->seat);
+free(peer);
+```
+
+`weston_seat_release()` (`libweston/input.c`) releases the seat's resources and
+emits its destroy signal but does **not** free the `weston_seat` struct — the
+caller owns it. So the `xzalloc`'d seat leaks on every disconnect. For a
+compositor that "accepts connections from remote VNC clients" and "runs for
+months", repeated connect/disconnect cycles leak without bound.
+
+**Patch** (`libweston/backend-vnc/vnc.c`):
+
+```diff
+ 	weston_seat_release(peer->seat);
++	free(peer->seat);
+ 	free(peer);
+```
+
+### VNC-2 — client-controlled resize with zero or huge dimensions crashes the compositor
+
+**Severity:** High (compositor abort / OOM = denial of service). **Likelihood:** 3
+(the VNC output is `resizeable` by default, and the dimensions come straight
+from the client's desktop-size request).
+
+**Area:** `libweston/backend-vnc/vnc.c` `vnc_handle_desktop_layout_event()`.
+
+```c
+uint16_t width = nvnc_desktop_layout_get_width(layout);
+uint16_t height = nvnc_desktop_layout_get_height(layout);
+...
+if (!output->resizeable)
+        return false;
+
+new_mode.width = width;
+new_mode.height = height;
+...
+weston_output_mode_set_native(&output->base, &new_mode, 1);
+```
+
+`resizeable` defaults to `true` (`frontend/main.c`), and the width/height are
+whatever the client sent (0–65535). `weston_output_mode_set_native()` does not
+validate them, so they flow into `vnc_switch_mode()` →
+`weston_renderer_resize_output()` and `nvnc_fb_pool_resize()`:
+
+- **Zero** width or height makes the framebuffer allocation degenerate; the next
+  `nvnc_fb_pool_acquire()` returns NULL and (before VNC-4) `assert(fb)` aborts.
+- **Huge** dimensions (e.g. 65535×65535) request ≈17 GB
+  (`nvnc_fb_new()` computes `height*stride*bpp`, verified in neatvnc's `fb.c`),
+  which fails and again aborts.
+
+Both are remote-triggerable crashes. Validate the requested size before applying
+it.
+
+**Patch** (`libweston/backend-vnc/vnc.c`):
+
+```diff
+ 	if (!output->resizeable)
+ 		return false;
++
++	/* Reject degenerate or absurd sizes: a zero dimension makes the
++	 * renderer/framebuffer allocation fail (and previously aborted), and
++	 * an excessive one is a memory-exhaustion request. 16384 is well
++	 * beyond any real display while keeping the allocation bounded. */
++	if (width == 0 || height == 0 || width > 16384 || height > 16384)
++		return false;
+ 
+ 	new_mode.width = width;
+```
+
+### VNC-3 — `vnc_new_client()` dereferences a possibly-NULL output
+
+**Severity:** High (NULL dereference crash). **Likelihood:** 2 (needs a client to
+connect during the window when the port is open but no output is enabled — e.g.
+briefly at start-up, or after the output is disabled).
+
+**Area:** `libweston/backend-vnc/vnc.c` `vnc_new_client()`.
+
+```c
+struct vnc_output *output = backend->output;
+...
+if (wl_list_empty(&output->peers))          /* NULL deref if output == NULL */
+        weston_output_power_on(&output->base);
+wl_list_insert(&output->peers, &peer->link);
+```
+
+`backend->output` is set only in `vnc_output_enable()` and cleared in
+`vnc_output_disable()`, but the neatvnc server begins accepting connections as
+soon as `nvnc_open()` succeeds in `vnc_backend_create()`. A client that connects
+before the output is enabled (or after it is disabled) reaches here with
+`backend->output == NULL` and crashes.
+
+**Patch** — refuse such a client via `nvnc_client_close()` (present in the
+neatvnc API) instead of dereferencing NULL:
+
+```diff
+ 	struct vnc_output *output = backend->output;
+ 	struct vnc_peer *peer;
+ 	const char *seat_name = "VNC Client";
+ 
++	if (!output) {
++		weston_log("VNC: client connected with no active output\n");
++		nvnc_client_close(client);
++		return;
++	}
++
+ 	weston_log("New VNC client connected\n");
+```
+
+### VNC-4 — `assert(fb)` on neatvnc allocations aborts the compositor under memory pressure
+
+**Severity:** Medium (compositor abort). **Likelihood:** 2 (allocation failure,
+explicitly in scope given "tight resource limits").
+
+**Area:** `libweston/backend-vnc/vnc.c` `vnc_update_buffer()`,
+`vnc_output_update_cursor()`.
+
+```c
+fb = nvnc_fb_pool_acquire(output->fb_pool);
+assert(fb);                     /* aborts when neatvnc allocation fails */
+...
+fb = nvnc_fb_new(buffer->width, buffer->height, DRM_FORMAT_ARGB8888, buffer->width);
+assert(fb);
+```
+
+`nvnc_fb_new()` returns NULL when its `aligned_alloc` fails (verified in
+neatvnc's `fb.c`), and `nvnc_fb_pool_acquire()` propagates that NULL. Since
+`assert()` is compiled in (section 2), an ordinary allocation failure aborts the
+whole compositor instead of skipping a frame.
+
+**Patch** — skip the frame/cursor update instead of asserting
+(`libweston/backend-vnc/vnc.c`):
+
+```diff
+ 	fb = nvnc_fb_pool_acquire(output->fb_pool);
+-	assert(fb);
++	if (!fb)
++		return;
+```
+```diff
+ 	fb = nvnc_fb_new(buffer->width, buffer->height, DRM_FORMAT_ARGB8888,
+ 			 buffer->width);
+-	assert(fb);
++	if (!fb)
++		return;
+```
+
+### VNC-5 — VNC cursor path dereferences a stale `cursor_surface` without validation
+
+**Severity:** Medium (NULL dereference; possibly use-after-free). **Likelihood:** 2
+(needs a client that changes/destroys its cursor surface while the cursor plane
+is damaged). **Confidence:** the NULL-buffer dereference is certain; the
+use-after-free of a destroyed surface is plausible but I did not construct the
+exact damage-timing trigger, so it is scored as hardening.
+
+**Area:** `libweston/backend-vnc/vnc.c` `vnc_output_update_cursor()`.
+
+```c
+cursor_surface = output->cursor_surface;
+buffer = cursor_surface->buffer_ref.buffer;     /* no NULL / liveness check */
+
+fb = nvnc_fb_new(buffer->width, buffer->height, ...);
+```
+
+`output->cursor_surface` is set in `vnc_output_assign_cursor_plane()` and is
+**never** cleared or guarded by a destroy listener. On a later repaint,
+`vnc_output_update_cursor()` uses it (and its `buffer`) directly when the cursor
+plane is damaged. If the surface has since committed a NULL buffer, `buffer` is
+NULL and `buffer->width` dereferences NULL; if the surface was destroyed, the
+pointer is stale. Add a validity check (the complete fix for the stale-pointer
+case would also add a destroy listener that clears `cursor_surface`).
+
+**Patch** (`libweston/backend-vnc/vnc.c`):
+
+```diff
+ 	cursor_surface = output->cursor_surface;
++	if (!cursor_surface || !cursor_surface->buffer_ref.buffer)
++		return;
+ 	buffer = cursor_surface->buffer_ref.buffer;
 ```
 
 ## 6. Coverage ledger
