@@ -137,6 +137,10 @@ pixman_renderer_read_pixels(struct weston_output *output,
 		height,
 		pixels,
 		(PIXMAN_FORMAT_BPP(format->pixman_format) / 8) * width);
+	if (!out_buf) {
+		errno = ENOMEM;
+		return -1;
+	}
 
 	pixman_image_composite32(PIXMAN_OP_SRC,
 				 po->hw_buffer, /* src */

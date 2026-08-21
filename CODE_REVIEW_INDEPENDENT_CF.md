@@ -71,6 +71,18 @@ Verified in this tree:
 | [TXT-1/2](#txt-12--input-method-key-and-modifiers-dereference-a-null-keyboard) | desktop-shell / text | Medium | 2 | `input_method_context_key`/`_modifiers` dereference `weston_seat_get_keyboard()` without a NULL check |
 | [IP-1](#ip-1--repeated-input-panel-placement-double-inserts-a-list-link) | desktop-shell | High | 2 | Repeated `set_toplevel`/`set_overlay_panel` double-inserts the same link, corrupting the input-panel surfaces list |
 | [IP-2](#ip-2--bind_input_panel-uses-an-unchecked-wl_resource_create) | desktop-shell | Low | 1 | `bind_input_panel()` dereferences a possibly-NULL `wl_resource_create()` result |
+| [XDG-1](#xdg-1--xdg_wm_baseget_popup-dereferences-a-defunct-parent-xdg_surface) | xdg-shell | High | 2 | `get_popup` dereferences the parent's NULL `user_data` when the parent is a defunct role object |
+| [XDG-2](#xdg-2--zxdg_shell_v6-get_popup-dereferences-a-defunct-parent-at-entry) | xdg-shell (v6) | High | 2 | v6 `get_popup` dereferences a defunct parent at function entry |
+| [XDG-3](#xdg-3--popup-parent-pointer-dangles-after-the-parent-surface-is-destroyed-use-after-free) | xdg-shell | Critical | 2 | `popup->parent` is never cleared when the parent surface is destroyed → use-after-free on grab/reposition/commit |
+| [XDG-4](#xdg-4--write-after-free-when-add_resource-fails-oom) | xdg-shell | Low | 1 | On `add_resource` failure the surface is freed, then written/read through — write-after-free |
+| [XDG-5](#xdg-5--unchecked-tablet-tool-grab-allocation) | xdg-shell | Medium | 1 | Unchecked `zalloc` for a tablet-tool popup grab → NULL dereference under memory pressure |
+| [XNB-1](#xnb-1--x11-fullscreen-flag-not-cleared-when-the-host-wm-lacks-_net_wm_state_fullscreen) | x11 | Medium | 2 | `b->fullscreen` stays set after the "no WM support" guard, so the fullscreen map-wait runs and can hang |
+| [XNB-2](#xnb-2--strlen-over-a-non-nul-terminated-root-property-reads-out-of-bounds) | x11 | Medium | 2 | `strlen()` over `_XKB_RULES_NAMES` runs before the bounds check → OOB read on a non-terminated property |
+| [XNB-3](#xnb-3--x11_output_wait_for_map-dereferences-null-and-leaks-events) | x11 | Medium | 1 | `xcb_wait_for_event()` NULL (connection loss) is dereferenced; events are also leaked every iteration |
+| [XNB-4](#xnb-4--assert-on-a-non-conforming-host-event-stream-aborts-the-compositor) | x11 | Low | 1 | `assert(response_type == XCB_KEYMAP_NOTIFY)` aborts if the host X server doesn't follow FocusIn with KeymapNotify |
+| [XNB-5](#xnb-5--xcb_intern_atom_reply-dereferenced-without-a-null-check) | x11 | Medium | 1 | `xcb_intern_atom_reply()` NULL (connection loss) is dereferenced during resource setup |
+| [XNB-6](#xnb-6--x11-output-size-has-no-maximum-integer-overflow-in-shm-allocation) | x11 | Low | 1 | `x11_output_set_size()` enforces no maximum, allowing an integer overflow in the SHM allocation |
+| [PIX-1](#pix-1--pixman-read_pixels-does-not-null-check-the-destination-image) | renderer | Low | 1 | `pixman_renderer_read_pixels()` composites into an unchecked `pixman_image_create_bits()` result |
 
 ## 4. Prioritisation
 
@@ -975,6 +987,55 @@ first `wl_list_remove` is a safe no-op).
 +		return;
 +	}
 ```
+
+### XNB-1 — x11 fullscreen flag not cleared when the host WM lacks `_NET_WM_STATE_FULLSCREEN`
+
+**Severity:** Medium. **Likelihood:** 2. **Area:** `libweston/backend-x11/x11.c`.
+`b->fullscreen` is latched before the "no WM support" guard, which only zeroes
+`config->fullscreen` (never read again). So fullscreen stays enabled, and
+`x11_output_wait_for_map()` can hang forever waiting for a `ConfigureNotify` a
+WM-less server never sends. Fix: add `b->fullscreen = 0;` in the guard.
+
+### XNB-2 — `strlen()` over a non-NUL-terminated root property reads out of bounds
+
+**Severity:** Medium. **Likelihood:** 2. **Area:** `x11_backend_get_keymap()`.
+The `copy_prop_value` macro runs `strlen(value_part)` before its bounds test, so
+a `_XKB_RULES_NAMES` root property lacking a trailing NUL over-reads the xcb
+reply (libxcb allocates `32 + length*4`, no NUL). Any host X client can set it;
+re-read on every `PropertyNotify`. Fix: bound the scan with `strnlen`.
+
+### XNB-3 — `x11_output_wait_for_map()` dereferences NULL and leaks events
+
+**Severity:** Medium. **Likelihood:** 1. `xcb_wait_for_event()` returns NULL on
+connection loss and is dereferenced with no check; the loop also never frees
+`event`. Fix: `if (!event) return;` and `free(event)` each iteration.
+
+### XNB-4 — assert on a non-conforming host event stream aborts the compositor
+
+**Severity:** Low. **Likelihood:** 1. `assert(response_type == XCB_KEYMAP_NOTIFY)`
+(compiled in) aborts if the host sends FocusIn not followed by KeymapNotify.
+Fix: bail gracefully and process the current event normally.
+
+### XNB-5 — `xcb_intern_atom_reply` dereferenced without a NULL check
+
+**Severity:** Medium. **Likelihood:** 1. `reply->atom` is read with no NULL check
+during `x11_backend_get_resources()`; the reply is NULL on connection loss. `b`
+is zalloc'd so leaving the atom 0 is safe. Fix: guard the store with `if (reply)`.
+
+### XNB-6 — x11 output size has no maximum → integer overflow in SHM allocation
+
+**Severity:** Low. **Likelihood:** 1. `x11_output_set_size()` checks only the
+lower bound (unlike `x11_output_switch_mode()`), so `width*height*4` in `shmget`
+can overflow. Fix: add the `WINDOW_MAX_WIDTH/HEIGHT` checks (macros exist).
+
+### PIX-1 — pixman `read_pixels` does not NULL-check the destination image
+
+**Severity:** Low. **Likelihood:** 1. `pixman_image_create_bits()` can return
+NULL but was passed straight to `pixman_image_composite32()` (sibling routines
+guard it). Fix: `if (!out_buf) { errno = ENOMEM; return -1; }`.
+
+*(The unified diffs for XNB-1…6 and PIX-1 are in the commits that introduce
+them; each patch is the minimal change described above.)*
 
 ## 6. Coverage ledger
 

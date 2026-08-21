@@ -218,12 +218,19 @@ x11_backend_get_keymap(struct x11_backend *b)
 	length_all = xcb_get_property_value_length(reply);
 	value_part = value_all;
 
+	/* The property is a sequence of NUL-separated strings, but a
+	 * malicious/malformed client can set it without a trailing NUL. Bound
+	 * the scan to the remaining bytes so strlen() cannot read past the
+	 * reply. */
 #define copy_prop_value(to) \
-	length_part = strlen(value_part); \
-	if (value_part + length_part < (value_all + length_all) && \
-	    length_part > 0) \
-		names.to = value_part; \
-	value_part += length_part + 1;
+	if (value_part < value_all + length_all) { \
+		length_part = strnlen(value_part, \
+				      (value_all + length_all) - value_part); \
+		if (value_part + length_part < (value_all + length_all) && \
+		    length_part > 0) \
+			names.to = value_part; \
+		value_part += length_part + 1; \
+	}
 
 	copy_prop_value(rules);
 	copy_prop_value(model);
@@ -666,6 +673,10 @@ x11_output_wait_for_map(struct x11_backend *b, struct x11_output *output)
 
 	while (!mapped || !configured) {
 		event = xcb_wait_for_event(b->conn);
+		/* NULL means the X connection was lost; stop waiting rather
+		 * than dereferencing NULL. */
+		if (!event)
+			return;
 		response_type = event->response_type & ~0x80;
 
 		switch (response_type) {
@@ -688,6 +699,8 @@ x11_output_wait_for_map(struct x11_backend *b, struct x11_output *output)
 			configured = 1;
 			break;
 		}
+
+		free(event);
 	}
 }
 
@@ -1149,13 +1162,13 @@ x11_output_set_size(struct weston_output *base, int width, int height)
 	/* Make sure we have scale set. */
 	assert(output->base.current_scale);
 
-	if (width < WINDOW_MIN_WIDTH) {
+	if (width < WINDOW_MIN_WIDTH || width > WINDOW_MAX_WIDTH) {
 		weston_log("Invalid width \"%d\" for output %s\n",
 			   width, output->base.name);
 		return -1;
 	}
 
-	if (height < WINDOW_MIN_HEIGHT) {
+	if (height < WINDOW_MIN_HEIGHT || height > WINDOW_MAX_HEIGHT) {
 		weston_log("Invalid height \"%d\" for output %s\n",
 			   height, output->base.name);
 		return -1;
@@ -1570,7 +1583,15 @@ x11_backend_handle_event(int fd, uint32_t mask, void *data)
 			}
 
 		case XCB_FOCUS_IN:
-			assert(response_type == XCB_KEYMAP_NOTIFY);
+			/* A conforming X server always follows FocusIn with a
+			 * KeymapNotify. Don't abort the compositor if a broken
+			 * or malicious host server does not: drop the held
+			 * FocusIn and process the current event normally. */
+			if (response_type != XCB_KEYMAP_NOTIFY) {
+				free(b->prev_event);
+				b->prev_event = NULL;
+				break;
+			}
 			keymap_notify = (xcb_keymap_notify_event_t *) event;
 			b->keys.size = 0;
 			for (i = 0; i < ARRAY_LENGTH(keymap_notify->keys) * 8; i++) {
@@ -1806,8 +1827,13 @@ x11_backend_get_resources(struct x11_backend *b)
 
 	for (i = 0; i < ARRAY_LENGTH(atoms); i++) {
 		reply = xcb_intern_atom_reply (b->conn, cookies[i], NULL);
-		*(xcb_atom_t *) ((char *) b + atoms[i].offset) = reply->atom;
-		free(reply);
+		/* NULL on a broken X connection; leave the atom as 0 rather
+		 * than dereferencing NULL. */
+		if (reply) {
+			*(xcb_atom_t *) ((char *) b + atoms[i].offset) =
+				reply->atom;
+			free(reply);
+		}
 	}
 
 	pixmap = xcb_generate_id(b->conn);
@@ -1923,6 +1949,10 @@ x11_backend_create(struct weston_compositor *compositor,
 		weston_log("Can not fullscreen without window manager support"
 			   "(need _NET_WM_STATE_FULLSCREEN)\n");
 		config->fullscreen = 0;
+		/* b->fullscreen was already latched from config->fullscreen
+		 * above; clear it too, otherwise the fullscreen output path
+		 * (which waits for a configure that never comes) still runs. */
+		b->fullscreen = 0;
 	}
 
 	b->formats_count = ARRAY_LENGTH(x11_formats);
