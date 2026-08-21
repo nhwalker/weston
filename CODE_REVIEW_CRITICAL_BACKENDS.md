@@ -17,7 +17,7 @@ critical software, with a minimal suggested patch for each.
 
 ## Summary
 
-56 findings. Ordered by ID; severity is the practical impact on a system where
+57 findings. Ordered by ID; severity is the practical impact on a system where
 the compositor must not crash, hang, corrupt memory, or silently produce a wrong
 image. IDs `IMG-*`, `SEL-*`, `DND-*`, `DD-1`, `ATOM-1`, `DXW-1`, `DS-6`, `XWL-6`,
 `XWL-7` and `XWL-8` come from the second pass, which extended coverage from the
@@ -33,6 +33,7 @@ named components into the code they call into.
 | [X11-6](#x11-6--out-of-bounds-read-parsing-_xkb_rules_names) | x11 | medium | Out-of-bounds read parsing `_XKB_RULES_NAMES` |
 | [X11-7](#x11-7--integer-overflow-in-x11_output_set_icon--heap-buffer-overflow) | x11 | low-med | Integer overflow in `x11_output_set_icon()` |
 | [X11-8](#x11-8--assorted-leaks-on-the-x11-backend-teardown--error-paths) | x11 | low | Teardown / error-path leaks |
+| [AUTH-1](#auth-1--a-pam-initialisation-failure-turns-every-vnc-connection-attempt-into-an-abort-and-each-attempt-leaks-the-plaintext-password) | VNC | **critical** | PAM init failure makes an unauthenticated VNC connection `abort()` the compositor; password leaked per attempt |
 | [VNC-1](#vnc-1--struct-weston_seat-is-leaked-on-every-vnc-client-disconnect) | VNC | high | `struct weston_seat` leaked on every client disconnect |
 | [VNC-2](#vnc-2--use-after-free-of-output-peers-when-the-compositor-shuts-down-with-clients-connected) | VNC | high | Write-after-free of `output->peers` at shutdown with a client connected |
 | [VNC-3](#vnc-3--remote-peers-choose-the-output-resolution-with-no-validation) | VNC | high | Remote peer picks the output resolution unvalidated (0 and 65535 accepted) |
@@ -145,30 +146,86 @@ error paths, and unbounded size arithmetic — with each hit read in context and
 verified. It is real coverage, but it is not equivalent to a line-by-line read:
 a logic error that does not match one of those shapes would not be caught.
 
-### Still not covered
+### Coverage ledger — what has NOT been deep-scanned
 
-This is the honest remaining surface for these configurations, roughly ranked by
-how much untrusted input reaches it:
+Recorded so a later pass can pick up exactly where this one stopped. "Deep scan"
+means read line by line with candidate findings verified against the source.
+Everything below is either unread or covered only by the pattern sweep described
+above, and is listed **worst-exposure-first** — how much untrusted input reaches
+it, not how big it is.
 
-| Area | Lines | Why it matters here |
+Line counts are for the base commit (`1a9149c`).
+
+#### Tier 1 — client- or peer-facing, not deep-scanned
+
+| File | Lines | Read? | What a pass should look for |
+| --- | --- | --- | --- |
+| `libweston/desktop/xdg-shell.c` | 1766 | pattern sweep only | Every shell client's protocol surface. Configure/ack serial bookkeeping (`configure_list` grows unboundedly if a client never acks — noted, not written up), popup grab transfer, positioner arithmetic, `set_window_geometry` clamping |
+| `libweston/desktop/xdg-shell-v6.c` | 1542 | **never opened** | Deprecated but still compiled and bindable by any client. Likely carries pre-fix variants of anything found in `xdg-shell.c` |
+| `libweston/input.c` | 6029 | pattern sweep + ~8 functions | Seat/pointer/keyboard resource lifetime, all grab implementations, pointer constraints (`zwp_pointer_constraints_v1` region decomposition has 12 asserts on client-influenced geometry — inspected, not proven safe), relative pointer, tablet |
+| `libweston/data-device.c` | 1396 | ~200 lines read (DD-1) | Drag grab implementations (pointer/touch/tablet), DnD action negotiation, offer lifetime. The Wayland half of the clipboard SEL-1…4 bridge to |
+| `frontend/text-backend.c` | 1121 | **never opened** | Loaded by desktop-shell (`text_backend_init()`); implements `zwp_text_input_v1`/`zwp_input_method_v1`. Same unprivileged-global concern as DS-5 |
+| `libweston/linux-dmabuf.c` | 1146 | **never opened** | Client-supplied dmabuf attributes (fd count, strides, offsets, modifiers). Reached by x11+GL, VNC+GL, PipeWire+GL |
+| `libweston/renderer-gl/gl-renderer.c` | 4910 | capture + shm-upload paths read; rest pattern sweep | Buffer import/attach for dmabuf and shm, texture lifetime, shader/program cache, fence handling |
+| `libweston/compositor.c` | 10512 | ~15 functions read | Surface/view/subsurface lifetime, damage and transform maths, `wl_surface`/`wl_subsurface`/`wl_region` protocol handlers, output/head bookkeeping beyond the parts CORE-1…3 touch |
+| `libweston/clipboard.c` | 308 | **never opened** | The in-compositor clipboard manager; sits directly on the SEL-1…4 path |
+| `libweston/content-protection.c` | 350 | **never opened** | Client-facing `weston_content_protection` protocol |
+| `libweston/linux-explicit-synchronization.c` | 287 | **never opened** | Client-supplied sync fds; enabled by the x11 backend when the renderer supports it |
+
+#### Tier 2 — config- or environment-facing, not deep-scanned
+
+| File | Lines | Read? | What a pass should look for |
+| --- | --- | --- | --- |
+| `frontend/main.c` | 4838 | ~8 functions read | `weston.ini` parsing and output configuration for all three backends; the mirror-of/`native_mode` paths behind CORE-1 |
+| `shared/config-parser.c` | 619 | **never opened** | Backs every `weston.ini` value, including the ones feeding PW-4 and X11-7 |
+| `shared/cairo-util.c` | 712 | theme + `load_cairo_surface()` read | Rest of the theme/shadow rendering used by XWayland decorations |
+| `shared/frame.c` | 1080 | ~700 lines read | Untouched: lines 1–250 and 800–960 (button construction, touch/pointer button state machines) |
+| `shared/matrix.c` | 582 | **never opened** | Transform maths on the repaint path for every backend |
+| `shared/os-compatibility.c` | 441 | **never opened** | `os_create_anonymous_file()` etc., used by the PipeWire and screenshot paths |
+| `shared/hash.c` | 309 | **never opened** | Backs the XWM's window hash — every X window id an attacker creates lands here |
+| `shared/process-util.c` | 271 | **never opened** | `custom_env_*`, used to build the Xwayland argv/env in XWL-8's neighbourhood |
+
+#### Tier 3 — reached but lower exposure, not deep-scanned
+
+| File | Lines | Notes |
 | --- | --- | --- |
-| `libweston/desktop/*` (xdg-shell) | ~5,900 | Every desktop-shell client surface goes through it |
-| `libweston/renderer-gl/*` | ~6,900 | The GL path for all three backends |
-| `libweston/compositor.c` | ~10,500 | Surface/view/paint-node lifetime, damage, transforms — spot-read only |
-| `libweston/input.c` | ~6,000 | Seats, grabs, focus — spot-read only |
-| `libweston/data-device.c` | ~1,400 | Wayland side of the clipboard SEL-1…4 bridge to |
-| `frontend/main.c` | ~4,800 | Config and output configuration — spot-read only |
-| `frontend/xwayland.c`, `xwayland/launcher.c` | ~690 | Xwayland process and socket setup |
-| `xwayland/dnd.c` | ~250 | Same "X11 property parsed on trust" shape as XWL-2 |
-| `libweston/linux-dmabuf.c`, `animation.c`, `bindings.c`, `shared/config-parser.c`, `shared/hash.c` | ~3,100 | Reached from the paths above |
-| `desktop-shell/shell.c` grabs, switcher, fullscreen/maximize paths | ~2,500 | Roughly half of `shell.c` remains unread |
+| `libweston/desktop/seat.c` | 605 | Popup grab bookkeeping; asserts swept, logic not read |
+| `libweston/desktop/surface.c` | 913 | Lines 460–798 and 840–913 unread |
+| `libweston/desktop/client.c`, `libweston-desktop.c` | 510 | Pattern sweep only |
+| `libweston/pixman-renderer.c` | 1232 | ~50% read; untouched: helpers/region ops (100–330), `flush_damage`/buffer-destroy (700–770) |
+| `xwayland/window-manager.c` | 3378 | ~70% read. Untouched: cursor loading and `weston_wm_window_set_cursor` (197–500, 2168–2267), `send_configure_notify` (700–742), WM state/frame-extents setters (1050–1149), map/unmap notify (1306–1366), `weston_wm_create`/`destroy` (2838–2972), and the `send_*` shim functions (2972–3270) |
+| `desktop-shell/shell.c` | 5017 | ~45% read. Untouched: **940–2780** (move/resize/rotate/touch/tablet grabs, busy cursor, `desktop_surface_added`/`removed`/`committed`, fullscreen/maximize/minimize, black surfaces, fades) and **3130–4140** (all the key/button/touch bindings, activation, workspace and lock/unlock handling) |
+| `xwayland/launcher.c` | 420 | fd-pattern sweep only; socket setup and `-listen` handling unread |
+| `libweston/animation.c` | 552 | Drives the shell fades touched by DS-4 |
+| `libweston/bindings.c` | 631 | Dispatches every binding, including XWL-3's `Super+K` |
+| `libweston/timeline.c`, `weston-log*.c` | ~2100 | Logging/tracing; reached whenever a debug scope is subscribed |
+| `libweston/pixel-formats.c`, `drm-formats.c`, `vertex-clipping.c` | 1758 | Format tables and clipping maths behind PW-4 and the renderers |
+| `libweston/color*.c` | ~3200 | Colour management; `color-noop.c` is the default path |
+| `libweston/id-number-allocator.c`, `plugin-registry.c`, `log.c`, `launcher-util.c`, `weston-direct-display.c`, `linux-sync-file.c`, `gl-borders.c` | ~900 | Small support files |
+| `libweston/renderer-gl/egl-glue.c`, `gl-shaders.c`, `gl-shader-config-color-transformation.c` | 2002 | EGL setup and shader generation |
+| `frontend/systemd-notify.c`, `config-helpers.c`, `executable.c` | 296 | Startup plumbing |
 
-Also noted, but **not** counted as a finding because it is only reachable from
-`clients/window.c` and not from the compositor: `frame_tablet_tool_motion()`
-(`shared/frame.c:1019`) dereferences `tool_pointer` twice before its own
-`if (!tool_pointer)` check. Its sibling `frame_pointer_motion()`
-(`shared/frame.c:724`) — which *is* on the XWayland path — orders the check
-correctly.
+#### Confirmed out of reach for these configurations
+
+Checked and excluded rather than skipped: `libweston/libinput-device.c`,
+`libinput-seat.c`, `launcher-libseat.c` (native/DRM session only),
+`libweston/noop-renderer.c` (headless), `libweston/touch-calibration.c` (needs a
+touch device; none of x11/VNC/PipeWire provide one),
+`frontend/screen-share.c` (only with the RDP-based screen-share module),
+`libweston/spring-tool.c` (standalone tool).
+
+#### Suggested order for a follow-up pass
+
+1. `libweston/desktop/xdg-shell.c` + `xdg-shell-v6.c` — the largest untouched
+   client-facing protocol surface, and v6 has had far fewer eyes on it.
+2. `frontend/text-backend.c` — an unprivileged client-facing global, the exact
+   shape that produced DS-5.
+3. `libweston/linux-dmabuf.c` — client-supplied buffer geometry, the same trust
+   boundary as CORE-3.
+4. `libweston/data-device.c` drag grabs — completes the clipboard/DnD picture
+   started by SEL-1…4, DND-1…2 and DD-1.
+5. `desktop-shell/shell.c` 940–2780 — the grab implementations, which is where
+   DS-2 and DS-6 both came from.
 
 Out of scope by request throughout: DRM / headless / RDP / wayland backends,
 kiosk-shell, ivi-shell, fullscreen-shell.
@@ -4203,7 +4260,7 @@ end keyboard grabs, so the `switcher` allocation and its grab outlive the shell.
 ### AUTH-1 — A PAM initialisation failure turns every VNC connection attempt into an `abort()`, and each attempt leaks the plaintext password
 
 **Severity: critical (unauthenticated remote denial of service).**
-`libweston/auth.c:75`
+`libweston/auth.c:78`
 
 This is the function `vnc_handle_auth()` (`libweston/backend-vnc/vnc.c:476`)
 calls for every VNC login attempt, i.e. it is reachable by anyone who can open a
@@ -4281,7 +4338,7 @@ submitted password, forever. It is never zeroed either, so the accumulated
 plaintext is present in any core dump or heap inspection. The surviving copy is
 `free()`d but not scrubbed.
 
-`weston_pam_conv()` (`libweston/auth.c:37`) leaks the same secret again on its
+`weston_pam_conv()` (`libweston/auth.c:38`) leaks the same secret again on its
 error path: it `free(rsp)`s but not the `rsp[j].resp` strings already
 `strdup()`ed for `j < i`.
 
