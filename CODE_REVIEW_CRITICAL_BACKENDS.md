@@ -484,7 +484,7 @@ buffer.
 +	if (length_part > 0) \
 +		names.to = value_part; \
 +	value_part = nul + 1; \
-+} while (0);
++} while (0)
 ```
 
 ---
@@ -1206,8 +1206,10 @@ and in `pipewire_output_setup_memfd()`:
 +	return true;
 ```
 
+`pipewire_output_setup_memfd()` has to change from `void` to `bool` for this,
 with `pipewire_output_stream_add_buffer()` propagating the failure the same way
 it already does for the allocation failures (`pw_stream_set_error()`).
+`pipewire_output_setup_dmabuf()` deserves the same treatment for symmetry.
 
 ---
 
@@ -2232,8 +2234,7 @@ does not corrupt the list.
  	resource = wl_client_get_object(wm->server->client, id);
 -	if (resource) {
 +	if (resource &&
-+	    wl_resource_instance_of(resource, &wl_surface_interface,
-+				    weston_surface_interface_ptr())) {
++	    strcmp(wl_resource_get_class(resource), "wl_surface") == 0) {
  		window->surface_id = 0;
  		xserver_map_shell_surface(window,
  					  wl_resource_get_user_data(resource));
@@ -2247,9 +2248,11 @@ does not corrupt the list.
 
 The `wl_list_remove()` before the insert is the belt-and-braces part and is the
 one-line fix for the hang on its own (`window->link` is always initialised by
-`weston_wm_window_create()`, so removing an unlinked node is safe). If the
-`wl_surface` implementation pointer is awkward to reach from here, at minimum
-compare `wl_resource_get_class(resource)` against `"wl_surface"`.
+`weston_wm_window_create()`, so removing an unlinked node is safe). The class
+comparison is used rather than `wl_resource_instance_of()` because the
+`wl_surface` implementation pointer is private to `libweston/compositor.c`;
+exporting a `weston_surface_from_resource()`-style helper and using
+`wl_resource_instance_of()` would be the stronger fix.
 
 ---
 
