@@ -3833,3 +3833,216 @@ stays attached to `surface->surface->views` and participates in rendering
 unpositioned.
 
 ---
+
+### DND-1 — `handle_enter()` decodes a forged `XdndEnter` with no reply, format, or seat checks
+
+**Severity: high (NULL dereference from any X client).**
+`xwayland/dnd.c:114`
+
+`weston_wm_handle_dnd_event()` runs **before** the main dispatcher for every
+`ClientMessage`, so any X client can drive `handle_enter()` by sending an
+`XdndEnter` with attacker-chosen contents.
+
+```c
+	struct weston_seat *seat = weston_wm_pick_seat(wm);
+	struct weston_pointer *pointer = weston_seat_get_pointer(seat);
+	...
+	source->window = client_message->data.data32[0];
+	source->version = client_message->data.data32[1] >> 24;
+
+	if (client_message->data.data32[1] & 1) {
+		cookie = xcb_get_property(wm->conn, 0, source->window,
+					  wm->atom.xdnd_type_list,
+					  XCB_ATOM_ANY, 0, 2048);
+		reply = xcb_get_property_reply(wm->conn, cookie, NULL);
+		types = xcb_get_property_value(reply);      /* reply may be NULL */
+		length = reply->value_len;                  /* NULL dereference */
+	}
+	...
+	weston_pointer_start_drag(pointer, &source->base, NULL, NULL);
+```
+
+Three separate unchecked values:
+
+1. **`reply` is not checked for `NULL`.** `source->window` is
+   `data32[0]` — entirely attacker-chosen. Naming a window id that does not
+   exist makes the `GetProperty` fail with `BadWindow`, so
+   `xcb_get_property_reply()` returns `NULL` and `reply->value_len`
+   dereferences it. This is a two-line X client: intern `XdndEnter`, send a
+   `ClientMessage` with bit 0 of `data32[1]` set and `data32[0] = 0xdeadbeef`.
+2. **`reply->format` is not checked.** `types` is walked as `uint32_t[]` for
+   `reply->value_len` entries. If the property was stored with `format = 8`,
+   `value_len` counts *bytes*, so the loop reads four times past the buffer —
+   the same defect as XWL-2, and here every `types[i]` is then fed to
+   `get_atom_name()`.
+3. **`pointer` is not checked.** `weston_wm_pick_seat()`
+   (`xwayland/window-manager.c:1759`) returns `NULL` when there are no seats,
+   and `weston_seat_get_pointer(NULL)` returns `NULL`, so
+   `weston_pointer_start_drag(NULL, …)` dereferences it. Identical shape to
+   SEL-3.
+
+`source` (and its `mime_types` array) is also leaked on every path that does not
+reach `weston_pointer_start_drag()` successfully.
+
+**Minimal patch:**
+
+```c
+ 	struct weston_seat *seat = weston_wm_pick_seat(wm);
+ 	struct weston_pointer *pointer = weston_seat_get_pointer(seat);
+ 	...
++	if (!pointer)
++		return;
++
+ 	source = zalloc(sizeof *source);
+ 	if (source == NULL)
+ 		return;
+@@
+ 		reply = xcb_get_property_reply(wm->conn, cookie, NULL);
+-		types = xcb_get_property_value(reply);
+-		length = reply->value_len;
++		if (!reply || reply->format != 32) {
++			free(reply);
++			free(source);
++			return;
++		}
++		types = xcb_get_property_value(reply);
++		length = reply->value_len;
+ 	} else {
+```
+
+---
+
+### DND-2 — Drag-and-drop and clipboard share one `wm->data_source_fd`, and neither closes the previous one
+
+**Severity: medium-high (fd leak plus silently broken transfers).**
+`xwayland/dnd.c:104`, `xwayland/selection.c:161`
+
+```c
+/* xwayland/dnd.c — data_source_send() */
+	fcntl(fd, F_SETFL, O_WRONLY | O_NONBLOCK);
+	wm->data_source_fd = fd;
+```
+
+```c
+/* xwayland/selection.c — data_source_send() */
+		fcntl(fd, F_SETFL, O_WRONLY | O_NONBLOCK);
+		wm->data_source_fd = fd;
+```
+
+Both writers store into the *same* `struct weston_wm` field, and neither closes
+whatever was there before. Consequences:
+
+* a second `wl_data_offer.receive()` before the first transfer completes leaks
+  the first fd and strands its transfer — `wm->property_source` keeps polling
+  an fd nothing will ever finish writing (this is the second half of SEL-1);
+* a drag-and-drop transfer and a clipboard paste in flight at the same time
+  clobber each other, so one of the two silently delivers nothing while its fd
+  leaks. Since the two live in different files with no shared locking or state
+  machine, nothing detects the collision.
+
+The DnD side has no MIME-type filter at all, so unlike SEL-1 it does not leak on
+unmatched types — it leaks on *concurrency* instead.
+
+**Minimal patch** — factor the assignment so both callers go through one helper
+that closes the previous transfer:
+
+```c
++/* xwayland/xwayland-internal.h */
++void weston_wm_set_data_source_fd(struct weston_wm *wm, int fd);
++
++/* xwayland/selection.c */
++void
++weston_wm_set_data_source_fd(struct weston_wm *wm, int fd)
++{
++	if (wm->data_source_fd >= 0) {
++		if (wm->property_source)
++			wl_event_source_remove(wm->property_source);
++		wm->property_source = NULL;
++		close(wm->data_source_fd);
++	}
++	wm->data_source_fd = fd;
++	if (fd >= 0)
++		fcntl(fd, F_SETFL, O_WRONLY | O_NONBLOCK);
++}
+```
+
+used from both `data_source_send()` implementations.
+
+---
+
+### ATOM-1 — `get_atom_name()` leaks the XCB error on every failed lookup
+
+**Severity: medium (unbounded heap growth on an X-client-driven path).**
+`shared/xcb-xwayland.c:39`
+
+```c
+const char *
+get_atom_name(xcb_connection_t *c, xcb_atom_t atom)
+{
+	xcb_get_atom_name_cookie_t cookie;
+	xcb_get_atom_name_reply_t *reply;
+	xcb_generic_error_t *e;
+	static char buffer[64];
+
+	if (atom == XCB_ATOM_NONE)
+		return "None";
+
+	cookie = xcb_get_atom_name(c, atom);
+	reply = xcb_get_atom_name_reply(c, cookie, &e);
+
+	if (reply) {
+		snprintf(buffer, sizeof buffer, "%.*s", ...);
+	} else {
+		snprintf(buffer, sizeof buffer, "(atom %u)", atom);
+	}
+
+	free(reply);
+	return buffer;
+}
+```
+
+`e` receives a heap-allocated `xcb_generic_error_t` whenever the lookup fails
+(`BadAtom`), and it is **never freed** — only `reply` is.
+
+The reachable path is `weston_wm_handle_selection_request()`
+(`xwayland/selection.c:581`), which calls it **three times per request,
+unconditionally** — these are `weston_log()` calls, not debug-gated:
+
+```c
+	weston_log("selection request, %s, ",
+		get_atom_name(wm->conn, selection_request->selection));
+	weston_log_continue("target %s, ",
+		get_atom_name(wm->conn, selection_request->target));
+	weston_log_continue("property %s\n",
+		get_atom_name(wm->conn, selection_request->property));
+```
+
+Combined with SEL-4 — a `SelectionRequest` can be forged with `XSendEvent`, so
+all three atom fields are attacker-chosen — an X client that sends requests
+naming values that are not valid atoms leaks three allocations per request, plus
+three synchronous X round trips. Neither is bounded and neither is logged as an
+error.
+
+**Minimal patch:**
+
+```c
+ 	reply = xcb_get_atom_name_reply(c, cookie, &e);
+ 
+ 	if (reply) {
+ 		snprintf(buffer, sizeof buffer, "%.*s",
+ 			 xcb_get_atom_name_name_length(reply),
+ 			 xcb_get_atom_name_name(reply));
+ 	} else {
+ 		snprintf(buffer, sizeof buffer, "(atom %u)", atom);
++		free(e);
+ 	}
+ 
+ 	free(reply);
+```
+
+Note also that `buffer` is `static`: the returned pointer is only valid until the
+next call. Every current caller consumes it immediately, but two
+`get_atom_name()` calls in one expression would silently alias — worth a comment
+on the declaration at minimum.
+
+---
