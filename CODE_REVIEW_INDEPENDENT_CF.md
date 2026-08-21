@@ -89,6 +89,12 @@ Verified in this tree:
 | [DD-4](#dd-4--weston_seat_send_selection-dereferences-a-null-offer-on-oom) | data-device | Low | 1 | `weston_seat_send_selection()` dereferences a NULL offer when the offer allocation fails |
 | [CB-1](#cb-1--clipboard-manager-buffers-a-selection-without-bound) | clipboard | Medium | 2 | The internal clipboard manager buffers a selection with no size limit → memory exhaustion |
 | [CB-2](#cb-2--clipboard-array-growth-underflows-on-oom-wild-write) | clipboard | High | 1 | On `wl_array_add` OOM the size underflows and the following `read()` becomes an out-of-bounds write |
+| [XWM-3](#xwm-3--synthetic-maprequest-for-an-already-mapped-window-aborts-the-compositor) | XWayland | High | 2 | A forged (XSendEvent) MapRequest for an already-mapped window hits `assert(!window->shsurf)` → abort |
+| [XWM-4](#xwm-4--transient_for-dangles-after-the-referenced-window-is-destroyed-use-after-free) | XWayland | High | 2 | `window->transient_for` is never cleared when the referenced window is destroyed → use-after-free |
+| [XWM-5](#xwm-5--reparentnotify-to-root-creates-a-duplicate-hash-entry) | XWayland | Medium | 2 | `weston_wm_window_create()` inserts a duplicate hash entry (leaking the old struct) for an already-known window |
+| [XWM-6](#xwm-6--assert-aborts-when-frame-creation-fails) | XWayland | High | 1 | `assert(window->frame_id != XCB_WINDOW_NONE)` aborts when `frame_create()` fails under memory pressure |
+| [XWM-7](#xwm-7--xfixes-version-reply-dereferenced-without-a-null-check) | XWayland | Medium | 1 | `xcb_xfixes_query_version_reply()` NULL (extension absent / connection loss) is dereferenced at startup |
+| [XWM-8](#xwm-8--dump_property-out-of-bounds-reads-debug-scope-only) | XWayland | Low | 0 | `dump_property()` reads property values without validating length/format (only with the debug log scope enabled) |
 
 ## 4. Prioritisation
 
@@ -1188,6 +1194,93 @@ len = read(fd, p, size);                              /* out-of-bounds write */
 `wl_array_add()` returns NULL without changing `size` on allocation failure, so
 the unconditional `size -= 1024` underflows and the subsequent `read()` writes
 out of bounds. Fix: check the return and abort the capture on NULL.
+
+### XWM-3 — synthetic MapRequest for an already-mapped window aborts the compositor
+
+**Severity:** High (compositor abort). **Likelihood:** 2 (a malicious/buggy X
+client). **Area:** `xwayland/window-manager.c` `weston_wm_handle_map_request()`.
+
+The handler assumes MapRequest only arrives for X-unmapped windows
+(`assert(!window->shsurf)`), but the event dispatcher masks the synthetic bit
+(`EVENT_TYPE = response_type & ~SEND_EVENT_MASK`), so a client can forge a
+MapRequest with `XSendEvent` for a window it has already mapped (`shsurf` set) —
+`assert` then aborts. Unlike `weston_wm_handle_unmap_notify`, the map handler
+doesn't filter synthetic events. Fix: treat an already-mapped window as a no-op
+(dismiss the duplicate) instead of asserting.
+
+```diff
+-	assert(!window->shsurf);
++	if (window->shsurf)
++		return;
+```
+
+### XWM-4 — `transient_for` dangles after the referenced window is destroyed (use-after-free)
+
+**Severity:** High (use-after-free). **Likelihood:** 2 (an X client destroys a
+window that another window is transient for). **Area:**
+`xwayland/window-manager.c`.
+
+`window->transient_for` is a raw `weston_wm_window *` resolved in
+`read_properties()`. `weston_wm_window_destroy()` frees a window but never clears
+other windows' `transient_for` pointers to it, and the pointer is dereferenced
+later (`transient_for->override_redirect`, `->surface`) when deciding the parent
+of a toplevel — a use-after-free. Fix: on destroy, sweep the window hash and NULL
+any `transient_for` that references the window being freed.
+
+```diff
++static void
++weston_wm_window_clear_transient_for(void *element, void *data)
++{
++	struct weston_wm_window *window = element;
++	if (window->transient_for == data)
++		window->transient_for = NULL;
++}
+ ...
++	hash_table_for_each(wm->window_hash,
++			    weston_wm_window_clear_transient_for, window);
+```
+
+### XWM-5 — ReparentNotify-to-root creates a duplicate hash entry
+
+**Severity:** Medium (memory leak + hash corruption). **Likelihood:** 2 (an X
+client reparents an already-known window to root, or forges the event). **Area:**
+`xwayland/window-manager.c` `weston_wm_window_create()`.
+
+`weston_wm_window_create()` unconditionally allocates and
+`hash_table_insert()`s. `hash_table_insert()` does not replace an existing key —
+it inserts a second entry with the same id, leaking the previous `weston_wm_window`
+and corrupting lookups. The `ReparentNotify(parent==root)` handler calls create
+for an id that may already be tracked. Fix: skip creation if the id already
+exists.
+
+```diff
++	if (wm_lookup_window(wm, id, &window))
++		return;
+ 	window = zalloc(sizeof *window);
+```
+
+### XWM-6 — assert aborts when frame creation fails
+
+**Severity:** High (compositor abort). **Likelihood:** 1 (allocation failure).
+**Area:** `xwayland/window-manager.c`. `weston_wm_window_create_frame()` returns
+without setting `frame_id` when `frame_create()` (which allocates) fails; the
+MapRequest path then hits `assert(window->frame_id != XCB_WINDOW_NONE)`. Fix:
+bail out of the map (log + return) instead of asserting.
+
+### XWM-7 — XFIXES version reply dereferenced without a NULL check
+
+**Severity:** Medium (crash at XWM startup). **Likelihood:** 1 (XFIXES absent, or
+connection loss). **Area:** `xwayland/window-manager.c`. The code logs "xfixes
+not available" but then unconditionally dereferences
+`xcb_xfixes_query_version_reply()`, which is NULL in exactly that case. Fix:
+guard the deref/free with `if (xfixes_reply)`.
+
+### XWM-8 — `dump_property` out-of-bounds reads (debug-scope only)
+
+**Severity:** Low. **Likelihood:** 0 (only with the XWM debug log scope enabled,
+which is off by default). **Area:** `xwayland/window-manager.c` `dump_property()`.
+The `INCR`, `ATOM` and `WINDOW` branches read fixed-size values without validating
+`value_len`/`format`. Same class as XWM-2; guarded for completeness.
 
 ## 6. Coverage ledger
 
