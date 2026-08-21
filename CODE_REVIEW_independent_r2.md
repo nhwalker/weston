@@ -491,8 +491,13 @@ direction:** `wl_client_post_no_memory` and return on NULL, as elsewhere.
 ### DESK-1 — `weston_view` leaked on child-view allocation failure — Documented
 
 **Severity:** single bounded `weston_view` leak. **Likelihood:** 1 — OOM.
-`surface.c:385-410` (`create_desktop_view`): on the child-view allocation failure
-path the already-created view is not destroyed. Low impact (one view, OOM-only).
+`weston_desktop_surface_create_desktop_view` (`surface.c:385`) creates a
+`weston_view` (`wview`) and wraps it in a `weston_desktop_view` whose `parent`
+stays NULL. If a child-view allocation then fails (`surface.c:405-409`) it calls
+`weston_desktop_view_destroy(view)`, but that function only destroys the
+underlying view when `view->parent != NULL` (`surface.c:139-140`) — so for this
+parent-less view the `weston_view` leaks (only the wrapper struct is freed). Low
+impact (one view, OOM-only).
 
 <a name="vnc-4"></a>
 ### VNC-4 — `assert(fb)` on `nvnc_fb_new` in cursor update — Documented
@@ -552,6 +557,14 @@ direct reading (or none). This is called out explicitly below.
 - `desktop-shell/shell.c` **lines 1-2600** — the `shell-1` finder covered this
   half (SHELL-1). Build/config facts confirmed in `meson.build`,
   `meson_options.txt`, `pam/meson.build`, `shared/weston-assert.h`.
+- `xwayland/selection.c` — fd-lifecycle **swept directly** (the `xwl-selection`
+  finder agent had failed): the X→Wayland write path (`writable_callback`,
+  `weston_wm_write_property`, `weston_wm_get_incr_chunk`) and the field
+  `data_source_fd` were traced. Event sources are consistently removed before
+  their handle is nulled, and INCR completion closes the fds. **No verified defect
+  found.** One asymmetry was investigated and *not* reported (see §7). The
+  Wayland→X read path (`weston_wm_read_data_source`, ~400-490) and INCR-send were
+  read but not exhaustively traced.
 
 ### NOT reached (finder agent hit the session limit; needs a later pass)
 
@@ -562,10 +575,9 @@ These areas were **not reviewed** and should be the focus of a follow-up:
   (`set_background`/`set_panel`/`set_lock_surface`/`desktop_ready`), screensaver,
   the on-screen keyboard. *A later pass should look for lifetime bugs on client
   disconnect and unchecked protocol arguments.*
-- `xwayland/selection.c`, `xwayland/dnd.c`, `xwayland/launcher.c` — X↔Wayland
-  clipboard/DnD bridging and the Xwayland launcher. *High-risk: INCR transfer fd
-  lifetime (leaks/double-close), pipe/read/write error handling, and the
-  launcher's fork/exec/socketpair fd handling. This is the most important gap.*
+- `xwayland/dnd.c`, `xwayland/launcher.c` — X↔Wayland DnD bridging and the
+  Xwayland launcher. *High-risk: the launcher's fork/exec/socketpair fd handling
+  and DnD fd lifetime — not reviewed (finder agent failed).*
 - `frontend/xwayland.c`, `libweston/desktop/xwayland.c` — Xwayland server
   supervision and the desktop xwayland surface shim. *Look for fd leaks across
   respawn and surface state-machine bugs.*
@@ -604,6 +616,14 @@ These areas were **not reviewed** and should be the focus of a follow-up:
   node onto the plane *this frame* — and that same call sets `cursor_surface`.
   Plane assignment resets every frame, so `cursor_surface` and the cursor plane stay
   consistent within a frame; the stale value is never read.
+- **`selection.c` `data_source_fd` not reset to `-1` after the write-path close**
+  (`selection.c:87, 144`), unlike the read path (`486-487`). Investigated as a
+  potential double-close / operation-on-closed-fd. **Rejected as a reportable
+  finding:** the write and read directions are separate selection cycles, the
+  read direction always re-initializes `data_source_fd` via `weston_wm_send_data`
+  (`511`) before any `>= 0` guard (`536`) or close (`486`) is reached, and no
+  second close path for the write direction exists. It is a hygiene inconsistency,
+  not a proven bug, so it is not scored as a finding.
 - **Missing `/etc/pam.d/weston-remote-access` crashes VNC auth.** Investigated as a
   container-deployment crash. **Rejected:** modern Linux-PAM reads the service
   config lazily at `pam_authenticate`, so a missing file makes `pam_authenticate`
