@@ -1,12 +1,20 @@
 # Weston 14.0.2 — independent correctness & reliability review
 
-**Status: IN PROGRESS — findings are being added incrementally as they are verified.**
+**Status: COMPLETE — 53 findings confirmed and patched; each patch
+compile-checked against this tree.**
 
 - Base commit: `1a9149c` (branch `14.0`, weston 14.0.2)
 - Reviewer: independent second-pass review (no access to any prior review of this tree)
 - Deployment model assumed: long-running (months), supervised restart, remote VNC
   clients (possibly unauthenticated/malformed), XWayland with untrusted-quality X
   clients, possibly containerised with minimal `/etc` and tight resource limits.
+- Method: each in-scope area was read directly, swept by an independent reader,
+  and every candidate defect was adversarially re-verified against the source
+  before being accepted. Library-dependent claims were checked against the actual
+  upstream source of libwayland, pixman, libxcb, neatvnc, PipeWire and Linux-PAM
+  (not from memory). Each finding was fixed with a minimal patch, committed
+  individually, and compiled against a build with the x11/VNC/PipeWire backends,
+  desktop-shell and XWayland enabled.
 
 ## 1. Scope
 
@@ -117,27 +125,57 @@ Verified in this tree:
 
 ## 4. Prioritisation
 
-Reachable in normal operation (likelihood 3–5) — fix first:
+53 findings were confirmed and patched. All patches were compile-checked against
+this tree (a build with the x11, VNC and PipeWire backends, desktop-shell and
+XWayland). They are grouped below by the requester's likelihood scale.
 
-- **AUTH-1** fires on *every* VNC authentication attempt. It is a small
-  per-attempt leak, but it is unbounded over the lifetime of a
-  months-long deployment that accepts remote VNC connections, and the
-  leaked bytes contain a plaintext password. Trivial fix.
+### Tier A — reachable in normal operation (likelihood 3–5): fix first
 
-Hardening (likelihood 1–2):
+- **AUTH-1** (L5) — leaks a plaintext-password-sized allocation on *every* VNC
+  authentication attempt; unbounded over a months-long remote-facing deployment.
+- **VNC-1** (L5) — leaks a whole `weston_seat` struct on *every* VNC client
+  disconnect; unbounded with churning remote clients.
+- **PW-4** (L5) — leaks `pw_core`/`pw_context` and mis-orders loop teardown on
+  every PipeWire backend shutdown.
+- **VNC-2** (L3) — a remote VNC client's desktop-resize with a zero or absurd
+  dimension aborts/OOMs the compositor (the VNC output is resizeable by default).
+- **SHELL-2** (L3) — closing a mapped window whose view has no output NULL-derefs.
+- **XLA-1** (L3) — a start-up lockfile/socket failure frees `wxs` while its
+  destroy-listener stays linked → use-after-free/double-free at teardown.
 
-- **CORE-1** is the highest-*severity* item (OOB read reachable by any
-  buggy/malicious Wayland or XWayland client that sends a malformed SHM
-  buffer; OOB write reachable by an authorised capture client). It does not
-  fire in normal operation because well-behaved clients always send a
-  correct stride, but for a team shipping into safety-critical software it
-  is the one to fix regardless, because the blast radius is memory
-  corruption and information disclosure and the fix is a single central
-  check.
-- **AUTH-2** turns a PAM allocation failure into a compositor `abort()`.
-  Given the deployment explicitly may run "with tight resource limits", an
-  OOM at exactly the wrong moment during a remote auth attempt takes the
-  whole compositor down.
+These are the ones that bite without any attacker: ordinary disconnects,
+shutdowns, resizes, and start-up races.
+
+### Tier B — hardening: needs a misbehaving client / malformed protocol / allocation failure (likelihood 1–2)
+
+This is the bulk of the review and, for a compositor exposed to remote VNC
+clients and untrusted X11/Wayland clients, the most security-relevant tier. It
+splits by blast radius:
+
+- **Memory corruption (highest severity):** CORE-1 (SHM stride OOB read/write),
+  DD-2 (drag cancel type confusion), SHELL-1 (fade-curtain type confusion),
+  XWM-4 (`transient_for` UAF), XDG-3 (popup-parent UAF), DND-2 (XdndTypeList OOB
+  read), CB-2 (clipboard OOM wild write). XDG-3 is scored Critical severity.
+- **Remote/untrusted-client crash (NULL deref / abort):** VNC-3, VNC-4, VNC-5,
+  XWM-3, XWM-6, XDG-1, XDG-2, DD-1, DD-3, DND-1, DND-3, SEL-1, SEL-2, SEAT-1,
+  SEAT-2, XSH-1, AUTH-2.
+- **Out-of-bounds reads from malformed input:** XWM-2, XNB-2, XSEL-2.
+- **Resource leaks / exhaustion:** XSEL-1 (fd exhaustion), CB-1 (clipboard
+  memory exhaustion), XWM-5 (duplicate-hash leak), SEAT-5, PW-1, PW-2, XLA-4.
+- **x11-backend robustness (nested-on-host):** XNB-1, XNB-3, XNB-4, XNB-5, XNB-6.
+- **Other allocation/teardown safety:** TXT-1, TXT-2, IP-1, IP-2, XDG-4, XDG-5,
+  XLA-2, XLA-3, SHELL-3, SHELL-4, CAP-2, SEAT-3, PIX-1.
+
+### Tier C — latent (likelihood 0)
+
+- **XWM-8** — `dump_property()` OOB reads only fire when the (off-by-default) XWM
+  debug log scope is enabled. Fixed for completeness.
+
+**Recommended order:** Tier A first (they are certain and the fixes are
+trivial), then the Tier B memory-corruption group (most attractive to a remote
+attacker), then the remaining Tier B crash/leak items, then Tier C. Because the
+whole set is already patched here, the practical action is review-and-merge in
+that order.
 
 ## 5. Findings
 
@@ -1508,13 +1546,196 @@ asserting.
 
 ## 6. Coverage ledger
 
-*(pending — will state per file: read fully / read reachable parts (with
-unread ranges) / pattern-swept / confirmed unreachable / not reviewed)*
+Method: the named in-scope files plus the code they reach were read directly;
+each area was additionally swept by an independent reader agent, and every
+candidate defect was then adversarially re-verified against the source (and, for
+library-dependent claims, against the actual upstream source of libwayland,
+pixman, libxcb, neatvnc, PipeWire and Linux-PAM). Depth per file:
+
+**Read in full (entry points and the code they reach traced):**
+
+- `libweston/auth.c` — full (small).
+- `libweston/backend-vnc/vnc.c` — full, including resize, cursor, fb-pool, and
+  backend init/destroy paths.
+- `libweston/output-capture.c` — full.
+- `libweston/screenshooter.c` — full (legacy path established as reachable only
+  via the `weston_recorder` Super+R keybinding; `weston_screenshooter_shoot` has
+  no in-tree caller — see rejected candidates).
+- `frontend/weston-screenshooter.c` — full.
+- `xwayland/selection.c`, `xwayland/dnd.c`, `xwayland/launcher.c` — full.
+- `frontend/xwayland.c`, `libweston/desktop/xwayland.c` — full.
+- `libweston/clipboard.c` — full.
+- `desktop-shell/input-panel.c`, `frontend/text-backend.c` — full.
+- `shared/xcb-xwayland.c` — full.
+
+**Read in the parts reachable from the in-scope entry points (large files):**
+
+- `libweston/backend-x11/x11.c` (2039 lines) — input/keymap, output setup and
+  resize, resource/atom setup, and the fullscreen map-wait were read; the DRI/GL
+  buffer-presentation helpers used only with the GL renderer were pattern-swept,
+  not line-by-line.
+- `libweston/backend-pipewire/pipewire.c` — stream lifecycle, buffer add/remove,
+  memfd/dmabuf setup, fence and submit paths, backend init/destroy read; the
+  format-negotiation pod-building read at the level needed to judge the buffer
+  paths.
+- `xwayland/window-manager.c` (3378 lines) — event dispatch, property reads,
+  map/unmap/reparent, frame and window lifetime, selection/DnD triggers read;
+  the cursor-loading and some drawing helpers were pattern-swept.
+- `desktop-shell/shell.c` (5017 lines) — surface/view lifetime, focus/activate,
+  fullscreen/black-view and fade curtains, output/shell_output handling, and the
+  work-area/background/panel paths read; the workspace-switching animation and
+  binding-registration boilerplate were pattern-swept.
+- `libweston/desktop/xdg-shell.c`, `xdg-shell-v6.c`, `seat.c` — the popup/toplevel
+  lifecycle and grab/positioner paths read; `surface.c`, `libweston-desktop.c`,
+  `client.c` read at the level needed to confirm the parent/child and
+  add_resource lifetimes.
+- `libweston/data-device.c` — drag/selection/offer lifecycle read in full; the
+  DnD grab motion/axis handlers pattern-swept.
+- `libweston/input.c` (large) — pointer/touch/keyboard/tablet focus and grab
+  lifetime, seat capability, relative-pointer and pointer-constraint paths, and
+  the tablet resource lifecycle read; the keymap/xkb plumbing pattern-swept.
+- `libweston/compositor.c` — `weston_buffer_from_resource`, surface attach/commit,
+  and buffer/output lifetime read for CORE-1 and the surrounding sinks; the file
+  as a whole (~9000+ lines) was not read end-to-end.
+- `libweston/pixman-renderer.c` — attach, capture, read_pixels and resize read in
+  full; the shadow/border compositing helpers pattern-swept.
+
+**Pattern-swept (searched for specific defect classes, not read line-by-line):**
+
+- `shared/os-compatibility.c`, `shared/config-parser.c`, `shared/process-util.c`,
+  `shared/hash.c`, `shared/file-util.c`, `shared/string-helpers.h`,
+  `shared/xalloc.h` — swept for fd/close, integer-overflow, OOM, and list/hash
+  defects. Findings from this sweep were rejected (see §7); the abort-on-OOM
+  behaviour of `xalloc` is a deliberate project policy, not a defect.
+
+**Confirmed unreachable / out of scope in this configuration (excluded, with reason):**
+
+- `libweston/backend-drm/`, `backend-headless/`, `backend-rdp/`, `backend-wayland/`
+  — out of scope; not built in the reviewed configuration.
+- `kiosk-shell/`, `ivi-shell/`, `fullscreen-shell/` — out of scope.
+- `clients/` — out of scope (sample clients).
+- `libweston/noop-renderer.c` — not selectable at runtime for the in-scope
+  backends.
+- `libweston/color-*` , `content-protection.c`, `linux-explicit-synchronization.c`
+  — reachable in principle but not exercised by the in-scope backends' core paths;
+  not reviewed.
+
+**Not reached (a later pass should look here):**
+
+- `libweston/renderer-gl/` capture and SHM/dmabuf upload paths. This review built
+  and reasoned about the **pixman** renderer; CORE-1 (SHM stride) was fixed
+  centrally in `weston_buffer_from_resource`, which covers both renderers, but the
+  GL renderer's own `read_pixels`/FBO capture and texture upload were not read.
+  A follow-up should check the GL capture path for the same NULL-return and
+  bounds questions raised by PIX-1 and CORE-1.
+- `libweston/input.c` xkb/keymap-fd handling and the tablet-*tool* (as opposed to
+  the tablet device) resource paths beyond SEAT-3/5.
+- `desktop-shell/shell.c` workspace animation internals.
 
 ## 7. Rejected candidates
 
-*(pending)*
+Candidates that were investigated and found **not** to be defects (recording them
+so they are not re-derived):
+
+- **VNC resize leaves a stale renderbuffer in a pooled `nvnc_fb`.** Rejected:
+  neatvnc's `nvnc_fb_pool_resize()` calls `nvnc_fb_pool__destroy_fbs()` (unref'ing
+  every cached fb, which runs weston's `weston_renderbuffer_unref` cleanup), and
+  `nvnc_fb_pool_release()` refuses to re-pool a fb whose dimensions don't match —
+  so no fb carries a stale renderbuffer across a resize. (Verified in neatvnc
+  0.7.1 `src/fb_pool.c`.)
+- **CAP-1: `weston_capture_task` freed across an async boundary (use-after-free).**
+  Rejected for the in-scope renderers: the pixman (and GL non-writeback) capture
+  path pulls, services and retires each task synchronously inside
+  `repaint_output`, with no client-event dispatch interleaved, so the
+  `wl_buffer`-destroy handler cannot fire mid-service. The async boundary only
+  exists for DRM writeback, which is out of scope.
+- **CAP-3: legacy `weston_screenshooter_shoot` copies with `buffer->stride`
+  against a `malloc` sized differently.** The function has **no in-tree caller**
+  (`weston-screenshooter` uses the modern `weston_capture_v1` protocol via
+  `output-capture.c`), so it is latent (likelihood 0). Where it *would* matter,
+  the client buffer still passes through `weston_buffer_from_resource`, so CORE-1's
+  central stride check covers it.
+- **SEAT-4: `pointer_constraint_surface_committed` "clears then re-sets
+  `hint_is_pending`".** Rejected: the `= false; = true;` pair is a redundant dead
+  write, and the net result (`hint_is_pending` stays true) is *required* by the
+  unlock-warp path (the `constraint->hint_is_pending && ...` check that warps the
+  pointer to `constraint->hint` when a lock is disabled). Changing it to `= false`
+  would break the cursor-position-hint feature. Not a reliability defect.
+- **PW-3: PipeWire fence list not drained on teardown.** The omission is real but
+  the harmful consequence is unreachable in scope (the fence path is GL-only and
+  the fence entries are drained by their own event source before teardown).
+- **`shared/os-compatibility.c` `set_cloexec_or_close` / `os_ro_anonymous_file_put_fd`.**
+  The `close(-1)` and the "no close on the READONLY-sealed path" are both correct
+  by construction (the caller has already taken ownership of the returned fd).
+- **`shared/hash.c` "hash collisions insert duplicate keys".** By design the
+  32-bit value *is* the key; the only in-tree user (XWM) uses unique window XIDs.
+  (The genuinely reachable duplicate-*id* problem is XWM-5, fixed at the caller.)
+- **`shared/config-parser.c` section/`strtod`-overflow handling** and
+  **`shared/process-util.c` env-string parsing** — checked and found correct /
+  bounded.
+- **`shared/*` and elsewhere: `xalloc`/`abort_oom` on OOM.** These are the
+  project's deliberate abort-on-OOM policy (`shared/xalloc.h`), not defects. This
+  review only flagged OOM handling where the code uses a *nullable* allocator
+  (`malloc`/`zalloc`/`wl_resource_create`/library calls) and then dereferences the
+  result — those are the real bugs (e.g. IP-2, DD-4, XDG-4, PIX-1).
 
 ## 8. Cross-cutting patterns / defect taxonomy
 
-*(pending)*
+The 53 findings are mostly instances of seven recurring mistakes. Because they
+repeat, the durable fix in several cases is a shared helper or a policy, not just
+the per-site patches landed here.
+
+1. **Reachable `assert()` on external or allocation conditions → abort.**
+   `assert()` and `weston_assert_*` are compiled in (§2), yet they guard
+   conditions driven by clients, the host X server, or allocation failure:
+   AUTH-2, VNC-2, VNC-4, XWM-3, XWM-6, XNB-4, SEL-1, SHELL-3, XSH-1. Each turns a
+   recoverable condition into a compositor `abort()`. *Durable fix:* treat
+   `assert` as "impossible internal invariant only"; audit every reachable assert
+   in the in-scope backends and replace those an external actor or OOM can trigger
+   with graceful handling.
+
+2. **X11 replies/properties read with unchecked type / format / length.** The X
+   client controls a property's type, format and length, and `xcb_*_reply()`
+   returns NULL on connection error, but the code reads fixed-size or fixed-format
+   values: XWM-2, XWM-7, XWM-8, XNB-2, XNB-5, XSEL-2, DND-1, DND-2, SEL-2, XSH-1.
+   *Durable fix:* a small "read this property as N 32-bit atoms / as a bounded
+   string" helper that validates `reply != NULL`, `format`, and length once.
+
+3. **NULL return from a nullable allocator/factory dereferenced.** `malloc`/
+   `zalloc`, `wl_resource_create`, `pixman_image_create_bits`, `create_view`,
+   `weston_data_source_send_offer`, `mmap`, and `xcb_*_reply` can all return
+   NULL: PIX-1, XNB-3, XNB-5, XWM-7, DD-4, IP-2, XLA-2, XDG-4, XDG-5, SEAT-1,
+   SEAT-2, CB-2, PW-2. (Distinct from the deliberate abort-on-OOM `xalloc`
+   helpers, which are fine.)
+
+4. **Raw cached pointer to an object with an independent lifetime → use-after-free.**
+   A pointer to another object is cached without a destroy listener to clear it:
+   XWM-4 (`transient_for`), XDG-3 (`popup->parent`), DD-3 (`data_source->offer`),
+   CAP-2 (`client_destroy_listener`), XLA-1 (destroy-listener vs freed `wxs`).
+   *Durable fix:* prefer re-resolving through a tracked owner (as XDG-3 now does
+   via `weston_desktop_surface_get_parent`) or register a destroy listener that
+   nulls the cache.
+
+5. **Type confusion through a shared identity tag.** A function pointer is used as
+   a type tag while the associated private data has different concrete types:
+   SHELL-1 (`black_surface_committed` shared by the fullscreen black view and the
+   fade curtain), DD-2 (pointer/touch drag branches crossed). *Durable fix:* give
+   distinct object kinds distinct commit/identity functions.
+
+6. **Unbounded consumption driven by client-controlled sizes/counts.** CB-1
+   (clipboard buffered without limit), XSEL-1 (one fd leaked per `receive` with an
+   unhandled mime → fd exhaustion), VNC-2 (client-chosen output size), CORE-1
+   (client-chosen stride). *Durable fix:* validate/cap every size, count and fd
+   lifetime that originates from a client before allocating against it.
+
+7. **Error-path leaks and ownership confusion.** Early returns that skip cleanup,
+   or two owners freeing the same object: XLA-1 (double owner), XLA-4 (partial
+   free + dangling pointer), PW-1, SEAT-5, XSEL-1, XNB-3, XWM-5. *Durable fix:*
+   single-owner discipline and `goto`-based unwinding on error paths.
+
+The largest single risk concentration is **XWayland** (window-manager, selection,
+DnD, launcher): it parses a large amount of attacker-controlled X protocol in the
+compositor process, and patterns 1–4 all recur there. If triage time is limited,
+the XWayland findings (XWM-*, DND-*, SEL-*, XLA-*, XSH-1) plus CORE-1 and the
+data-device/xdg-shell memory-corruption items give the most risk reduction per
+fix.
