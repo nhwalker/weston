@@ -1,7 +1,12 @@
 # Weston 14.0.2 — independent security & correctness review
 
-**Status: in progress.** This document is being filled in as findings are
-confirmed. The PR is intentionally opened early so the team can watch it grow.
+**Status: complete.** 34 findings (23 with full write-ups, 11 in the hardening
+table), each verified against the base commit; every `file:line` citation was
+re-checked at the end. Third-party behaviour was verified against upstream source
+(libxcb reply sizing, libwayland `wl_shm` stride validation, Linux-PAM
+`pam_start`/`pam_end`) rather than recalled. The compositor core swept clean of
+confirmed findings in the ranges read (see the coverage ledger for what that does
+and does not cover).
 
 ## 1. Scope, base, and build-configuration facts
 
@@ -49,44 +54,107 @@ directly rather than assumed:
 
 ## 2. Findings index
 
-_Filled in as findings are confirmed; more to come._
+Confidence is stated per finding in section 4. Severity and likelihood are scored
+independently. "Gated" = reachable only behind screenshot authorization (see CAP-1).
 
 | ID | Area | Severity | Likelihood | Summary |
 |----|------|----------|-----------|---------|
-| [VNC-1](#vnc-1--weston_authenticate_user-leaks-a-plaintext-password-copy-on-every-call) | VNC / PAM auth | Medium | 2 | `weston_authenticate_user()` calls `strdup(password)` twice; the first copy of the plaintext password is leaked on every VNC auth attempt |
-| [VNC-2](#vnc-2--a-failed-pam_start-aborts-the-compositor) | VNC / PAM auth | High | 1 | A failed `pam_start()` leaves `pam` NULL; `pam_end(NULL)` returns `PAM_SYSTEM_ERR` and the following `assert()` calls `abort()` |
-| [VNC-3](#vnc-3--per-client-weston_seat-is-leaked-on-every-vnc-client-disconnect) | VNC backend | High | 4 | `vnc_client_cleanup()` frees `peer` but not the separately-allocated `peer->seat`; a full `struct weston_seat` leaks on every disconnect |
-| [PW-1](#pw-1--unchecked-mmap-in-pipewire-memfd-setup-map_failed-used-as-render-target) | PipeWire backend | High | 2 | `mmap()` result in `pipewire_output_setup_memfd()` is not checked; `MAP_FAILED` becomes the render target and repaint writes to `(void*)-1` |
-| [PW-2](#pw-2--memfd-and-fd-leaked-on-error-paths-in-pipewire_output_create_memfd) | PipeWire backend | Medium | 2 | On `memfd_create`/`ftruncate` failure the `memfd` struct (and, for `ftruncate`, the open fd) leak |
-| [DS-1](#ds-1--repeated-input-panel-role-requests-corrupt-the-surface-list-into-an-infinite-loop) | desktop-shell | High | 2 | `set_toplevel`/`set_overlay_panel` re-insert the same list node with no guard; the list becomes self-referential and `show_input_panels()` hangs |
-| [DS-2](#ds-2--nested-child-keyboard-focus-is-lost-through-a-bool-vs-bool-mistake) | desktop-shell | Low | 3 | `has_keyboard_focused_child_callback()` passes `&has_keyboard_focus` (a `bool**`) on recursion, so focus of grandchild+ surfaces is never recorded |
+| VNC-1 | VNC / PAM auth | Medium | 2 | `weston_authenticate_user()` `strdup(password)` twice; first plaintext-password copy leaks on every VNC auth attempt |
+| VNC-2 | VNC / PAM auth | High | 1 | Failed `pam_start()` → `pam` NULL → `pam_end(NULL)` returns error → `assert()` `abort()`s |
+| VNC-3 | VNC backend | High | 4 | `vnc_client_cleanup()` frees `peer` but not `peer->seat`; a full `weston_seat` leaks on every disconnect |
+| PW-1 | PipeWire backend | High | 2 | Unchecked `mmap()`; `MAP_FAILED` becomes the render target → crash on repaint |
+| PW-2 | PipeWire backend | Medium | 2 | `memfd`/fd leaked on `memfd_create`/`ftruncate` error paths |
+| DS-1 | desktop-shell | High | 2 | Repeated input-panel role request `wl_list_insert`s the same node twice → self-referential list → `show_input_panels()` hangs |
+| DS-2 | desktop-shell | Low | 3 | `has_keyboard_focused_child_callback()` passes a `bool**` on recursion; nested-child focus never recorded |
+| X11-1 | x11 backend | High | 2 | Forged synthetic `FocusIn` → `assert(response_type == XCB_KEYMAP_NOTIFY)` → `abort()` |
+| XWM-1 | XWayland WM | High | 2 | Property parser trusts `format==32`; a format-8 `WM_PROTOCOLS`/`_NET_WM_STATE` → ~24 KB OOB heap read |
+| XWM-2 | XWayland WM | Medium | 2 | `_MOTIF_WM_HINTS` `memcpy`s a fixed 20 bytes with no length clamp → OOB read |
+| XWM-3 | XWayland WM | Medium | 3 | Inner property loops reuse the outer counter `i` → properties skipped / replies transiently leaked |
+| XWM-4 | XWayland WM | Low | 2 | Zero-length `WINDOW`/`ATOM`/`CARDINAL` properties dereferenced without a length check → OOB read |
+| DND-1 | XWayland DnD | High | 2 | `XdndEnter` dereferences a NULL `xcb_get_property_reply` (bad window) and reads the type list OOB |
+| DD-1 | data-device | High | 3 | `wl_data_device.start_drag` with a (legal) NULL source → `source->seat = seat` NULL deref |
+| SEL-1 | XWayland selection | High | 2 | X→Wayland `data_source_send` leaks the client fd for any mime ≠ `text/plain;charset=utf-8` → fd exhaustion |
+| CLIP-1 | Wayland clipboard | High | 1 | Read-error path leaves the event source armed → repeated `unref` → premature free / UAF |
+| CAP-1 | screen capture | High | 1 (gated) | Capture never validates buffer stride; a `stride < width*bpp` shm buffer → OOB write |
+| CAP-2 | screen capture | High | 1 (gated) | GL async capture holds a raw `weston_capture_task` pointer the client can free mid-flight → UAF |
+| XLA-1 | XWayland launcher | Medium | 2 | Xwayland spawn failure doesn't remove the listen-socket sources → 100% CPU busy-loop |
+| XDG-1 | xdg-shell | High | 2 | `get_popup` dereferences a NULL parent (defunct parent xdg_surface) |
+| XDG-2 | xdg-shell | High | 2 | Pending configure fires after `xdg_toplevel.destroy` → `xdg_toplevel_send_configure(NULL)` |
+| XDG-3 | xdg-shell | High | 2 | Popup outlives its parent; `popup->parent` dangles → UAF on the next popup commit |
+| IMG-1/2 | image loader | Critical* | 0 | 32-bit integer overflow in PNG/JPEG buffer sizing → heap overflow. *Latent: no untrusted-image path in-scope |
+| XLA-2 | XWayland launcher | High | 2 | `weston_xwayland_listen()` error paths `free(wxs)` with its compositor-destroy listener still linked → teardown UAF |
+| XLA-3 | XWayland launcher | High | 1 | `wxw->process` freed but not NULLed after `wl_client_create` failure → later re-use / double-free |
+| DD-2 | data-device | Medium | 1 | `weston_seat_send_selection()` dereferences an unchecked NULL offer (alloc failure) |
+| DND-2 | XWayland DnD | Medium | 1 | `handle_enter()` calls `weston_pointer_start_drag()` with a possibly-NULL pointer |
+| CLIP-2 | Wayland clipboard | Medium | 1 | Unchecked `wl_array_add` → `size_t` underflow → OOB `read()` write |
+| XWM-5 | XWayland WM | Medium | 1 | `xcb_xfixes_query_version_reply()` dereferenced without NULL check → startup crash |
+| XWM-6 | XWayland WM | Low | 1 | `wm->cursors` unchecked `malloc` then written → NULL write on OOM |
+| X11-2 | x11 backend | Medium | 2 | `x11_output_wait_for_map()` dereferences `xcb_wait_for_event()` NULL on connection loss |
+| X11-3 | x11 backend | Medium | 1 | `xcb_intern_atom_reply()` dereferenced without NULL check at startup |
+| X11-4 | x11 backend | Low | 1 | `strlen()` over a possibly non-terminated `_XKB_RULES_NAMES` property → OOB read |
+| XCB-1 | shared (xcb) | Low | 1 | `assert(xcb_intern_atom_reply(...))` → `abort()` on connection error (trusted connection) |
+
+VNC-1, VNC-2, VNC-3, PW-1, PW-2, DS-1, DS-2 and every ID from X11-1 through IMG
+have full write-ups below; XLA-2 through XCB-1 are in the
+[Additional verified hardening items](#additional-verified-hardening-items-likelihood-12) table.
 
 ## 3. Prioritisation
 
-_Interim — updated as findings land._
+Severity is impact-if-it-fires; likelihood is how probable the trigger is. The two
+are independent, so the fix order below is driven by **likelihood first** (what
+actually happens in this deployment), with severity breaking ties.
 
-- **Reachable in normal operation (likelihood 3–5):**
-  - **VNC-3** (L4) — a full `struct weston_seat` leaks on *every* VNC client
-    disconnect. This is the standout operational bug for the "runs for months"
-    model: connect/disconnect churn leaks unboundedly with no hostile behaviour
-    required. **Fix first.**
-  - **DS-2** (L3) — logic bug (nested child focus), low impact but always wrong
-    for 2-deep surface trees.
-- **Hardening (likelihood 1–2):**
-  - **DS-1** (L2) — a client that binds `zwp_input_panel` can hang the
-    compositor by requesting a role twice; high impact, small trigger.
-  - **VNC-1** (L2) — slow unbounded leak of plaintext secrets on the remote auth
-    path; fix early despite low likelihood because it is a *secret* leak over
-    long uptime.
-  - **PW-1 / PW-2** (L2) — crash / fd-leak on PipeWire buffer-setup error paths,
-    reachable under the tight-resource container.
-  - **VNC-2** (L1) — remote-triggered abort under memory pressure.
-- **Latent (0):** none yet.
+### Reachable in normal operation (likelihood 3–5) — fix first
 
-Fix-first order: **VNC-3**, then **DS-1**, then the `auth.c` pair
-(**VNC-1**/**VNC-2**) and the PipeWire pair (**PW-1**/**PW-2**). VNC-3 is highest
-because it fires in ordinary operation; DS-1 next because its impact (hang) is
-severe and the fix is one line.
+- **VNC-3** (High, L4) — a full `struct weston_seat` leaks on *every* VNC client
+  disconnect. No hostile behaviour required; ordinary connect/disconnect churn
+  leaks unboundedly over the months-long uptime. **The single highest-priority
+  fix**, and a one-liner.
+- **DD-1** (High, L3) — a NULL-source drag (a *legal* protocol use) crashes the
+  compositor via `source->seat = seat`. Reachable by well-behaved clients; one-line
+  fix.
+- **XWM-3** (Medium, L3) — the property-loop counter bug silently drops window
+  properties (including size hints) for ordinary X clients whose `WM_PROTOCOLS`
+  has ≥4 atoms; correctness, not memory-safety, but common.
+- **DS-2** (Low, L3) — nested-child focus logic error; low impact, always wrong for
+  2-deep surface trees.
+
+### Hostile-client / forged-event reachable (likelihood 2) — fix next
+
+Crashes and a hang, each reachable by an untrusted Wayland client, an untrusted X
+client/app, a network VNC peer, or a client on the parent X server:
+
+- **Crashes (NULL deref / abort / OOB):** X11-1 (forged `FocusIn` → abort),
+  XDG-1 / XDG-2 (xdg-shell NULL derefs), DND-1 (`XdndEnter` NULL/OOB),
+  XWM-1 / XWM-2 / XWM-4 (property OOB reads), X11-2 (connection-loss NULL).
+- **Use-after-free:** XDG-3 (popup outlives parent), XLA-2 (launcher teardown).
+- **Hang / resource exhaustion:** DS-1 (input-panel list → infinite loop),
+  SEL-1 (fd exhaustion), XLA-1 (100% CPU spin), PW-1 / PW-2 (crash / fd-leak on
+  buffer-setup error).
+- **Secret handling:** VNC-1 (unbounded leak of plaintext password copies).
+
+### Hardening (likelihood 1) — allocation failure, connection loss, teardown
+
+VNC-2, CLIP-1, CAP-1, CAP-2, XLA-3, DD-2, DND-2, CLIP-2, XWM-5, XWM-6, X11-3,
+X11-4, XCB-1. Individually low-probability, but several are memory-safety
+(CLIP-1 UAF, CAP-1 OOB write, CAP-2 UAF, CLIP-2 OOB write) and matter under the
+tight-resource container and `--debug` amplification for CAP-1/CAP-2.
+
+### Latent (0)
+
+- **IMG-1 / IMG-2** — real PNG/JPEG integer-overflow → heap-overflow, but no
+  untrusted-image path exists in the in-scope configuration. Fix defensively; it
+  becomes Critical if any deployment feeds untrusted images to `weston_image_load`.
+
+### Recommended fix order
+
+1. **VNC-3** and **DD-1** — routine, memory-corruption/leak, one-line fixes.
+2. **DS-1**, **X11-1**, **XDG-1/2/3**, **DND-1** — the L2 crash/hang cluster; small,
+   local guards.
+3. **SEL-1**, **XLA-1**, **PW-1/PW-2**, **VNC-1** — resource-exhaustion / leak / secret.
+4. The **XWM property-parser cluster** (XWM-1..4) together, since they share one
+   root cause (see cross-cutting patterns).
+5. The L1 hardening items and the latent IMG overflows as defense-in-depth.
 
 ## 4. Findings
 
@@ -1399,14 +1467,169 @@ genuine defects under the container/long-uptime threat model.
 
 ## 5. Coverage ledger
 
-_To be filled in._ Per-file honesty about depth of review, unread ranges, and
-files confirmed unreachable vs. simply not reached.
+Honest per-file depth. "Full" = every line read; "targeted" = the reachable
+entry-points and their callees read, the rest skimmed; "swept" = scanned for
+specific defect patterns only. Each in-scope named file, and the reachable code it
+calls into, was reviewed; the transitive core (`compositor.c`, `input.c`,
+renderers) is large and was read where the in-scope paths lead, not end-to-end.
+
+### Read in full
+
+| File | Notes |
+|------|-------|
+| `libweston/backend-x11/x11.c` (2039) | Full. Synthetic-event handling, SHM, output/mode, event loop. |
+| `libweston/backend-vnc/vnc.c` (1341) | Full. Client lifetime, resize, cursor, auth-enable, repaint. |
+| `libweston/auth.c` (116) | Full. |
+| `libweston/backend-pipewire/pipewire.c` (1440) | Full. Stream/buffer lifetime, memfd/dmabuf, fence path. |
+| `desktop-shell/shell.c` (5017) | Full, in two passes (1–2600, 2600–5017). |
+| `desktop-shell/input-panel.c` (425), `shell.h` | Full. |
+| `libweston/output-capture.c` (700) | Full (read independently and by the capture reviewer). |
+| `libweston/screenshooter.c` (524), `frontend/weston-screenshooter.c` (153) | Full. |
+| `xwayland/window-manager.c` (3378) | Full, three passes. |
+| `xwayland/selection.c` (828), `xwayland/dnd.c` (252), `xwayland/launcher.c` (420) | Full. |
+| `frontend/xwayland.c` (267), `libweston/desktop/xwayland.c` (548) | Full. |
+| `libweston/data-device.c` (1396), `libweston/clipboard.c` (308) | Full. |
+| `libweston/desktop/xdg-shell.c` (1766), `surface.c` (913), `libweston-desktop.c` (286) | Full. |
+| `libweston/desktop/seat.c`, `client.c` | Full (popup grab, client/ping lifetime). |
+| `libweston/linux-dmabuf.c` (1146), `linux-explicit-synchronization.c` (287) | Full. |
+| `shared/image-loader.c` (643), `os-compatibility.c` (441), `config-parser.c` (619), `process-util.c` (271), `file-util.c` (146), `hash.c` (309), `xcb-xwayland.c` | Full. |
+| `shared/xalloc.h`, `weston-assert.h` | Full (build-config facts). |
+
+### Read targeted (entry-points + callees; remainder not exhaustively read)
+
+| File | Read | Not read (later-pass targets) |
+|------|------|------------------------------|
+| `libweston/compositor.c` (10512) | Surface/view/output lifetime, buffer attach/commit/release, subsurface recursion, paint-node create/destroy, damage flush (roughly lines 355–471, 875–946, 2613–3082, 3262–3664, 5200–5700, 9500–9600). **0 confirmed findings in the ranges read.** | Color-management plumbing, output configuration/repaint scheduling, plane assignment, timeline, presentation-feedback, content-protection, most of the 6000+ lines outside the lifetime paths. A later pass should look for view-list/plane-assignment lifetime and output hotplug ordering bugs. |
+| `libweston/input.c` (6029) | Seat init/release, data-device/selection/focus/grab, `weston_seat_release` (for VNC-3). | The bulk of pointer/touch/keyboard/tablet grab state machines and libinput glue. A later pass should look for grab-stack and focus-listener lifetime bugs. |
+| `libweston/renderer-gl/gl-renderer.c` (4400+) | Capture path (700–1055), renderbuffer create/destroy, `gl_renderer_destroy` capture cleanup (4378+). | Shader/rendering core, EGL setup, damage — swept only. |
+| `libweston/pixman-renderer.c` (1232) | `pixman_renderer_read_pixels` and the capture task path; `create_image_from_ptr`. | The compositing core — swept for the capture-relevant behaviour only. |
+
+### Confirmed unreachable in the reviewed configurations (excluded)
+
+Out of scope per the brief **and** not reachable from x11/VNC/PipeWire +
+desktop-shell + XWayland: `libweston/backend-drm/`, `backend-headless/`,
+`backend-rdp/`, `backend-wayland/`; `kiosk-shell/`, `ivi-shell/`,
+`fullscreen-shell/`; `clients/`. `backend-rdp/rdp.c` was opened **only** at
+lines 820–835 and 1167 as the reference implementation for VNC-3 (correct
+per-peer-seat cleanup); nothing else in it was reviewed.
+
+### Not reached (no assurance — later-pass targets)
+
+- `libweston/desktop/xdg-shell-v6.c` — the legacy `zxdg_shell_v6` implementation.
+  It is a **reachable** protocol (a client can bind it) and almost certainly shares
+  the XDG-1/2/3 shapes, but it was **not reviewed**. This is the most important gap.
+- `frontend/main.c` beyond the screenshot-authority functions; `frontend/text-backend.c`
+  (input-method/text-input, which drives the input-panel path in DS-1) — not reviewed.
+- `libweston/color-*.c`, `content-protection.c`, `libinput-*.c` — not reviewed.
+- The GL and pixman rendering cores outside capture — swept only.
 
 ## 6. Rejected candidates
 
-_To be filled in._ Candidates that looked like bugs and were dropped, with the
-reason each was rejected.
+Candidates investigated and dropped, so the next reviewer need not re-derive them.
+(Abbreviated; each was checked against source.)
 
-## 7. Cross-cutting patterns
+**Not a bug / safe by construction**
 
-_To be filled in._
+- **`WM_NORMAL_HINTS` memcpy** (`window-manager.c:603`) — *safe*, clamps with
+  `MIN(sizeof, value_len*4)` (contrast XWM-2, which does not).
+- **`WM_CLASS`/`WM_NAME`/`WM_CLIENT_MACHINE` `strndup`** (`window-manager.c:575`) —
+  *safe*, bounded by `xcb_get_property_value_length()`; `strndup` NUL-terminates.
+- **`data_offer_receive` fd handling** (`data-device.c:86`) — correct: stale offers
+  `close(fd)`, otherwise ownership passes to `source->send`. (SEL-1/CLIP-1 are about
+  the *send* side not honouring that ownership, not this function.)
+- **`selection.c` `writable_callback` / `weston_wm_read_data_source` fds** — traced;
+  fds are closed on each terminal path and `property_source` removed; no
+  double-close. (The stale `wm->data_source_fd` on the error/non-incr paths does not
+  become a double-close because the next `weston_wm_send_data` overwrites it before
+  reuse.)
+- **`linux-dmabuf.c params_create_common` error paths** — `params` user_data is
+  nulled before any error `goto`, so `destroy_params` no-ops; fds funnel to a single
+  close path. No leak/double-free.
+- **subsurface cycle / infinite loop** in `weston_surface_get_main_surface` —
+  `subcompositor_get_subsurface` rejects `surface == parent` and cycles, so the
+  parent-chain walks terminate.
+- **xdg positioner integer overflow** (`xdg-shell.c:145`) — int32 wrap only affects
+  popup x/y position, never an allocation size or array index.
+- **`config-parser.c` / `hash.c` / `file-util.c` / `os-compatibility.c`** — bounds
+  checks, NULL handling and size arithmetic reviewed; nothing attacker-reachable.
+
+**Real smell, but not reachable / not in threat model**
+
+- **`shell.c` NULL derefs of `find_shell_output_from_weston_output()`**
+  (`:2832`, `:2943`, `:4610`) — reachable only if a per-output `zalloc` failed (the
+  intended OOM path), or on a privileged/admin request; not a hostile-client trigger.
+- **`force_kill_binding` unchecked `focus->resource`** (`shell.c:4451`) — driven by a
+  local key binding (physical operator), not a remote/hostile client.
+- **`x11_output_set_icon` overflow** (`x11.c:627`) — dimensions come from the fixed
+  bundled `wayland.png`, not attacker input. (Contrast IMG-1/2, which are the same
+  overflow in the general loader — recorded as latent.)
+- **`copy_capture` missing `glMapBufferRange` NULL check** (`gl-renderer.c:872`) — a
+  GL/driver-internal failure, not attacker-controlled input.
+- **PipeWire / VNC teardown-only leaks** (`pipewire_destroy` core/context;
+  `vnc_destroy` ordering) — one-shot at supervisor shutdown; do not grow without
+  bound.
+- **`compositor.c:3609` `1u << output->id` UB if id≥32** — output ids are
+  compositor-allocated and bounded well under 32 in these configs.
+- **`linux-explicit-synchronization.c:183` unchecked `get_synchronization`
+  user_data** — flagged by the reviewer as an asymmetry vs sibling handlers; left as
+  an unproven candidate (no concrete NULL-user_data trigger constructed). A later
+  pass should confirm or drop it.
+
+**Depends on third-party behaviour we could not fully pin down**
+
+- **VNC `nvnc_fb_pool_resize` stale renderbuffer userdata** — whether the pool drops
+  size-mismatched buffers on resize needs neatvnc internals; the `vnc_switch_mode`
+  path resizes the renderer and pool together, so no defect was confirmed.
+
+## 7. Cross-cutting patterns and defect taxonomy
+
+Developed from the findings themselves, not a checklist. Several findings are the
+*same mistake repeated*, which changes how they should be fixed.
+
+**T1 — Trusting client-controlled property/protocol metadata as a size or shape.**
+XWM-1, XWM-2, XWM-4, DND-1, CAP-1. The code uses an attacker-supplied `format`,
+`value_len`, or buffer `stride` to drive a read/write without validating it against
+the type it assumes. **XWM-1/2/4 are three instances in one function**
+(`weston_wm_window_read_properties`) and DND-1 is a fourth of the same shape — they
+should be fixed together by validating `reply->format`/length once at the top of
+each property branch, not patched case-by-case. This is the highest-yield pattern in
+the review.
+
+**T2 — Deferred work outliving its target (idle / async / event-source vs destroy).**
+XDG-2, XDG-3, CAP-2, CLIP-1. A destroy path frees or invalidates an object but does
+not cancel a pending idle (XDG-2), a stored parent pointer (XDG-3), an in-flight GL
+readback (CAP-2), or an armed fd event source (CLIP-1) that still references it →
+UAF or send-to-NULL. The recurrence suggests a systemic gap: destroy handlers in the
+desktop/xdg-shell and capture code do not consistently tear down the *deferred* work
+they scheduled. Worth an audit beyond these four.
+
+**T3 — Assuming non-NULL where the protocol/state permits NULL.**
+DD-1 (nullable `start_drag` source), XDG-1 (defunct parent resource → NULL
+user_data), DD-2, DND-2, X11-2/X11-3 (NULL xcb replies). The nullable/defunct case is
+*specified* or *documented* (allow-null args, `DEFUNCT_ROLE_OBJECT`, xcb returning
+NULL on error) but the happy path assumes a value.
+
+**T4 — Reachable `assert()` used as input validation.**
+X11-1, VNC-2, XCB-1. Because `assert()` is active in the default and typical release
+builds (build-fact #1), an `assert` on a condition an attacker or an error can
+violate is a remote/triggered `abort()`. These should be real error handling, not
+assertions.
+
+**T5 — Error-path and per-connection resource lifetime.**
+VNC-3, PW-2, SEL-1, CLIP-1, XLA-2, XLA-3, X11-5(SHM). Leaks (memory/fd/SysV-shm),
+dangling listeners, or dangling pointers on cleanup and error paths — the class that
+matters most for the "runs for months" model, and where VNC-3 (the top finding)
+lives.
+
+**T6 — Loop/variable reuse.**
+XWM-3 (inner loops clobber the outer counter), DS-2 (`bool**` vs `bool*`). Single
+identifiers doing double duty; both are one-line fixes with outsized behavioural
+effect.
+
+**T7 — Unvalidated integer arithmetic feeding allocations.**
+IMG-1/2 (32-bit overflow), CLIP-2 (`size_t` underflow). Size math not done in
+`size_t` with overflow guards.
+
+The two patterns to act on structurally are **T1** (fix the property parser as a
+unit) and **T2** (audit deferred-work cancellation in destroy paths); the rest are
+localized fixes.
