@@ -5676,7 +5676,20 @@ maybe_warp_confined_pointer(struct weston_pointer_constraint *constraint)
 		pixman_region32_intersect(&confine_region,
 					  &constraint->surface->input,
 					  &constraint->region);
-		assert(pixman_region32_not_empty(&confine_region));
+		/*
+		 * The confine region is the intersection of two
+		 * client-controlled regions (the surface input region and the
+		 * constraint region). A client can make them disjoint (e.g. by
+		 * setting a confine region via set_region that does not overlap
+		 * the input region) while the constraint is still enabled, which
+		 * leaves nothing to confine the pointer to. Bail out gracefully
+		 * instead of aborting on the assert.
+		 */
+		if (!pixman_region32_not_empty(&confine_region)) {
+			pixman_region32_fini(&confine_region);
+			wl_array_release(&borders);
+			return;
+		}
 		region_to_outline(&confine_region, &borders);
 		pixman_region32_fini(&confine_region);
 
