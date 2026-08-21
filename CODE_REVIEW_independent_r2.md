@@ -573,8 +573,15 @@ These areas were **not reviewed** and should be the focus of a follow-up:
 - `desktop-shell/shell.c` **lines 2600-5017** and `desktop-shell/input-panel.c` —
   panel/background/lock surfaces, fade/exposay, `desktop-shell` protocol handlers
   (`set_background`/`set_panel`/`set_lock_surface`/`desktop_ready`), screensaver,
-  the on-screen keyboard. *A later pass should look for lifetime bugs on client
-  disconnect and unchecked protocol arguments.*
+  the on-screen keyboard. **Reachability note (verified):** the whole
+  `weston_desktop_shell` protocol is gated in `bind_desktop_shell` (shell.c:4214)
+  to `shell->child.client` — the forked `weston-desktop-shell` helper — and any
+  other client is disconnected with a protocol error. So these handlers
+  (`shell.c:2810-3119`) process **trusted input only**; a bug there needs a
+  compromised helper, not an arbitrary client, which lowers their priority. The
+  `input_method`/`input_panel` and `screensaver` globals should be checked for
+  the same gating in a later pass. *A later pass should still look for lifetime
+  bugs on helper/client disconnect (e.g. the lock-surface destroy listener).*
 - `xwayland/dnd.c`, `xwayland/launcher.c` — X↔Wayland DnD bridging and the
   Xwayland launcher. *High-risk: the launcher's fork/exec/socketpair fd handling
   and DnD fd lifetime — not reviewed (finder agent failed).*
