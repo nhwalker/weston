@@ -56,6 +56,8 @@ Verified in this tree:
 | [CORE-1](#core-1--shm-buffer-stride-is-not-validated-against-widthbpp) | core / renderer / capture | High (read) / Critical (write) | 2 | Client SHM buffer `stride` is trusted; `stride < width*bpp/8` causes OOB read in the renderer and OOB write in screen capture |
 | [AUTH-1](#auth-1--vnc-pam-path-leaks-a-copy-of-the-password-on-every-authentication-attempt) | VNC / auth | Medium | 5 | Double `strdup(password)` leaks one password-bearing heap allocation on every VNC authentication attempt |
 | [AUTH-2](#auth-2--pam-teardown-failure-aborts-the-whole-compositor) | VNC / auth | High | 1 | `assert(pam_end()==PAM_SUCCESS)` aborts the compositor when PAM init/teardown fails (e.g. OOM under tight limits) |
+| [XWM-1](#xwm-1--property-parser-reuses-the-outer-loop-counter-skipping-properties-and-leaking-xcb-replies) | XWayland | Medium | 3 | `weston_wm_window_read_properties()` inner loops reuse the outer loop index `i`, so a long `WM_PROTOCOLS`/`_NET_WM_STATE` skips later properties and leaks their xcb replies |
+| [XWM-2](#xwm-2--x11-property-values-are-parsed-without-validating-length-or-format) | XWayland | Medium | 2 | Property handlers dereference/copy values without checking length or format, giving out-of-bounds reads from short/mistyped X properties (`_MOTIF_WM_HINTS` copy is unconditional) |
 
 ## 4. Prioritisation
 
@@ -304,6 +306,188 @@ and initialise `pam` so teardown is well-defined on any `pam_start` failure):
 +		weston_log("PAM: end failed\n");
  	free(conv.appdata_ptr);
 ```
+
+### XWM-1 — property parser reuses the outer loop counter, skipping properties and leaking xcb replies
+
+**Severity:** Medium. **Likelihood:** 3 (triggered by the *length* of a client's
+`WM_PROTOCOLS` or `_NET_WM_STATE`; any X client controls this, and a value of
+four or more atoms already changes iteration).
+
+**Area:** `xwayland/window-manager.c` `weston_wm_window_read_properties()`.
+
+The function issues one `xcb_get_property` per entry of a `props[]` table, then
+loops over the table reading each reply. Two of the handlers loop over the
+returned atom list using the **same** variable `i` as the outer `props[]` loop:
+
+```c
+uint32_t i;
+...
+for (i = 0; i < ARRAY_LENGTH(props); i++)  {          /* outer loop */
+        reply = xcb_get_property_reply(wm->conn, cookie[i], NULL);
+        ...
+        switch (props[i].type) {
+        ...
+        case TYPE_WM_PROTOCOLS:
+                atom = xcb_get_property_value(reply);
+                for (i = 0; i < reply->value_len; i++)   /* clobbers outer i */
+                        if (atom[i] == wm->atom.wm_delete_window) ...
+                break;
+        ...
+        case TYPE_NET_WM_STATE:
+                atom = xcb_get_property_value(reply);
+                for (i = 0; i < reply->value_len; i++) { /* clobbers outer i */
+                        ...
+                }
+                break;
+        }
+        free(reply);
+}
+```
+
+`WM_PROTOCOLS` is `props[3]` and `_NET_WM_STATE` is `props[5]`. When the handler
+runs, the outer index `i` is left equal to the property's `value_len`, so the
+outer loop resumes from the wrong place:
+
+- With `value_len ≥ 10`, `i` jumps past `ARRAY_LENGTH(props)` (11) and the outer
+  loop **exits early**. Every property after the offending one
+  (`WM_NORMAL_HINTS`, `_NET_WM_STATE`, `_NET_WM_WINDOW_TYPE`, `_NET_WM_NAME`,
+  `_NET_WM_PID`, `_MOTIF_WM_HINTS`, `WM_CLIENT_MACHINE`) is never read, and the
+  xcb replies for those cookies are **never fetched**. libxcb buffers a reply
+  until the application reads it (confirmed in `xcb_in.c`: replies are queued on
+  `pending_replies`/`reply_list` and freed only when consumed or at disconnect),
+  so those replies leak. `read_properties()` runs on every `MapRequest` and every
+  `PropertyNotify`, so a client that keeps a long `WM_PROTOCOLS` and touches its
+  properties repeatedly produces an unbounded leak over the compositor's
+  lifetime.
+- With `4 ≤ value_len ≤ 9`, later table entries are silently skipped (e.g.
+  four advertised protocols skip `WM_NORMAL_HINTS`), so the window's size hints,
+  type, or Motif decoration hints are quietly not applied — a silent-wrong-state
+  bug — and the skipped cookies' replies leak.
+
+**Patch** — give the inner loops their own counter (`xwayland/window-manager.c`):
+
+```diff
+-	uint32_t i;
++	uint32_t i, j;
+ 	char name[1024];
+...
+ 		case TYPE_WM_PROTOCOLS:
++			if (reply->format != 32)
++				break;
+ 			atom = xcb_get_property_value(reply);
+-			for (i = 0; i < reply->value_len; i++)
+-				if (atom[i] == wm->atom.wm_delete_window) {
++			for (j = 0; j < reply->value_len; j++)
++				if (atom[j] == wm->atom.wm_delete_window) {
+ 					window->delete_window = 1;
+-				} else if (atom[i] == wm->atom.wm_take_focus) {
++				} else if (atom[j] == wm->atom.wm_take_focus) {
+ 					window->take_focus = 1;
+ 				}
+ 			break;
+...
+ 		case TYPE_NET_WM_STATE:
+ 			window->fullscreen = 0;
++			if (reply->format != 32)
++				break;
+ 			atom = xcb_get_property_value(reply);
+-			for (i = 0; i < reply->value_len; i++) {
++			for (j = 0; j < reply->value_len; j++) {
+```
+
+(The `format != 32` guards belong to XWM-2 below and are shown here because they
+sit in the same handlers.)
+
+### XWM-2 — X11 property values are parsed without validating length or format
+
+**Severity:** Medium. **Likelihood:** 2 (needs a client that sets a property with
+an unexpected length or format; trivial for any X client, but not something
+well-behaved clients do).
+
+**Area:** `xwayland/window-manager.c` `weston_wm_window_read_properties()`.
+
+The property requests use `XCB_ATOM_ANY` as the type filter, so the returned
+`reply->type`, `reply->format`, and `reply->value_len` are all under the client's
+control. Several handlers then read the value assuming a particular size/format:
+
+```c
+case XCB_ATOM_WINDOW:
+        xid = xcb_get_property_value(reply);
+        if (!wm_lookup_window(wm, *xid, p))      /* reads 4 bytes unconditionally */
+        ...
+case XCB_ATOM_CARDINAL:
+case XCB_ATOM_ATOM:
+        atom = xcb_get_property_value(reply);
+        *(xcb_atom_t *) p = *atom;               /* reads 4 bytes unconditionally */
+        break;
+case TYPE_WM_PROTOCOLS:
+        atom = xcb_get_property_value(reply);
+        for (i = 0; i < reply->value_len; i++)   /* atom[] strides 4 bytes ... */
+                if (atom[i] == ...)              /* ... even if format == 8 */
+...
+case TYPE_MOTIF_WM_HINTS:
+        memcpy(&window->motif_hints,
+               xcb_get_property_value(reply),
+               sizeof window->motif_hints);      /* copies 20 bytes unconditionally */
+```
+
+Concrete out-of-bounds reads reachable from any X client:
+
+- **`_MOTIF_WM_HINTS`** with a value shorter than `sizeof(motif_hints)` (20 bytes)
+  — e.g. a 1-byte property — makes the `memcpy` read ~19 bytes past the xcb reply
+  allocation. The result is then interpreted as decoration flags.
+- **`WM_TRANSIENT_FOR` / `_NET_WM_WINDOW_TYPE` / `_NET_WM_PID`** set to a
+  zero-length property make `*xid` / `*atom` read 4 bytes past the reply.
+- **`WM_PROTOCOLS` / `_NET_WM_STATE`** set with `format == 8` (or 16) make the
+  `atom[i]` loop stride 4 bytes per element over a buffer that only has 1 (or 2)
+  bytes per element, reading up to `4 × value_len` bytes from a `value_len`-byte
+  buffer.
+
+These are small heap over-reads of an xcb reply buffer; the values feed into
+window state (decoration, transient-for, type), and a read that lands on an
+unmapped page crashes the compositor. `WM_NORMAL_HINTS` additionally used
+`reply->value_len * 4` as the byte count, which over-counts when `format != 32`.
+
+**Patch** — validate length/format before each access
+(`xwayland/window-manager.c`):
+
+```diff
+ 		case XCB_ATOM_WINDOW:
++			if (reply->format != 32 ||
++			    xcb_get_property_value_length(reply) < (int) sizeof(*xid))
++				break;
+ 			xid = xcb_get_property_value(reply);
+ 			if (!wm_lookup_window(wm, *xid, p))
+ 				...
+ 		case XCB_ATOM_CARDINAL:
+ 		case XCB_ATOM_ATOM:
++			if (reply->format != 32 ||
++			    xcb_get_property_value_length(reply) < (int) sizeof(*atom))
++				break;
+ 			atom = xcb_get_property_value(reply);
+ 			*(xcb_atom_t *) p = *atom;
+ 			break;
+...
+ 		case TYPE_WM_NORMAL_HINTS:
+ 			memset(&window->size_hints, 0, sizeof(window->size_hints));
+ 			memcpy(&window->size_hints,
+ 			       xcb_get_property_value(reply),
+ 			       MIN(sizeof(window->size_hints),
+-			           reply->value_len * 4));
++			           (size_t) xcb_get_property_value_length(reply)));
+ 			break;
+...
+ 		case TYPE_MOTIF_WM_HINTS:
++			if (xcb_get_property_value_length(reply) <
++			    (int) sizeof window->motif_hints)
++				break;
+ 			memcpy(&window->motif_hints,
+ 			       xcb_get_property_value(reply),
+ 			       sizeof window->motif_hints);
+```
+
+(The `format != 32` guards for `WM_PROTOCOLS`/`_NET_WM_STATE` are shown with
+XWM-1 since they share those handlers.)
 
 ## 6. Coverage ledger
 

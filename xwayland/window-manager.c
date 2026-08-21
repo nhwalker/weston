@@ -531,7 +531,7 @@ weston_wm_window_read_properties(struct weston_wm_window *window)
 	void *p;
 	uint32_t *xid;
 	xcb_atom_t *atom;
-	uint32_t i;
+	uint32_t i, j;
 	char name[1024];
 
 	if (!window->properties_dirty)
@@ -577,6 +577,9 @@ weston_wm_window_read_properties(struct weston_wm_window *window)
 					xcb_get_property_value_length(reply));
 			break;
 		case XCB_ATOM_WINDOW:
+			if (reply->format != 32 ||
+			    xcb_get_property_value_length(reply) < (int) sizeof(*xid))
+				break;
 			xid = xcb_get_property_value(reply);
 			if (!wm_lookup_window(wm, *xid, p))
 				weston_log("XCB_ATOM_WINDOW contains window"
@@ -584,15 +587,20 @@ weston_wm_window_read_properties(struct weston_wm_window *window)
 			break;
 		case XCB_ATOM_CARDINAL:
 		case XCB_ATOM_ATOM:
+			if (reply->format != 32 ||
+			    xcb_get_property_value_length(reply) < (int) sizeof(*atom))
+				break;
 			atom = xcb_get_property_value(reply);
 			*(xcb_atom_t *) p = *atom;
 			break;
 		case TYPE_WM_PROTOCOLS:
+			if (reply->format != 32)
+				break;
 			atom = xcb_get_property_value(reply);
-			for (i = 0; i < reply->value_len; i++)
-				if (atom[i] == wm->atom.wm_delete_window) {
+			for (j = 0; j < reply->value_len; j++)
+				if (atom[j] == wm->atom.wm_delete_window) {
 					window->delete_window = 1;
-				} else if (atom[i] == wm->atom.wm_take_focus) {
+				} else if (atom[j] == wm->atom.wm_take_focus) {
 					window->take_focus = 1;
 				}
 			break;
@@ -603,21 +611,26 @@ weston_wm_window_read_properties(struct weston_wm_window *window)
 			memcpy(&window->size_hints,
 			       xcb_get_property_value(reply),
 			       MIN(sizeof(window->size_hints),
-			           reply->value_len * 4));
+			           (size_t) xcb_get_property_value_length(reply)));
 			break;
 		case TYPE_NET_WM_STATE:
 			window->fullscreen = 0;
+			if (reply->format != 32)
+				break;
 			atom = xcb_get_property_value(reply);
-			for (i = 0; i < reply->value_len; i++) {
-				if (atom[i] == wm->atom.net_wm_state_fullscreen)
+			for (j = 0; j < reply->value_len; j++) {
+				if (atom[j] == wm->atom.net_wm_state_fullscreen)
 					window->fullscreen = 1;
-				if (atom[i] == wm->atom.net_wm_state_maximized_vert)
+				if (atom[j] == wm->atom.net_wm_state_maximized_vert)
 					window->maximized_vert = 1;
-				if (atom[i] == wm->atom.net_wm_state_maximized_horz)
+				if (atom[j] == wm->atom.net_wm_state_maximized_horz)
 					window->maximized_horz = 1;
 			}
 			break;
 		case TYPE_MOTIF_WM_HINTS:
+			if (xcb_get_property_value_length(reply) <
+			    (int) sizeof window->motif_hints)
+				break;
 			memcpy(&window->motif_hints,
 			       xcb_get_property_value(reply),
 			       sizeof window->motif_hints);
