@@ -17,10 +17,11 @@ critical software, with a minimal suggested patch for each.
 
 ## Summary
 
-49 findings. Ordered by ID; severity is the practical impact on a system where
+56 findings. Ordered by ID; severity is the practical impact on a system where
 the compositor must not crash, hang, corrupt memory, or silently produce a wrong
-image. IDs `IMG-*`, `SEL-*`, `XWL-6` and `XWL-7` come from the second pass, which
-extended coverage from the named components into the code they call into.
+image. IDs `IMG-*`, `SEL-*`, `DND-*`, `DD-1`, `ATOM-1`, `DXW-1`, `DS-6`, `XWL-6`,
+`XWL-7` and `XWL-8` come from the second pass, which extended coverage from the
+named components into the code they call into.
 
 | ID | Area | Severity | Finding |
 | --- | --- | --- | --- |
@@ -73,6 +74,13 @@ extended coverage from the named components into the code they call into.
 | [SEL-4](#sel-4--a-forged-selectionrequest-trips-assertrequestor--selection_window) | XWayland | high | Forged `SelectionRequest` trips a live `assert()` |
 | [XWL-6](#xwl-6--a-forged-maprequest-trips-assertwindow-shsurf) | XWayland | high | Forged `MapRequest` trips `assert(!window->shsurf)` |
 | [XWL-7](#xwl-7--weston_wm_handle_button-reaches-set_maximized--set_minimized--set_toplevel-with-a-null-shsurf) | XWayland | med-high | Titlebar click reaches `set_maximized`/`set_minimized` with a NULL `shsurf` |
+| [XWL-8](#xwl-8--wet_xwayland_destroy-frees-its-state-without-disarming-the-display-fd-source) | XWayland | med-high | `wet_xwayland_destroy()` frees its state with the display-fd source still armed |
+| [DND-1](#dnd-1--handle_enter-decodes-a-forged-xdndenter-with-no-reply-format-or-seat-checks) | XWayland | high | Forged `XdndEnter` decoded without reply/format/seat checks |
+| [DND-2](#dnd-2--drag-and-drop-and-clipboard-share-one-wm-data_source_fd-and-neither-closes-the-previous-one) | XWayland | med-high | Drag-and-drop and clipboard share one `data_source_fd`, neither closes it |
+| [ATOM-1](#atom-1--get_atom_name-leaks-the-xcb-error-on-every-failed-lookup) | XWayland | medium | `get_atom_name()` leaks the XCB error on every failed lookup |
+| [DD-1](#dd-1--the-clipboard-serial-is-never-validated-so-any-client-can-lock-the-selection) | libweston | high | `wl_data_device.set_selection` serial unvalidated → any client can pin the clipboard |
+| [DXW-1](#dxw-1--weston_desktop_surface_update_view_position-assumes-a-transform-parent-that-its-own-view-constructor-does-not-set) | libweston | low | `update_view_position()` assumes a transform parent its view constructor never sets |
+| [DS-6](#ds-6--closing-the-last-window-during-alttab-leaves-the-switcher-holding-a-freed-view) | desktop-shell | high | Closing the last window during Alt+Tab leaves the switcher holding a freed view |
 
 ### Themes
 
@@ -104,18 +112,38 @@ a targeted sweep beyond the individual fixes below:
 Two passes. The first covered the named components; the second extended into the
 code those components call into, after the coverage gap was raised.
 
-| Area | State |
-| --- | --- |
-| x11 backend | done (X11-1 … X11-8) |
-| VNC backend | done (VNC-1 … VNC-7) |
-| PipeWire backend | done (PW-1 … PW-7) |
-| screenshot / output-capture | done (SC-1 … SC-7) |
-| XWayland window manager | done (XWL-1 … XWL-7) |
-| XWayland clipboard (`selection.c`) | done (SEL-1 … SEL-4) |
-| desktop-shell | done (DS-1 … DS-5) |
-| libweston core (shared paths) | done (CORE-1 … CORE-3) |
-| `shared/image-loader.c` | done (IMG-1) |
-| `shared/frame.c` (XWayland decorations) | read; one clients-only defect noted below |
+| Area | Depth | Findings |
+| --- | --- | --- |
+| `libweston/backend-x11/x11.c` | full read | X11-1 … X11-8 |
+| `libweston/backend-vnc/vnc.c` | full read | VNC-1 … VNC-7 |
+| `libweston/backend-pipewire/pipewire.c` | full read | PW-1 … PW-7 |
+| `libweston/output-capture.c`, `screenshooter.c`, `frontend/weston-screenshooter.c` | full read | SC-1 … SC-7 |
+| `xwayland/selection.c` | full read | SEL-1 … SEL-4 |
+| `xwayland/dnd.c` | full read | DND-1, DND-2 |
+| `shared/image-loader.c` | full read | IMG-1 |
+| `shared/xcb-xwayland.c` | full read | ATOM-1 |
+| `frontend/xwayland.c` | full read | XWL-8 |
+| `libweston/desktop/xwayland.c` | full read | — |
+| `desktop-shell/input-panel.c` | full read | DS-5 |
+| `xwayland/window-manager.c` | targeted (~70%) | XWL-1 … XWL-7 |
+| `desktop-shell/shell.c` | targeted (~60%) | DS-1 … DS-4, DS-6 |
+| `libweston/pixman-renderer.c` | targeted | SC-1, CORE-2, CORE-3 |
+| `libweston/desktop/surface.c` | targeted | DXW-1 |
+| `libweston/data-device.c` | targeted | DD-1 |
+| `shared/frame.c`, `cairo-util.c` | targeted | one clients-only defect, noted below |
+| `libweston/compositor.c` | targeted + pattern sweep | CORE-1, CORE-2, CORE-3 |
+| `libweston/desktop/xdg-shell.c` | pattern sweep | — |
+| `libweston/input.c` | pattern sweep | — |
+| `libweston/renderer-gl/gl-renderer.c` | pattern sweep + capture paths read in full | SC-2, CORE-3 |
+| `libweston/desktop/seat.c`, `client.c`, `libweston-desktop.c` | pattern sweep | — |
+| `xwayland/launcher.c` | pattern sweep | — |
+
+"**Pattern sweep**" means the file was searched for the defect classes this
+review has repeatedly found — `assert()` on external input, `wl_list_insert()`
+without a matching remove, unchecked reply/allocation dereferences, fd leaks on
+error paths, and unbounded size arithmetic — with each hit read in context and
+verified. It is real coverage, but it is not equivalent to a line-by-line read:
+a logic error that does not match one of those shapes would not be caught.
 
 ### Still not covered
 
@@ -2964,6 +2992,14 @@ records that value verbatim and never cross-checks it against
 * `pixman_renderer_attach()` (`libweston/pixman-renderer.c:799`) builds the
   source image with it — and does not check the `NULL` that
   `pixman_image_create_bits()` returns for a stride that is not a multiple of 4;
+* the **GL renderer** derives its row length from it with no lower bound —
+  `pitch = buffer->stride / (bpp / 8);` (`libweston/renderer-gl/gl-renderer.c:2749`)
+  — and feeds it to `glPixelStorei(GL_UNPACK_ROW_LENGTH_EXT, gb->pitch / hsub)`
+  before uploading `buffer->width × buffer->height` pixels
+  (`gl-renderer.c:2561`). With `pitch < width` GL reads rows of `width` pixels
+  spaced `pitch` apart, running off the end of the last row. So both renderers
+  used by these backends are exposed, which is the argument for fixing it once
+  in `weston_buffer_from_resource()` rather than per renderer;
 * the VNC cursor upload (`libweston/backend-vnc/vnc.c:567`) reads
   `4 * width` bytes out of rows that are `stride` bytes apart;
 * the screenshot paths (SC-1, SC-2, SC-5).
