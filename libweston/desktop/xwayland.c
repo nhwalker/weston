@@ -129,9 +129,13 @@ weston_desktop_xwayland_surface_change_state(struct weston_desktop_xwayland_surf
 
 			surface->view =
 				weston_desktop_surface_create_view(surface->surface);
-			weston_surface_map(wsurface);
-			weston_view_move_to_layer(surface->view,
-						  &surface->xwayland->layer.view_list);
+			/* create_view can fail under memory pressure; don't map
+			 * or move a NULL view. */
+			if (surface->view) {
+				weston_surface_map(wsurface);
+				weston_view_move_to_layer(surface->view,
+							  &surface->xwayland->layer.view_list);
+			}
 		}
 
 		/* If the surface state was updated by the shell during this

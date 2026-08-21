@@ -100,6 +100,10 @@ Verified in this tree:
 | [DND-3](#dnd-3--drag-started-with-a-null-pointer) | XWayland / DnD | High | 2 | `handle_enter()` calls `weston_pointer_start_drag()` with a NULL pointer when the seat has none |
 | [SEL-1](#sel-1--assert-on-an-attacker-controlled-selection-requestor) | XWayland / clipboard | Medium | 1 | `assert(requestor != selection_window)` aborts on a forged SelectionRequest |
 | [SEL-2](#sel-2--weston_wm_send_data-dereferences-a-null-seatsource-and-leaks-a-pipe) | XWayland / clipboard | High | 1 | `weston_wm_send_data()` dereferences a NULL seat / selection source and leaks the pipe |
+| [XLA-1](#xla-1--weston_xwayland_listen-error-paths-free-wxs-while-its-destroy-listener-stays-linked) | XWayland | High | 3 | `weston_xwayland_listen()` frees `wxs` on error while its compositor destroy-listener stays linked → use-after-free/double-free at teardown |
+| [XLA-2](#xla-2--null-view-dereference-on-the-xwayland-state-transition) | XWayland | High | 1 | The XWAYLAND state transition maps/moves a NULL view when `create_view()` fails |
+| [XLA-3](#xla-3--abstract-socket-bind-failure-other-than-eaddrinuse-is-not-handled) | XWayland | Low | 1 | A non-EADDRINUSE abstract-socket failure proceeds with `fd == -1`, registered as an event source |
+| [XLA-4](#xla-4--spawn_xserver-error-path-leaks-the-process-path-and-dangles-the-pointer) | XWayland | Low | 1 | `spawn_xserver` error path leaks `process->path` and leaves `wxw->process` dangling |
 
 ## 4. Prioritisation
 
@@ -1349,6 +1353,47 @@ SelectionRequest with no seat, or after the Wayland selection was cleared).
 were used with no NULL check (`weston_wm_pick_seat()` can return NULL, and the
 source can be NULL), and the freshly created pipe leaked on that path. Fix: check
 both before creating the pipe.
+
+### XLA-1 — `weston_xwayland_listen()` error paths free `wxs` while its destroy-listener stays linked
+
+**Severity:** High (use-after-free / double-free). **Likelihood:** 3 (a normal
+condition: lockfile creation or socket bind failing at start-up — e.g. a stale
+`/tmp/.X11-unix`, a busy display, a restricted container). **Area:**
+`xwayland/launcher.c`.
+
+`weston_module_init()` registers `wxs->compositor_destroy_listener`
+(`weston_xserver_destroy`, which frees `wxs`) into `compositor->destroy_signal`
+*before* `weston_xwayland_listen()` runs. `weston_xwayland_listen()` then
+`free(wxs)`d on two error paths, so at compositor teardown the still-linked
+listener fires on freed memory and frees it again. Fix: don't free `wxs` in the
+listen error paths — the destroy listener owns it (and `weston_xserver_destroy`
+correctly skips `weston_xserver_shutdown` because `wxs->loop` is still NULL).
+
+### XLA-2 — NULL view dereference on the XWAYLAND state transition
+
+**Severity:** High (NULL dereference crash). **Likelihood:** 1 (allocation
+failure). **Area:** `libweston/desktop/xwayland.c`
+`weston_desktop_xwayland_surface_change_state()`.
+`weston_desktop_surface_create_view()` can return NULL, but the result was passed
+straight to `weston_surface_map()`/`weston_view_move_to_layer()`. Fix: guard the
+map/move with a NULL check.
+
+### XLA-3 — abstract-socket bind failure other than EADDRINUSE is not handled
+
+**Severity:** Low. **Likelihood:** 1. **Area:** `xwayland/launcher.c`.
+`bind_to_abstract_socket()` returns -1 for any failure, but only `EADDRINUSE` was
+handled; any other error fell through and (if the unix socket bound)
+`wl_event_loop_add_fd()` was called with `fd == -1`. Fix: treat any
+`abstract_fd < 0` that isn't `EADDRINUSE` as fatal.
+
+### XLA-4 — `spawn_xserver` error path leaks the process path and dangles the pointer
+
+**Severity:** Low. **Likelihood:** 1 (`wl_client_create` failure after the child
+forked). **Area:** `frontend/xwayland.c`. The `err_proc` path did
+`wl_list_remove(&wxw->process->link); ...; free(wxw->process);`, leaking the
+`strdup`'d `process->path` and leaving `wxw->process` dangling (a later
+`wet_xwayland_destroy` would use it). Fix: use `wet_process_destroy()` and NULL
+the pointer.
 
 ## 6. Coverage ledger
 
