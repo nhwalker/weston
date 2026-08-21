@@ -142,10 +142,8 @@ Also noted, but **not** counted as a finding because it is only reachable from
 (`shared/frame.c:724`) — which *is* on the XWayland path — orders the check
 correctly.
 
-Not covered, by request: DRM / headless / RDP / wayland backends, kiosk-shell,
-ivi-shell, fullscreen-shell. XWayland's `selection.c` (clipboard) and `dnd.c`
-were only skimmed; they carry the same "X11 property parsed on trust" shape as
-XWL-2 and deserve their own pass.
+Out of scope by request throughout: DRM / headless / RDP / wayland backends,
+kiosk-shell, ivi-shell, fullscreen-shell.
 
 ---
 
