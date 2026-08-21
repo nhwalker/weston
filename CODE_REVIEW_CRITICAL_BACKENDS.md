@@ -3035,7 +3035,7 @@ worth more than "someone replaced a file in `$datadir`":
   can set an env var on the compositor (a unit drop-in, a wrapper script, a less
   privileged launcher) picks the file;
 * the loader dispatches on **magic bytes**, not the extension
-  (`loaders[]`, `image-loader.c:551`), so a file called `wayland.png` is decoded
+  (`loaders[]`, `image-loader.c:558`), so a file called `wayland.png` is decoded
   as JPEG or WebP if it starts with the right bytes — all three code paths are
   reachable from the one filename.
 
@@ -3261,5 +3261,287 @@ is the outlier.
 `pointer->focus->surface != window->surface` precondition means `surface` — and
 therefore in practice `shsurf` — is already non-NULL. Adding the same guard
 there is still worthwhile.)
+
+---
+
+### SEL-1 — `data_source_send()` leaks the requesting client's fd for every non-matching MIME type
+
+**Severity: high (unauthenticated, unbounded fd exhaustion of the compositor).**
+`xwayland/selection.c:161`
+
+```c
+static void
+data_source_send(struct weston_data_source *base,
+		 const char *mime_type, int32_t fd)
+{
+	struct x11_data_source *source = (struct x11_data_source *) base;
+	struct weston_wm *wm = source->wm;
+
+	if (strcmp(mime_type, "text/plain;charset=utf-8") == 0) {
+		xcb_convert_selection(...);
+		xcb_flush(wm->conn);
+		fcntl(fd, F_SETFL, O_WRONLY | O_NONBLOCK);
+		wm->data_source_fd = fd;
+	}
+}
+```
+
+Any other MIME type falls off the end of the function and `fd` is **never
+closed**. Ownership of that fd was transferred to the source by
+`data_offer_receive()` (`libweston/data-device.c:86`):
+
+```c
+	if (offer->source && offer == offer->source->offer)
+		offer->source->send(offer->source, mime_type, fd);
+	else
+		close(fd);
+```
+
+— libweston closes the fd only when there is *no* source; once `send()` is
+called the source must close it. And critically, **the MIME string is not
+validated against the offered types**: `data_offer_receive()` passes whatever
+the client sent straight through.
+
+So whenever an X11 client owns the clipboard (which is what installs this
+`x11_data_source`), *any* Wayland client can run
+
+```c
+    wl_data_offer_receive(offer, "application/anything", fd);
+```
+
+in a loop and leak one compositor file descriptor per call, until weston hits
+`RLIMIT_NOFILE` — at which point every subsequent client connection, dmabuf
+import and pipe creation fails. No privilege is needed and nothing is logged.
+
+The matching branch has a second leak: `wm->data_source_fd = fd` **overwrites**
+any fd already stored there without closing it, so two `receive` requests before
+the first transfer finishes leak the first fd *and* orphan its in-flight
+transfer (`wm->property_source` keeps polling the stale fd).
+
+**Minimal patch:**
+
+```c
+ 	if (strcmp(mime_type, "text/plain;charset=utf-8") == 0) {
++		/* A previous transfer is still in flight; drop it. */
++		if (wm->data_source_fd >= 0) {
++			if (wm->property_source)
++				wl_event_source_remove(wm->property_source);
++			wm->property_source = NULL;
++			close(wm->data_source_fd);
++		}
+ 		xcb_convert_selection(...);
+ 		xcb_flush(wm->conn);
+ 		fcntl(fd, F_SETFL, O_WRONLY | O_NONBLOCK);
+ 		wm->data_source_fd = fd;
++	} else {
++		/* We own this fd now; the client is waiting on EOF. */
++		close(fd);
+ 	}
+```
+
+---
+
+### SEL-2 — `writable_callback()` closes `data_source_fd` without invalidating it → double close
+
+**Severity: medium-high (closing an fd number that has been reused).**
+`xwayland/selection.c:47`
+
+Both exits from the X→Wayland transfer close the fd and leave
+`wm->data_source_fd` holding the now-stale number:
+
+```c
+	len = write(fd, property + wm->property_start, remainder);
+	if (len == -1) {
+		free(wm->property_reply);
+		wm->property_reply = NULL;
+		if (wm->property_source)
+			wl_event_source_remove(wm->property_source);
+		wm->property_source = NULL;
+		close(fd);                          /* data_source_fd not reset */
+		weston_log("write error to target fd: %s\n", strerror(errno));
+		return 1;
+	}
+	...
+	if (len == remainder) {
+		...
+		if (wm->incr) {
+			xcb_delete_property(...);
+		} else {
+			weston_log("transfer complete\n");
+			close(fd);                  /* data_source_fd not reset */
+		}
+	}
+```
+
+`-1` is the sentinel the rest of the file relies on:
+`weston_wm_read_data_source()` (`selection.c:486`) does exactly
+`close(wm->data_source_fd); wm->data_source_fd = -1;`, and
+`weston_wm_send_incr_chunk()` (`selection.c:536`) branches on
+`if (wm->data_source_fd >= 0)`. `writable_callback()` is the one place that
+breaks the convention.
+
+The consequence is a genuine double close: after the error path above,
+`weston_wm_get_incr_chunk()` (`selection.c:144`) still reaches
+`close(wm->data_source_fd)` on an empty INCR property. By then the number may
+have been handed to something else — a client socket, a dmabuf, the DRM fd — and
+closing it corrupts unrelated state in a way that surfaces far from here.
+
+The error path also treats **`EAGAIN` as fatal**. The fd was explicitly put into
+non-blocking mode (`fcntl(fd, F_SETFL, O_WRONLY | O_NONBLOCK)` in
+`data_source_send()`), and the *first* `write()` is issued directly from
+`weston_wm_write_property()` (`selection.c:95`) — not from the event loop, so
+without any indication the pipe is writable. A client whose pipe buffer is
+already full therefore gets its clipboard transfer silently aborted on the first
+chunk.
+
+**Minimal patch:**
+
+```c
+ 	len = write(fd, property + wm->property_start, remainder);
+ 	if (len == -1) {
++		if (errno == EAGAIN || errno == EINTR)
++			return 1;	/* retry when writable again */
+ 		free(wm->property_reply);
+ 		wm->property_reply = NULL;
+ 		if (wm->property_source)
+ 			wl_event_source_remove(wm->property_source);
+ 		wm->property_source = NULL;
+ 		close(fd);
++		wm->data_source_fd = -1;
+ 		weston_log("write error to target fd: %s\n", strerror(errno));
+ 		return 1;
+ 	}
+@@
+ 		} else {
+ 			weston_log("transfer complete\n");
+ 			close(fd);
++			wm->data_source_fd = -1;
+ 		}
+```
+
+---
+
+### SEL-3 — `weston_wm_send_data()` dereferences an unchecked seat and selection source
+
+**Severity: medium-high (NULL dereference driven by an X client's `ConvertSelection`).**
+`xwayland/selection.c:497`
+
+```c
+static void
+weston_wm_send_data(struct weston_wm *wm, xcb_atom_t target, const char *mime_type)
+{
+	struct weston_data_source *source;
+	struct weston_seat *seat = weston_wm_pick_seat(wm);
+	int p[2];
+
+	if (pipe2(p, O_CLOEXEC | O_NONBLOCK) == -1) { ... return; }
+
+	wl_array_init(&wm->source_data);
+	wm->selection_target = target;
+	wm->data_source_fd = p[0];
+	wm->property_source = wl_event_loop_add_fd(...);
+
+	source = seat->selection_data_source;        /* seat may be NULL */
+	source->send(source, mime_type, p[1]);       /* source may be NULL */
+}
+```
+
+Neither pointer is checked:
+
+* `weston_wm_pick_seat()` (`xwayland/window-manager.c:1759`) explicitly
+  `return NULL`s when `compositor->seat_list` is empty. Every other caller in
+  the file handles that — `weston_wm_handle_xfixes_selection_notify()`
+  (`selection.c:623`) does `if (!seat) return 1;` a few lines in. This one does
+  not.
+* `seat->selection_data_source` is NULL whenever the Wayland selection has been
+  cleared. The XWM owns the X `CLIPBOARD` selection as a *proxy* for the Wayland
+  one, and it does not relinquish that ownership synchronously when the Wayland
+  source goes away. In that window an X client's `ConvertSelection` reaches
+  `weston_wm_handle_selection_request()` → `weston_wm_send_data()` →
+  `source->send(NULL, ...)`.
+
+Both are reachable from an ordinary X client asking for the clipboard at the
+wrong moment — e.g. a paste right after the owning Wayland client exited.
+
+The pipe is created *before* the dereference, so on any early return added here
+both ends must be closed; note the existing `pipe2()` failure path already
+answers the requestor with `XCB_ATOM_NONE`, which is the right response here too.
+
+**Minimal patch:**
+
+```c
+ 	struct weston_data_source *source;
+ 	struct weston_seat *seat = weston_wm_pick_seat(wm);
+ 	int p[2];
+ 
++	source = seat ? seat->selection_data_source : NULL;
++	if (!source) {
++		weston_wm_send_selection_notify(wm, XCB_ATOM_NONE);
++		return;
++	}
++
+ 	if (pipe2(p, O_CLOEXEC | O_NONBLOCK) == -1) {
+ 		weston_log("pipe2 failed: %s\n", strerror(errno));
+ 		weston_wm_send_selection_notify(wm, XCB_ATOM_NONE);
+ 		return;
+ 	}
+@@
+-	source = seat->selection_data_source;
+ 	source->send(source, mime_type, p[1]);
+```
+
+---
+
+### SEL-4 — A forged `SelectionRequest` trips `assert(requestor != selection_window)`
+
+**Severity: high (client-triggerable `abort()`).**
+`xwayland/selection.c:594`
+
+```c
+	assert(selection_request->requestor != wm->selection_window);
+	wm->selection_request = *selection_request;
+```
+
+`SelectionRequest` is delivered to the selection owner's window — here
+`wm->selection_window`, which the XWM owns whenever it is proxying the Wayland
+clipboard into X. `xcb_send_event()` with an **empty event mask** delivers an
+event to the client that created the target window, so any X client can send the
+XWM a fully attacker-controlled `SelectionRequest`:
+
+```c
+xcb_selection_request_event_t ev = {
+	.response_type = XCB_SELECTION_REQUEST,
+	.owner     = wm->selection_window,
+	.requestor = wm->selection_window,   /* the asserted-impossible value */
+	.selection = CLIPBOARD,
+	.target    = UTF8_STRING,
+};
+xcb_send_event(conn, 0, wm->selection_window, 0, (char *)&ev);
+```
+
+The assert holds only for server-generated requests (the X server will not send
+a window a SelectionRequest it originated); it is not an invariant of the event
+as received. Result: **`abort()`** of the compositor, from any X client, with
+asserts live (see the note at the top of this document).
+
+This is the third instance of the same pattern — see X11-1 (button/focus events)
+and XWL-6 (MapRequest). None of the three can be filtered by the
+`SEND_EVENT_MASK` bit, because legitimate senders (Xwayland, ICCCM-conformant
+clients) use `XSendEvent` too; each needs the invariant demoted to a runtime
+check.
+
+**Minimal patch:**
+
+```c
+-	assert(selection_request->requestor != wm->selection_window);
++	if (selection_request->requestor == wm->selection_window) {
++		/* Not possible for a server-generated request; a client can
++		 * still synthesise one with XSendEvent. */
++		weston_wm_send_selection_notify(wm, XCB_ATOM_NONE);
++		return;
++	}
++
+ 	wm->selection_request = *selection_request;
+```
 
 ---
