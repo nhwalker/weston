@@ -3586,3 +3586,250 @@ check.
 ```
 
 ---
+
+### DD-1 — The clipboard serial is never validated, so any client can lock the selection
+
+**Severity: high (trivial clipboard hijack / denial of service, any client).**
+`libweston/data-device.c:1203`, `libweston/data-device.c:1164`
+
+```c
+static void
+data_device_set_selection(struct wl_client *client,
+			  struct wl_resource *resource,
+			  struct wl_resource *source_resource, uint32_t serial)
+{
+	...
+	/* FIXME: Store serial and check against incoming serial here. */
+	weston_seat_set_selection(seat, source, serial);
+}
+```
+
+The `serial` is taken verbatim from the client. The protocol requires it to come
+from an input event the compositor issued; weston's own comment records that the
+check is missing. The sibling request gets this right —
+`data_device_start_drag()` (`data-device.c:1048`) validates
+`pointer->grab_serial == serial` / `touch->grab_serial == serial` before
+starting a drag — so the omission is an asymmetry, not a design choice.
+
+That unvalidated value then feeds the only gate on who owns the clipboard
+(`data-device.c:1164`):
+
+```c
+	if (seat->selection_data_source &&
+	    seat->selection_serial - serial < UINT32_MAX / 2)
+		return;
+```
+
+This is the standard wrap-around "is the stored serial newer?" test. Because the
+attacker chooses `serial`, it can set the stored serial roughly 2^31 ahead of
+the real serial counter:
+
+```c
+    wl_data_device_set_selection(dev, my_source, real_serial + 0x7fffffff);
+```
+
+From then on every legitimate `set_selection` — whose serial comes from
+`wl_display_next_serial()` and is therefore far "older" by this comparison —
+satisfies `stored - incoming < 2^31` and is **silently dropped**. The clipboard
+is pinned to the attacker's source for the next ~2^31 serials, i.e. effectively
+for the life of the compositor. Nothing is logged and no error is posted; other
+clients simply observe that copying stops working.
+
+Two aggravating factors for the configurations in scope:
+
+* The same path is how the XWayland bridge publishes and clears the X selection
+  (`weston_seat_set_selection(seat, NULL, serial)` in
+  `weston_wm_handle_xfixes_selection_notify()`), so a locked selection also
+  breaks X↔Wayland clipboard in both directions — and interacts with SEL-1…4.
+* `weston_seat_set_selection()` is `WL_EXPORT`ed and called by shells and
+  backends, all of which pass real serials and will therefore lose to a
+  poisoned one.
+
+**Minimal patch** — validate the serial the way `start_drag` already does:
+
+```c
++	struct weston_keyboard *keyboard = weston_seat_get_keyboard(seat);
++	struct weston_pointer *pointer = weston_seat_get_pointer(seat);
++	struct weston_touch *touch = weston_seat_get_touch(seat);
++
++	/* The serial must come from an input event we sent this client. */
++	if (!((keyboard && keyboard->grab_serial == serial) ||
++	      (pointer && pointer->grab_serial == serial) ||
++	      (touch && touch->grab_serial == serial)))
++		return;
++
+-	/* FIXME: Store serial and check against incoming serial here. */
+ 	weston_seat_set_selection(seat, source, serial);
+```
+
+If that is considered too strict for existing clients, the minimum is to clamp
+how far ahead a client-supplied serial may be:
+
+```c
+ 	if (seat->selection_data_source &&
+-	    seat->selection_serial - serial < UINT32_MAX / 2)
++	    serial - seat->selection_serial > UINT32_MAX / 2)
+ 		return;
+```
+
+(i.e. reject serials that are *not* plausibly newer, rather than accepting
+anything that is not plausibly older — the two differ exactly on the
+attacker-chosen far-future values.)
+
+---
+
+### XWL-8 — `wet_xwayland_destroy()` frees its state without disarming the display-fd source
+
+**Severity: medium-high (use-after-free on shutdown while Xwayland is still starting).**
+`frontend/xwayland.c:222`, `frontend/xwayland.c:200`,
+`frontend/xwayland.c:59`
+
+`spawn_xserver()` arms an event source on the pipe Xwayland uses to announce
+readiness, with the `wet_xwayland` as its user data:
+
+```c
+	wxw->display_fd_source =
+		wl_event_loop_add_fd(loop, display_pipe.fds[0],
+				     WL_EVENT_READABLE,
+				     handle_display_fd, wxw);
+```
+
+The source is removed in exactly one place — `handle_display_fd()`'s `out:`
+label, i.e. only once Xwayland has actually reported in. Teardown does not
+touch it:
+
+```c
+void
+wet_xwayland_destroy(struct weston_compositor *comp, void *data)
+{
+	struct wet_xwayland *wxw = data;
+
+	if (wxw->process)
+		wet_process_destroy(wxw->process, 0, true);
+
+	free(wxw);          /* display_fd_source still armed, data == wxw */
+}
+```
+
+`wet_xwayland_destroy()` is called from `frontend/main.c:4797`, **before**
+`weston_compositor_destroy()` at `main.c:4801` — so the `wl_display` and its
+event loop are still live and still dispatching. If Xwayland was spawned but had
+not yet written its readiness line (it crashed during startup, or weston is shut
+down during X server initialisation), then:
+
+1. `wet_process_destroy(wxw->process, 0, true)` kills Xwayland;
+2. the child's end of `display_pipe` closes, so the read end becomes readable
+   (EOF);
+3. `free(wxw)`;
+4. the next dispatch calls `handle_display_fd(fd, WL_EVENT_READABLE, wxw)` on
+   freed memory, whose first action on the `n <= 0` path is
+   `wl_event_source_remove(wxw->display_fd_source)` — reading a pointer out of
+   the freed struct and handing it to the event loop.
+
+**Minimal patch:**
+
+```c
+ void
+ wet_xwayland_destroy(struct weston_compositor *comp, void *data)
+ {
+ 	struct wet_xwayland *wxw = data;
+ 
++	if (wxw->display_fd_source) {
++		wl_event_source_remove(wxw->display_fd_source);
++		wxw->display_fd_source = NULL;
++	}
++
+ 	if (wxw->process)
+ 		wet_process_destroy(wxw->process, 0, true);
+ 
+ 	free(wxw);
+ }
+```
+
+(`handle_display_fd()` should also NULL the field after removing it, so the two
+paths cannot both remove.)
+
+Two smaller defects in the same file:
+
+* `wet_load_xwayland()` (`frontend/xwayland.c:235`) leaks `wxw` when
+  `api->listen()` fails — it `return NULL`s without freeing the `zalloc`.
+* `spawn_xserver()`'s `err_proc:` label (`frontend/xwayland.c:210`) is reached
+  after `wet_client_launch()` has already forked and exec'd Xwayland. It unlinks
+  and `free()`s the `wet_process` but never signals the child, leaving an
+  orphaned Xwayland holding the X sockets with no cleanup handler registered.
+
+---
+
+### DXW-1 — `weston_desktop_surface_update_view_position()` assumes a transform parent that its own view constructor does not set
+
+**Severity: low (latent — no confirmed trigger).**
+`libweston/desktop/surface.c:82`, `libweston/desktop/surface.c:377`
+
+```c
+	wl_list_for_each(view, &surface->view_list, link) {
+		struct weston_coord_surface offset;
+		struct weston_view *wv = view->view;
+
+		offset = weston_coord_surface(x, y, wv->geometry.parent->surface);
+		weston_view_set_rel_position(view->view, offset);
+	}
+```
+
+`wv->geometry.parent` is dereferenced with no check. It is established by
+`weston_view_set_transform_parent()`, which runs in
+`weston_desktop_surface_surface_committed()` — *after* the implementation's
+`committed` hook, and only for the surface being committed:
+
+```c
+	if (surface->parent != NULL) {
+		wl_list_for_each(view, &surface->view_list, link) {
+			weston_view_set_transform_parent(view->view, view->parent->view);
+			...
+		}
+		weston_desktop_surface_update_view_position(surface);   /* safe: set above */
+	}
+
+	if (!wl_list_empty(&surface->children_list)) {
+		wl_list_for_each(child, &surface->children_list, children_link)
+			weston_desktop_surface_update_view_position(child);  /* child's views? */
+	}
+```
+
+`weston_desktop_surface_create_desktop_view()` sets the *desktop* view's
+`parent` pointer and recursively creates views for children, but never calls
+`weston_view_set_transform_parent()`. So any `weston_desktop_view` created
+outside a commit — the recursive child views built when a **new** view is added
+to an already-parented surface — has `geometry.parent == NULL` until that child
+next commits, while already being reachable from the parent's
+`children_list` walk above.
+
+I could not construct a trigger for this in the shipped shells (desktop-shell
+creates exactly one view per desktop surface, so the recursive path is not
+exercised after the initial commit), so this is recorded as an **unproven**
+invariant gap rather than a confirmed bug. It is cheap to make explicit, and
+`weston_view_set_rel_position()` (`libweston/compositor.c:2076`) already
+`assert()`s the same invariant one call deeper — meaning the failure mode, if
+reached, is an `abort()` rather than a diagnosable error.
+
+**Minimal patch:**
+
+```c
+ 	wl_list_for_each(view, &surface->view_list, link) {
+ 		struct weston_coord_surface offset;
+ 		struct weston_view *wv = view->view;
+ 
++		if (!wv->geometry.parent)
++			continue;	/* not parented yet; positioned on commit */
++
+ 		offset = weston_coord_surface(x, y, wv->geometry.parent->surface);
+ 		weston_view_set_rel_position(view->view, offset);
+ 	}
+```
+
+Separately, `weston_desktop_surface_create_desktop_view()`
+(`libweston/desktop/surface.c:392`) leaks the `weston_view` it just created if
+the subsequent `zalloc()` of the `weston_desktop_view` fails — the `weston_view`
+stays attached to `surface->surface->views` and participates in rendering
+unpositioned.
+
+---
