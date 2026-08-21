@@ -413,6 +413,7 @@ pipewire_output_disable(struct weston_output *base)
 {
 	struct weston_renderer *renderer = base->compositor->renderer;
 	struct pipewire_output *output = to_pipewire_output(base);
+	struct pipewire_fence_data *fence_data, *fence_tmp;
 
 	if (!output->base.enabled)
 		return 0;
@@ -428,6 +429,16 @@ pipewire_output_disable(struct weston_output *base)
 		break;
 	default:
 		unreachable("Valid renderer should have been selected");
+	}
+
+	/* Cancel any GL fences still in flight, otherwise their event sources
+	 * outlive the output and fire against freed memory (use-after-free), or
+	 * leak their fd and event source if they never signal. */
+	wl_list_for_each_safe(fence_data, fence_tmp, &output->fence_list, link) {
+		wl_event_source_remove(fence_data->fence_sync_event_source);
+		close(fence_data->fence_sync_fd);
+		wl_list_remove(&fence_data->link);
+		free(fence_data);
 	}
 
 	wl_event_source_remove(output->finish_frame_timer);
