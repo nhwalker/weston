@@ -2634,3 +2634,241 @@ Two further defects in the same file:
 client the shell launched, the way `bind_desktop_shell()` does.
 
 ---
+
+## Cross-cutting (libweston core, reached from all three backends)
+
+These are referenced from the backend sections above. They live in shared code
+but are only reachable — or only matter — through the paths in scope.
+
+### CORE-1 — `weston_output_mode_set_native()` stores a pointer to the caller's stack frame in `output->native_mode`
+
+**Severity: medium (dangling pointer; dereferenced through public API).**
+`libweston/compositor.c:557`, `libweston/compositor.c:595`,
+`include/libweston/libweston.h:624`
+
+```c
+WL_EXPORT void
+weston_output_copy_native_mode(struct weston_output *output,
+			       struct weston_mode *mode)
+{
+	output->native_mode = mode;                 /* borrows the caller's pointer */
+	output->native_mode_copy.width = mode->width;
+	...
+}
+
+WL_EXPORT int
+weston_output_mode_set_native(struct weston_output *output,
+			      struct weston_mode *mode, int32_t scale)
+{
+	...
+	ret = output->switch_mode(output, mode);
+	...
+	weston_output_copy_native_mode(output, mode);    /* <-- caller's `mode` */
+```
+
+Every in-scope caller passes a **stack local**:
+
+| Caller | Local |
+| --- | --- |
+| `libweston/backend-x11/x11.c:1702` | `struct weston_mode mode = output->mode;` |
+| `libweston/backend-vnc/vnc.c:411` | `struct weston_mode new_mode;` |
+| `frontend/main.c:2577` | `struct weston_mode mode;` |
+| `frontend/main.c:2600` | `struct weston_mode mode;` |
+
+so `output->native_mode` dangles the moment those functions return. The header
+already acknowledges the problem:
+
+```c
+	struct weston_mode *native_mode;
+
+	/* FIXME: keep a local copy for native_mode */
+	struct {
+		int32_t width, height;
+		uint32_t refresh;
+		uint32_t flags;
+		enum weston_mode_aspect_ratio aspect_ratio;
+	} native_mode_copy;
+```
+
+`native_mode_copy` was added as the workaround, but `native_mode` itself is
+still **dereferenced**, at `libweston/compositor.c:631`:
+
+```c
+	ret = output->switch_mode(output, output->native_mode);
+```
+
+inside `weston_output_mode_switch_to_native()`, and stored again at
+`compositor.c:662` (`output->original_mode = output->native_mode`). The only
+in-tree caller of `..._switch_to_native()` is fullscreen-shell (out of scope
+here), so this does not fire in a desktop-shell configuration today — but it is
+exported API in `libweston/backend.h`, the pointer is invalid from the moment an
+x11 window is resized or a VNC peer sends `SetDesktopSize`, and there is no
+diagnostic when it is used.
+
+**Minimal patch** — bind `native_mode` to a mode the output owns instead of the
+caller's temporary. After `switch_mode()` returns, `output->current_mode` always
+reflects the requested mode (the x11 backend updates `output->mode` in place;
+the VNC and PipeWire backends call `weston_output_set_single_mode()` /
+`pipewire_ensure_matching_mode()`, both of which allocate a persistent mode):
+
+```c
+--- a/libweston/compositor.c
++++ b/libweston/compositor.c
+@@ weston_output_mode_set_native
+ 	old_width = output->width;
+-	weston_output_copy_native_mode(output, mode);
++	/* Bind to a mode the output owns; `mode` may be the caller's
++	 * stack temporary. */
++	weston_output_copy_native_mode(output, output->current_mode);
+ 	output->native_scale = scale;
+```
+
+(And, independently: the VNC and `frontend/main.c` callers should
+zero-initialise their `struct weston_mode` locals — `flags` and `aspect_ratio`
+are otherwise indeterminate and get copied into `native_mode_copy` verbatim.
+See VNC-3.)
+
+---
+
+### CORE-2 — `weston_renderer_resize_output()` cannot fail, it can only log
+
+**Severity: medium (landmine).** `libweston/compositor.c:10423`,
+`libweston/pixman-renderer.c:926`
+
+```c
+WL_EXPORT void
+weston_renderer_resize_output(struct weston_output *output,
+			      const struct weston_size *fb_size,
+			      const struct weston_geometry *area)
+{
+	...
+	if (!r->resize_output(output, fb_size, area ?: &def)) {
+		weston_log("Error: Resizing output '%s' failed.\n",
+			   output->name);
+	}
+}
+```
+
+The function returns `void`. Every caller in scope —
+`x11_output_switch_mode()`, `vnc_switch_mode()`, `pipewire_switch_mode()` —
+therefore continues as if the resize succeeded, and each of them reports success
+to `weston_output_mode_set_native()`.
+
+That matters because `pixman_renderer_resize_output()` performs its teardown
+**before** it can fail:
+
+```c
+	pixman_renderer_output_set_buffer(output, NULL);
+
+	wl_list_for_each_safe(renderbuffer, tmp, &po->renderbuffer_list, link) {
+		wl_list_remove(&renderbuffer->link);
+		weston_renderbuffer_unref(&renderbuffer->base);
+	}
+
+	po->fb_size = *fb_size;
+	...
+	po->shadow_image =
+		pixman_image_create_bits_no_clear(po->shadow_format->pixman_format,
+						  fb_size->width, fb_size->height,
+						  NULL, 0);
+	...
+	return !!po->shadow_image;
+```
+
+so a failure (OOM on a large mode, or a degenerate `0 × 0` size — reachable from
+VNC-3) leaves the output with `fb_size` updated, every renderbuffer dropped and
+`shadow_image == NULL`, and rendering silently switches from shadowed to direct
+composition into a framebuffer whose format may not match what the renderer was
+configured for. Nothing upstream ever learns.
+
+**Minimal patch** — propagate the result so callers can refuse the mode:
+
+```c
+-WL_EXPORT void
++WL_EXPORT bool
+ weston_renderer_resize_output(struct weston_output *output,
+ 			      const struct weston_size *fb_size,
+ 			      const struct weston_geometry *area)
+ {
+ 	...
+ 	if (!r->resize_output(output, fb_size, area ?: &def)) {
+ 		weston_log("Error: Resizing output '%s' failed.\n",
+ 			   output->name);
++		return false;
+ 	}
++	return true;
+ }
+```
+
+and have `x11_output_switch_mode()` / `vnc_switch_mode()` /
+`pipewire_switch_mode()` return `-1` when it returns false (see X11-4 and
+VNC-3, which need the same plumbing anyway).
+
+---
+
+### CORE-3 — `wl_shm` buffer stride is never validated against `width × bytes-per-pixel`
+
+**Severity: medium.** `libweston/compositor.c:2914`
+
+```c
+	if ((shm = wl_shm_buffer_get(buffer->resource))) {
+		buffer->type = WESTON_BUFFER_SHM;
+		buffer->shm_buffer = shm;
+		buffer->width = wl_shm_buffer_get_width(shm);
+		buffer->height = wl_shm_buffer_get_height(shm);
+		buffer->stride = wl_shm_buffer_get_stride(shm);
+```
+
+libwayland's `wl_shm_pool.create_buffer` cannot validate the stride properly —
+it does not know the bytes-per-pixel of an arbitrary DRM format, so its check is
+only
+
+```c
+	if (offset < 0 || width <= 0 || height <= 0 || stride < width ||
+	    INT32_MAX / stride < height || offset > pool->size - stride * height)
+```
+
+i.e. `stride >= width` **in bytes**. For a 32-bpp format a client may legally
+declare `stride == width`, a quarter of what a row actually occupies. weston
+records that value verbatim and never cross-checks it against
+`buffer->pixel_format->bpp`. Consumers then use it as a real stride:
+
+* `pixman_renderer_attach()` (`libweston/pixman-renderer.c:799`) builds the
+  source image with it — and does not check the `NULL` that
+  `pixman_image_create_bits()` returns for a stride that is not a multiple of 4;
+* the VNC cursor upload (`libweston/backend-vnc/vnc.c:567`) reads
+  `4 * width` bytes out of rows that are `stride` bytes apart;
+* the screenshot paths (SC-1, SC-2, SC-5).
+
+Reads and writes through `wl_shm_buffer_get_data()` are wrapped in
+`wl_shm_buffer_begin_access()`/`end_access()`, and libwayland installs a
+`SIGBUS` handler that maps a zero page over a fault, so running off the end of
+the *pool mapping* degrades to zeroes rather than a crash. That mitigation does
+**not** cover accesses that stay inside the mapping: those silently read or
+overwrite other buffers the same client placed in the same pool, and they do not
+cover the `pixman_image_create_bits()` `NULL` at all.
+
+**Minimal patch** — validate once, where the buffer is adopted:
+
+```c
+ 		buffer->pixel_format =
+ 			pixel_format_get_info_shm(wl_shm_buffer_get_format(shm));
+ 		buffer->format_modifier = DRM_FORMAT_MOD_LINEAR;
+ 
+ 		if (!buffer->pixel_format || buffer->pixel_format->hide_from_clients)
+ 			goto fail;
++
++		/* wl_shm only enforces stride >= width *in bytes*; it cannot
++		 * know the format's bpp. Do it here so no consumer has to. */
++		if (buffer->pixel_format->bpp > 0 &&
++		    buffer->stride < buffer->width *
++				     (buffer->pixel_format->bpp / 8))
++			goto fail;
+```
+
+(`fail:` already posts a protocol error and destroys the `weston_buffer`.)
+This does not remove the need for the per-consumer fixes in SC-1/SC-2, which
+also depend on the stride being *exactly* `width * bpp / 8`, but it removes the
+under-sized case everywhere at once.
+
+---
