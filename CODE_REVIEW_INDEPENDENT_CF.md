@@ -113,6 +113,7 @@ Verified in this tree:
 | [SEAT-2](#seat-2--fullscreen-pointer-constraint-dereferences-a-null-focus) | input | High | 2 | The fullscreen pointer-constraint fast-path dereferences a NULL `pointer->focus` |
 | [SEAT-3](#seat-3--tablet-tool-button-idle-inhibit-is-never-released) | input | Low | 1 | Tablet-tool idle-inhibit is released on `button_count == 1` instead of `0`, leaking the inhibit |
 | [SEAT-5](#seat-5--weston_tablet_destroy-leaks-the-tablet-when-resources-are-bound) | input | Low | 1 | `weston_tablet_destroy()` leaks the tablet (and name) when a client still has resources bound |
+| [XSH-1](#xsh-1--x11_get_atoms-asserts-on-a-null-reply-aborting-the-compositor) | shared / XWayland | Medium | 2 | `x11_get_atoms()` asserts every `xcb_intern_atom_reply` non-NULL; a mid-init Xwayland death aborts the whole compositor |
 
 ## 4. Prioritisation
 
@@ -1493,6 +1494,17 @@ and NULLs each resource's user_data but leaves them in `resource_list`, so
 `wl_list_empty()` is false and neither the tablet nor its name is ever freed. Fix:
 also take the resources out of the list (re-initialising their links so the later
 `unbind_resource()` stays safe) and free unconditionally.
+
+### XSH-1 — `x11_get_atoms()` asserts on a NULL reply, aborting the compositor
+
+**Severity:** Medium (compositor abort). **Likelihood:** 2 (Xwayland dies or the X
+connection errors during XWM init). **Area:** `shared/xcb-xwayland.c`
+`x11_get_atoms()`. The function interns ~80 atoms and `assert(reply_atom)`s each
+reply. `xcb_intern_atom_reply()` returns NULL on a connection error (the error
+pointer is NULL), and this runs in the compositor process
+(`weston_wm_get_resources()`), so a mid-init Xwayland crash aborts the whole
+compositor. Fix: on a NULL reply, leave the atom as 0 and continue instead of
+asserting.
 
 ## 6. Coverage ledger
 
