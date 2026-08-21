@@ -60,6 +60,7 @@ Verified in this tree:
 | [XWM-2](#xwm-2--x11-property-values-are-parsed-without-validating-length-or-format) | XWayland | Medium | 2 | Property handlers dereference/copy values without checking length or format, giving out-of-bounds reads from short/mistyped X properties (`_MOTIF_WM_HINTS` copy is unconditional) |
 | [XSEL-1](#xsel-1--clipboard-bridge-leaks-a-file-descriptor-for-every-unhandled-mime-type) | XWayland / clipboard | High | 2 | `data_source_send()` never closes the passed fd for a mime type it doesn't handle; a Wayland client can leak fds until exhaustion while an X client owns the selection |
 | [XSEL-2](#xsel-2--targets-reply-parsed-without-a-format-check) | XWayland / clipboard | Low | 2 | `TARGETS` reply atoms iterated without a `format == 32` check → out-of-bounds read from a mistyped selection reply |
+| [PW-1](#pw-1--pipewire-memfd-allocation-error-path-leaks-an-fd-and-a-struct) | PipeWire | Low | 1 | `pipewire_output_create_memfd()` leaks the fd and the struct when `ftruncate` fails; `mmap` result is also unchecked |
 
 ## 4. Prioritisation
 
@@ -592,6 +593,57 @@ one-line guard.
  		free(reply);
  		return;
  	}
+```
+
+### PW-1 — PipeWire memfd allocation error path leaks an fd and a struct
+
+**Severity:** Low. **Likelihood:** 1 (needs `ftruncate`/`memfd` to fail, e.g.
+under the documented tight memory limits, while a PipeWire consumer is
+negotiating MemFd buffers).
+
+**Area:** `libweston/backend-pipewire/pipewire.c`
+`pipewire_output_create_memfd()` (and `pipewire_output_setup_memfd()`).
+
+```c
+memfd = xzalloc(sizeof *memfd);
+...
+fd = memfd_create("weston-pipewire", MFD_CLOEXEC);
+if (fd == -1)
+        return NULL;                 /* leaks memfd */
+if (ftruncate(fd, size) == -1)
+        return NULL;                 /* leaks memfd AND fd */
+```
+
+Both early returns leak the `memfd` struct, and the `ftruncate` path also leaks
+the file descriptor. `pipewire_output_stream_add_buffer()` is driven by the
+PipeWire server's buffer negotiation, so a consumer that keeps re-negotiating
+while allocations fail turns this into a steady fd/memory leak.
+
+A closely related hardening gap sits in `pipewire_output_setup_memfd()`: the
+`mmap()` result is stored into `d[0].data` without a `MAP_FAILED` check, and is
+then used as the renderer's target pointer. On `mmap` failure the renderer would
+write to `(void *)-1`. That one is left unpatched here because handling it
+cleanly means propagating the failure out of a `void` callback; it is noted so a
+later pass can address it deliberately.
+
+**Patch** — release the fd and struct on the error paths
+(`libweston/backend-pipewire/pipewire.c`):
+
+```diff
+ 	fd = memfd_create("weston-pipewire", MFD_CLOEXEC);
+-	if (fd == -1)
+-		return NULL;
+-	if (ftruncate(fd, size) == -1)
+-		return NULL;
++	if (fd == -1) {
++		free(memfd);
++		return NULL;
++	}
++	if (ftruncate(fd, size) == -1) {
++		close(fd);
++		free(memfd);
++		return NULL;
++	}
 ```
 
 ## 6. Coverage ledger

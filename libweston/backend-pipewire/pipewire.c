@@ -671,10 +671,15 @@ pipewire_output_create_memfd(struct pipewire_output *output)
 	size = height * stride;
 
 	fd = memfd_create("weston-pipewire", MFD_CLOEXEC);
-	if (fd == -1)
+	if (fd == -1) {
+		free(memfd);
 		return NULL;
-	if (ftruncate(fd, size) == -1)
+	}
+	if (ftruncate(fd, size) == -1) {
+		close(fd);
+		free(memfd);
 		return NULL;
+	}
 
 	memfd->fd = fd;
 	memfd->size = size;
