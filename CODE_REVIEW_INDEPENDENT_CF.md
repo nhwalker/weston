@@ -104,6 +104,11 @@ Verified in this tree:
 | [XLA-2](#xla-2--null-view-dereference-on-the-xwayland-state-transition) | XWayland | High | 1 | The XWAYLAND state transition maps/moves a NULL view when `create_view()` fails |
 | [XLA-3](#xla-3--abstract-socket-bind-failure-other-than-eaddrinuse-is-not-handled) | XWayland | Low | 1 | A non-EADDRINUSE abstract-socket failure proceeds with `fd == -1`, registered as an event source |
 | [XLA-4](#xla-4--spawn_xserver-error-path-leaks-the-process-path-and-dangles-the-pointer) | XWayland | Low | 1 | `spawn_xserver` error path leaks `process->path` and leaves `wxw->process` dangling |
+| [SHELL-1](#shell-1--fade-curtain-and-fullscreen-black-view-share-a-commit-identity-type-confusion) | desktop-shell | High | 2 | The fade curtain shares `black_surface_committed`, so `is_black_surface_view()` returns a `desktop_shell *` as a `weston_view *` — type confusion on a click during a fade |
+| [SHELL-2](#shell-2--close-animation-dereferences-a-null-viewoutput) | desktop-shell | High | 3 | The close-fade path dereferences `shsurf->view->output` without checking for NULL |
+| [SHELL-3](#shell-3--assert-aborts-when-an-output-has-no-shell_output) | desktop-shell | Medium | 1 | `get_output_work_area()` asserts `find_shell_output_from_weston_output()` non-NULL |
+| [SHELL-4](#shell-4--null-shell_output-dereferenced-in-setbackgroundpanel-and-resize) | desktop-shell | Medium | 1 | `set_background`/`set_panel`/`handle_output_resized` dereference a NULL `shell_output` |
+| [CAP-2](#cap-2--screenshooter-destroy-leaves-a-client-destroy-listener-dangling) | screenshots | Low | 1 | The screenshooter compositor-destroy handler leaves a client destroy-listener pointing at the freed struct |
 
 ## 4. Prioritisation
 
@@ -1394,6 +1399,58 @@ forked). **Area:** `frontend/xwayland.c`. The `err_proc` path did
 `strdup`'d `process->path` and leaving `wxw->process` dangling (a later
 `wet_xwayland_destroy` would use it). Fix: use `wet_process_destroy()` and NULL
 the pointer.
+
+### SHELL-1 — fade curtain and fullscreen black view share a commit identity (type confusion)
+
+**Severity:** High (type confusion / memory corruption). **Likelihood:** 2 (a
+click landing on the fade curtain while a compositor fade is in progress; the
+curtain sets `capture_input = true`). **Area:** `desktop-shell/shell.c`.
+
+`is_black_surface_view()` recognises a view by `surface->committed ==
+black_surface_committed` and returns `surface->committed_private` as a
+`weston_view *`. Two curtains use `black_surface_committed`: the fullscreen black
+view (`committed_private = weston_view`) and the whole-screen fade curtain
+(`shell_fade_create_view`, `committed_private = shell`, a `desktop_shell *`).
+When `activate_binding()` (click-to-activate) is handed the fade curtain's view,
+`is_black_surface_view()` returns the `desktop_shell *` as a `weston_view *` and
+the code dereferences it as a view — type confusion. Fix: give the fade curtain
+its own commit identity (`fade_surface_committed`) so it is never mistaken for a
+fullscreen black view. `black_surface_committed` is a no-op used only as a tag,
+so this is behaviour-neutral otherwise.
+
+### SHELL-2 — close animation dereferences a NULL `view->output`
+
+**Severity:** High (NULL dereference crash). **Likelihood:** 3 (a mapped window
+whose view has no assigned output — e.g. all outputs unplugged — is closed).
+**Area:** `desktop-shell/shell.c` `desktop_surface_removed()`. The close-fade path
+is gated on `weston_view_is_mapped(shsurf->view)` (independent of `view->output`)
+and then reads `shsurf->view->output->power_state`. `view->output` can be NULL.
+Fix: add `shsurf->view->output &&` to the condition.
+
+### SHELL-3 — assert aborts when an output has no `shell_output`
+
+**Severity:** Medium (compositor abort). **Likelihood:** 1 (`create_shell_output`
+silently returns on `zalloc` failure, leaving an output without a `shell_output`).
+**Area:** `desktop-shell/shell.c` `get_output_work_area()`. `assert(sh_output)`
+(compiled in) aborts. The function already has a full-output fallback; fix: drop
+the assert and fold `!sh_output` into the existing early-return.
+
+### SHELL-4 — NULL `shell_output` dereferenced in set-background/panel and resize
+
+**Severity:** Medium (NULL dereference crash). **Likelihood:** 1. **Area:**
+`desktop-shell/shell.c`. `desktop_shell_set_background()`,
+`desktop_shell_set_panel()` and `handle_output_resized()` use the result of
+`find_shell_output_from_weston_output()` without a NULL check (same root cause as
+SHELL-3). Fix: add `if (!sh_output) return;` in each.
+
+### CAP-2 — screenshooter destroy leaves a client destroy-listener dangling
+
+**Severity:** Low (use-after-free at teardown). **Likelihood:** 1 (a screenshooter
+client still connected at compositor shutdown). **Area:**
+`frontend/weston-screenshooter.c`. `screenshooter_destroy()` frees the `shooter`
+struct but leaves `client_destroy_listener` registered on the live client, so its
+`notify` fires on freed memory when the client is torn down. Fix: remove the
+listener when `shooter->client` is still set.
 
 ## 6. Coverage ledger
 

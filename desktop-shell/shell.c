@@ -383,14 +383,15 @@ get_output_work_area(struct desktop_shell *shell,
 		return;
 
 	sh_output = find_shell_output_from_weston_output(shell, output);
-	assert(sh_output);
 
 	area->x = output->pos.c.x;
 	area->y = output->pos.c.y;
 	area->width = output->width;
 	area->height = output->height;
 
-	if (!sh_output->panel_view ||
+	/* An output may have no shell_output (e.g. its allocation failed);
+	 * fall back to the full output area rather than aborting. */
+	if (!sh_output || !sh_output->panel_view ||
 	    !weston_view_is_mapped(sh_output->panel_view)) {
 		return;
 	}
@@ -2169,6 +2170,7 @@ desktop_surface_removed(struct weston_desktop_surface *desktop_surface,
 	    shsurf->shell->win_close_animation_type == ANIMATION_FADE) {
 
 		if (shsurf->shell->compositor->state == WESTON_COMPOSITOR_ACTIVE &&
+		    shsurf->view->output &&
 		    shsurf->view->output->power_state == WESTON_OUTPUT_POWER_NORMAL) {
 			struct weston_coord_global pos;
 
@@ -2830,6 +2832,8 @@ desktop_shell_set_background(struct wl_client *client,
 
 	surface->output = head->output;
 	sh_output = find_shell_output_from_weston_output(shell, surface->output);
+	if (!sh_output)
+		return;
 	if (sh_output->background_surface) {
 		wl_resource_post_error(surface_resource,
 				       WL_DISPLAY_ERROR_INVALID_OBJECT,
@@ -2941,6 +2945,8 @@ desktop_shell_set_panel(struct wl_client *client,
 
 	surface->output = head->output;
 	sh_output = find_shell_output_from_weston_output(shell, surface->output);
+	if (!sh_output)
+		return;
 
 	if (sh_output->panel_surface) {
 		wl_resource_post_error(surface_resource,
@@ -3831,6 +3837,16 @@ fade_surface_get_label(struct weston_surface *surface,
 	return snprintf(buf, len, "desktop shell fade surface");
 }
 
+/* Distinct commit identity for the fade curtain. It must NOT be
+ * black_surface_committed: is_black_surface_view() uses that identity to
+ * recover a weston_view from committed_private, but the fade curtain stores a
+ * desktop_shell there, so sharing the identity is a type confusion. */
+static void
+fade_surface_committed(struct weston_surface *es,
+		       struct weston_coord_surface new_origin)
+{
+}
+
 static struct weston_curtain *
 shell_fade_create_view(struct desktop_shell *shell)
 {
@@ -3838,7 +3854,7 @@ shell_fade_create_view(struct desktop_shell *shell)
 	struct shell_output *shell_output;
 	struct weston_curtain_params curtain_params = {
 		.r = 0.0, .g = 0.0, .b = 0.0, .a = 1.0,
-		.surface_committed = black_surface_committed,
+		.surface_committed = fade_surface_committed,
 		.get_label = fade_surface_get_label,
 		.surface_private = shell,
 		.capture_input = true,
@@ -4610,6 +4626,10 @@ handle_output_resized(struct wl_listener *listener, void *data)
 	struct shell_output *sh_output = find_shell_output_from_weston_output(shell, output);
 
 	handle_output_resized_shsurfs(shell);
+
+	/* The output may have no shell_output (e.g. its allocation failed). */
+	if (!sh_output)
+		return;
 
 	shell_resize_surface_to_output(shell, sh_output->background_surface, output);
 	shell_resize_surface_to_output(shell, sh_output->panel_surface, output);
