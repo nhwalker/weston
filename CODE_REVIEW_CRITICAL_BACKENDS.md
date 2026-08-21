@@ -1582,7 +1582,7 @@ format 0.
 ### SC-4 — `weston_capture_v1.create` on a stale `wl_output` hits `assert(ci)` → `abort()`
 
 **Severity: medium (client-triggerable abort in a 5-second race window).**
-`libweston/output-capture.c:612`, `libweston/output-capture.c:219`
+`libweston/output-capture.c:612`, `libweston/output-capture.c:221`
 
 ```c
 	head = weston_head_from_resource(output_resource);
@@ -1814,5 +1814,430 @@ mode.
 used for all three call sites (with the `writev()` one checked against
 `sizeof header + n * sizeof *r`), so the recording stops cleanly at the first
 error instead of continuing to append into a file that can no longer be parsed.
+
+---
+
+## XWayland (`xwayland/`)
+
+> Everything in this section is reachable from **any X11 client** connected to
+> Xwayland, not just from Xwayland itself. The XWM selects
+> `SubstructureNotify | SubstructureRedirect` on the root window, so the standard
+> EWMH mechanism — `xcb_send_event()` to the root — delivers arbitrary
+> `ClientMessage`s to it, and window properties are by definition
+> client-written. Xwayland's own messages arrive by exactly the same route
+> (`XSendEvent`), so the `SEND_EVENT_MASK` bit cannot be used to tell them
+> apart.
+
+### XWL-1 — Inner loops in `weston_wm_window_read_properties()` clobber the outer loop counter
+
+**Severity: high.** `xwayland/window-manager.c:592`,
+`xwayland/window-manager.c:611`
+
+```c
+	uint32_t i;
+	...
+	for (i = 0; i < ARRAY_LENGTH(props); i++)  {
+		reply = xcb_get_property_reply(wm->conn, cookie[i], NULL);
+		...
+		case TYPE_WM_PROTOCOLS:
+			atom = xcb_get_property_value(reply);
+			for (i = 0; i < reply->value_len; i++)        /* <-- outer `i` */
+				...
+			break;
+		case TYPE_NET_WM_STATE:
+			window->fullscreen = 0;
+			atom = xcb_get_property_value(reply);
+			for (i = 0; i < reply->value_len; i++) {      /* <-- outer `i` */
+```
+
+Both inner loops reuse the **outer** loop's `i`. `reply->value_len` is the
+number of entries in `WM_PROTOCOLS` / `_NET_WM_STATE`, i.e. **a value the X
+client picks**. Consequences, all client-selectable:
+
+* `value_len > 11` (`ARRAY_LENGTH(props)`) — the common case, since any client
+  can pad `WM_PROTOCOLS` with junk atoms — makes the outer loop terminate
+  immediately after index 3. The replies for
+  `_NET_WM_WINDOW_TYPE`, `_NET_WM_NAME`, `_NET_WM_PID`, `_MOTIF_WM_HINTS` and
+  `WM_CLIENT_MACHINE` are **never fetched**: their `xcb_get_property_cookie_t`s
+  are never consumed, so libxcb keeps the replies queued forever (steady memory
+  growth, one leak per repaint of such a window), and the window's type, title,
+  decoration hints and pid silently keep stale values. Decoration decisions
+  (`window->decorate`, reset to `MWM_DECOR_EVERYTHING` just above the loop) are
+  then made from unread hints.
+* `value_len == 0` with a non-`NONE` property type resets `i` to 0, so the outer
+  loop restarts at index 1 and calls `xcb_get_property_reply()` **a second time
+  on cookies 1–3 that were already consumed and freed** — a use of a reaped xcb
+  sequence number, and the `char *` properties are `free()`d and re-`strndup()`ed
+  from a second reply that libxcb no longer has.
+
+**Minimal patch** — give the inner loops their own counter:
+
+```c
+ 	uint32_t i;
++	uint32_t j;
+ 	char name[1024];
+@@
+ 		case TYPE_WM_PROTOCOLS:
+ 			atom = xcb_get_property_value(reply);
+-			for (i = 0; i < reply->value_len; i++)
+-				if (atom[i] == wm->atom.wm_delete_window) {
++			for (j = 0; j < reply->value_len; j++)
++				if (atom[j] == wm->atom.wm_delete_window) {
+ 					window->delete_window = 1;
+-				} else if (atom[i] == wm->atom.wm_take_focus) {
++				} else if (atom[j] == wm->atom.wm_take_focus) {
+ 					window->take_focus = 1;
+ 				}
+ 			break;
+@@
+ 		case TYPE_NET_WM_STATE:
+ 			window->fullscreen = 0;
+ 			atom = xcb_get_property_value(reply);
+-			for (i = 0; i < reply->value_len; i++) {
+-				if (atom[i] == wm->atom.net_wm_state_fullscreen)
++			for (j = 0; j < reply->value_len; j++) {
++				if (atom[j] == wm->atom.net_wm_state_fullscreen)
+ 					window->fullscreen = 1;
+-				if (atom[i] == wm->atom.net_wm_state_maximized_vert)
++				if (atom[j] == wm->atom.net_wm_state_maximized_vert)
+ 					window->maximized_vert = 1;
+-				if (atom[i] == wm->atom.net_wm_state_maximized_horz)
++				if (atom[j] == wm->atom.net_wm_state_maximized_horz)
+ 					window->maximized_horz = 1;
+ 			}
+ 			break;
+```
+
+(The `for (i = 0; i < sizeof(name); i++)` hostname scan at the end of the same
+function also reuses `i`, but it runs after the loop so it is harmless today.)
+
+---
+
+### XWL-2 — X11 property values are parsed without checking `format` or `value_len`
+
+**Severity: high (heap over-read from a client-controlled property).**
+`xwayland/window-manager.c:580`, `:587`, `:591`, `:610`, `:621`
+
+Every property is fetched with `XCB_ATOM_ANY` as the type, so `reply->type`,
+`reply->format` and `reply->value_len` are entirely under the client's control,
+and none of them is validated before the value is decoded:
+
+```c
+		case XCB_ATOM_WINDOW:
+			xid = xcb_get_property_value(reply);
+			if (!wm_lookup_window(wm, *xid, p))      /* 4-byte read, len unchecked */
+		...
+		case XCB_ATOM_CARDINAL:
+		case XCB_ATOM_ATOM:
+			atom = xcb_get_property_value(reply);
+			*(xcb_atom_t *) p = *atom;               /* 4-byte read, len unchecked */
+		...
+		case TYPE_MOTIF_WM_HINTS:
+			memcpy(&window->motif_hints,
+			       xcb_get_property_value(reply),
+			       sizeof window->motif_hints);      /* 20-byte read, len unchecked */
+```
+
+* `xcb_get_property_value()` on a zero-length property returns a pointer to a
+  zero-byte region; `*xid` / `*atom` read 4 bytes past it. Trivially triggered
+  with `xcb_change_property(..., WM_TRANSIENT_FOR, XCB_ATOM_WINDOW, 32, 0, NULL)`.
+* `TYPE_MOTIF_WM_HINTS` copies a fixed `sizeof(struct motif_wm_hints)`
+  (5 × `uint32_t` = 20 bytes) regardless of the actual property length. Setting
+  `_MOTIF_WM_HINTS` to one byte yields a **19-byte heap over-read**, and the
+  bytes read then drive `window->decorate`.
+* The `WM_PROTOCOLS` / `_NET_WM_STATE` loops index `value_len` **32-bit atoms**.
+  If the client stores the property with `format = 8`, `value_len` counts bytes,
+  so the loop reads 4× the buffer.
+
+The correct pattern is used just a few lines away for `WM_NORMAL_HINTS`:
+
+```c
+			memcpy(&window->size_hints,
+			       xcb_get_property_value(reply),
+			       MIN(sizeof(window->size_hints),
+			           reply->value_len * 4));
+```
+
+**Minimal patch** — reject mismatched `format`/`type` once, and bound the copy:
+
+```c
+ 		if (reply->type == XCB_ATOM_NONE) {
+ 			free(reply);
+ 			continue;
+ 		}
++		/* Everything we parse below is CARD32/ATOM/WINDOW data
++		 * except the string properties. */
++		if (props[i].type != XCB_ATOM_STRING &&
++		    props[i].type != XCB_ATOM_WM_CLIENT_MACHINE &&
++		    reply->format != 32) {
++			free(reply);
++			continue;
++		}
+ 
+ 		p = props[i].ptr;
+@@
+ 		case XCB_ATOM_WINDOW:
++			if (reply->value_len < 1)
++				break;
+ 			xid = xcb_get_property_value(reply);
+@@
+ 		case XCB_ATOM_CARDINAL:
+ 		case XCB_ATOM_ATOM:
++			if (reply->value_len < 1)
++				break;
+ 			atom = xcb_get_property_value(reply);
+@@
+ 		case TYPE_MOTIF_WM_HINTS:
++			memset(&window->motif_hints, 0,
++			       sizeof window->motif_hints);
+ 			memcpy(&window->motif_hints,
+ 			       xcb_get_property_value(reply),
+-			       sizeof window->motif_hints);
++			       MIN(sizeof window->motif_hints,
++				   reply->value_len * 4));
+```
+
+---
+
+### XWL-3 — `weston_wm_kill_client()` sends `SIGKILL` to a PID chosen by the X client
+
+**Severity: high (an untrusted X client can have the compositor kill an arbitrary process of its user).**
+`xwayland/window-manager.c:919`
+
+```c
+static void
+weston_wm_kill_client(struct wl_listener *listener, void *data)
+{
+	struct weston_surface *surface = data;
+	struct weston_wm_window *window = get_wm_window(surface);
+	if (!window)
+		return;
+
+	if (window->pid > 0)
+		kill(window->pid, SIGKILL);
+}
+```
+
+`window->pid` is read straight out of the window's `_NET_WM_PID` property, i.e.
+the X client writes it. The only sanity check
+(`weston_wm_window_read_properties()`) is:
+
+```c
+		if (!window->machine || strcmp(window->machine, name))
+			window->pid = 0;
+```
+
+— comparing the client-written `WM_CLIENT_MACHINE` against `gethostname()`. The
+client controls *both* sides of that comparison, so it is not a check at all;
+its own comment calls it "only one heuristic".
+
+The path is reached from `force_kill_binding()`
+(`desktop-shell/shell.c:4434`, bound to **`<super>K`**), which emits
+`compositor->kill_signal` with the focused surface. So: a malicious or merely
+buggy X11 application sets `_NET_WM_PID` to the pid of a watchdog, a safety
+daemon, the session manager — or of weston itself — and `WM_CLIENT_MACHINE` to
+the local hostname. The next time a user presses `<super>K` on that window, the
+compositor `SIGKILL`s the named process. No confirmation, no verification, and
+`SIGKILL` cannot be handled or logged by the victim.
+
+(For the Wayland half of the same binding, `force_kill_binding()` uses
+`wl_client_get_credentials()`, i.e. the kernel's `SO_PEERCRED` — the pid there
+is trustworthy. The XWayland half is the outlier. Note also that for X windows
+the Wayland half is skipped anyway, because Xwayland is launched by weston over
+a socketpair and so reports weston's own pid: the client-supplied `_NET_WM_PID`
+is the *only* thing driving the kill.)
+
+**Minimal patch** — kill the X client through the X server, which knows who
+actually owns the window, instead of trusting a property:
+
+```c
+ static void
+ weston_wm_kill_client(struct wl_listener *listener, void *data)
+ {
+ 	struct weston_surface *surface = data;
+ 	struct weston_wm_window *window = get_wm_window(surface);
+ 	if (!window)
+ 		return;
+ 
+-	if (window->pid > 0)
+-		kill(window->pid, SIGKILL);
++	/* _NET_WM_PID is client-supplied and unverifiable; never signal it.
++	 * XKillClient tears down the owning X client's connection, which is
++	 * both correct and attributable. */
++	xcb_kill_client(window->wm->conn, window->id);
++	xcb_flush(window->wm->conn);
+ }
+```
+
+`weston_wm_window_close()` (`xwayland/window-manager.c:2261`) already uses
+`xcb_kill_client()` for exactly this purpose. If actually killing the process is
+required, the pid must be corroborated out of band (e.g. `/proc/<pid>` ownership
+plus ancestry under the Xwayland process) rather than taken from a property.
+
+---
+
+### XWL-4 — Forged `WL_SURFACE_ID` client messages corrupt `unpaired_window_list` (compositor hang), and the looked-up object's type is never checked
+
+**Severity: high.** `xwayland/window-manager.c:1984`,
+`xwayland/window-manager.c:931`
+
+```c
+	if (window->surface_id != 0) {
+		wm_printf(wm, "already have surface id for window %d\n", window->id);
+		return;
+	}
+	...
+	uint32_t id = client_message->data.data32[0];
+	resource = wl_client_get_object(wm->server->client, id);
+	if (resource) {
+		window->surface_id = 0;
+		xserver_map_shell_surface(window,
+					  wl_resource_get_user_data(resource));
+	}
+	else {
+		window->surface_id = id;
+		wl_list_insert(&wm->unpaired_window_list, &window->link);
+	}
+```
+
+**(a) List corruption → hang.** The "already paired" guard is
+`window->surface_id != 0`, but the *unpaired* branch stores `id` into
+`surface_id` — so when `id == 0` the guard stays false. `wl_client_get_object()`
+returns `NULL` for id 0 (the null object), so the else-branch runs and
+`wl_list_insert()`s `&window->link`. Sending the **same message twice** inserts
+the same node into the same list twice:
+
+```
+first insert : head->next == elm, elm->prev == head, elm->next == old
+second insert: elm->next = head->next (== elm), head->next = elm,
+               elm->next->prev = elm   ->  elm->next == elm, elm->prev == elm
+```
+
+The node now points at itself, so the very next
+`wl_list_for_each(window, &wm->unpaired_window_list, link)` — in
+`weston_wm_create_surface()` (`window-manager.c:931`), which runs on **every**
+`wl_surface` Xwayland creates — never terminates (`window->surface_id` is 0 and
+resource ids are never 0, so the `break` is unreachable). The compositor spins
+at 100% CPU inside the Wayland dispatch loop and stops servicing every client
+and every output. Two `xcb_send_event()` calls from any X client.
+
+**(b) Type confusion.** `wl_client_get_object()` returns *any* object in
+Xwayland's connection — `wl_region`, `wl_callback`, `wl_buffer`, `wl_output`, a
+`wl_shm_pool`. There is no
+`wl_resource_instance_of(resource, &wl_surface_interface, ...)` check before
+`wl_resource_get_user_data(resource)` is passed to `xserver_map_shell_surface()`
+as a `struct weston_surface *`. Object ids in a Wayland connection are small and
+sequential, so hitting a live non-surface object is trivial.
+
+Both are gated on `!wm->shell_bound`, i.e. an Xwayland too old to offer
+`xwayland_shell_v1` — still the deployed case on plenty of stable
+distributions, and the code path is unconditionally compiled.
+
+The `WL_SURFACE_SERIAL` handler (`window-manager.c:2019`) has the same
+provenance problem in a milder form: it accepts a client message naming **any**
+window id, so one X client can rewrite another window's `surface_serial` and
+move it onto `unpaired_window_list`, breaking (or redirecting) that window's
+surface association. It does at least `wl_list_remove()` before inserting, so it
+does not corrupt the list.
+
+**Minimal patch:**
+
+```c
+@@ weston_wm_window_handle_surface_id
+-	uint32_t id = client_message->data.data32[0];
++	uint32_t id = client_message->data.data32[0];
++
++	if (id == 0)
++		return;
++
+ 	resource = wl_client_get_object(wm->server->client, id);
+-	if (resource) {
++	if (resource &&
++	    wl_resource_instance_of(resource, &wl_surface_interface,
++				    weston_surface_interface_ptr())) {
+ 		window->surface_id = 0;
+ 		xserver_map_shell_surface(window,
+ 					  wl_resource_get_user_data(resource));
+ 	}
+ 	else {
+ 		window->surface_id = id;
++		wl_list_remove(&window->link);
+ 		wl_list_insert(&wm->unpaired_window_list, &window->link);
+ 	}
+```
+
+The `wl_list_remove()` before the insert is the belt-and-braces part and is the
+one-line fix for the hang on its own (`window->link` is always initialised by
+`weston_wm_window_create()`, so removing an unlinked node is safe). If the
+`wl_surface` implementation pointer is awkward to reach from here, at minimum
+compare `wl_resource_get_class(resource)` against `"wl_surface"`.
+
+---
+
+### XWL-5 — `window->shsurf` can be NULL while `window->surface` is set → NULL dereference on the next repaint
+
+**Severity: medium-high (crash).** `xwayland/window-manager.c:3302`,
+`xwayland/window-manager.c:3305`, `xwayland/window-manager.c:1403`
+
+`xserver_map_shell_surface()` publishes `window->surface` and only *then* creates
+the shell surface, with two early returns in between:
+
+```c
+	window->surface = surface;
+	window->surface_destroy_listener.notify = surface_destroy;
+	wl_signal_add(&window->surface->destroy_signal,
+		      &window->surface_destroy_listener);
+
+	if (!xwayland_interface)
+		return;                                   /* shsurf stays NULL */
+
+	if (window->surface->committed) {
+		weston_log("warning, unexpected in %s: "
+			   "surface's configure hook is already set.\n", __func__);
+		return;                                   /* shsurf stays NULL */
+	}
+
+	window->shsurf = xwayland_interface->create_surface(...);   /* NULL unchecked */
+```
+
+`weston_wm_window_set_pending_state()` guards on the *surface* only:
+
+```c
+	if (!window->surface)
+		return;
+	...
+	xwayland_interface->set_window_geometry(window->shsurf,
+						input_x, input_y, input_w, input_h);
+```
+
+and `set_window_geometry()` (`libweston/desktop/xwayland.c:438`) immediately does
+`surface->has_next_geometry = true;` — a store through `NULL`. The same applies
+to the `set_title()` / `set_pid()` calls right after.
+
+Reaching it is easy: the `surface->committed` branch fires whenever the
+`wl_surface` already has a role, which the forged-`WL_SURFACE_ID` path of XWL-4
+makes trivially arrangeable, and which also happens if two X windows are pointed
+at the same `wl_surface`. The `!xwayland_interface` branch fires for **every**
+X window when weston runs a shell that does not implement the xwayland
+interface.
+
+**Minimal patch:**
+
+```c
+@@ weston_wm_window_set_pending_state
+-	if (!window->surface)
++	if (!window->surface || !window->shsurf)
+ 		return;
+@@ xserver_map_shell_surface
+ 	window->shsurf =
+ 		xwayland_interface->create_surface(xwayland,
+ 						   window->surface,
+ 						   &shell_client);
++	if (!window->shsurf)
++		return;
+```
+
+(`weston_wm_window_do_repaint()` calls `set_pending_state()` unconditionally, so
+the guard belongs there rather than at each call site.)
 
 ---
