@@ -2921,6 +2921,18 @@ weston_buffer_from_resource(struct weston_compositor *ec,
 
 		if (!buffer->pixel_format || buffer->pixel_format->hide_from_clients)
 			goto fail;
+
+		/* wl_shm only guarantees stride >= width (in bytes), not that
+		 * a row of 'width' pixels actually fits in 'stride' bytes. A
+		 * client can therefore attach an SHM buffer whose stride is too
+		 * small for its format, which makes the renderer and screen
+		 * capture paths read or write out of bounds of the shm mapping.
+		 * Reject such buffers here. (bpp is zero for multi-planar and
+		 * subsampled formats, which are not handled by these paths.) */
+		if (buffer->pixel_format->bpp > 0 &&
+		    (uint64_t)buffer->stride * 8 <
+		    (uint64_t)buffer->width * buffer->pixel_format->bpp)
+			goto fail;
 	} else if ((dmabuf = linux_dmabuf_buffer_get(ec, buffer->resource))) {
 		buffer->type = WESTON_BUFFER_DMABUF;
 		buffer->dmabuf = dmabuf;
