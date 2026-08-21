@@ -404,6 +404,13 @@ vnc_handle_desktop_layout_event(struct nvnc_client *client,
 	if (!output->resizeable)
 		return false;
 
+	/* Reject degenerate or absurd sizes: a zero dimension makes the
+	 * renderer/framebuffer allocation fail (and previously aborted), and
+	 * an excessive one is a memory-exhaustion request. 16384 is well
+	 * beyond any real display while keeping the allocation bounded. */
+	if (width == 0 || height == 0 || width > 16384 || height > 16384)
+		return false;
+
 	new_mode.width = width;
 	new_mode.height = height;
 	new_mode.refresh = peer->backend->vnc_monitor_refresh_rate;
@@ -495,6 +502,7 @@ vnc_client_cleanup(struct nvnc_client *client)
 	weston_seat_release_keyboard(peer->seat);
 	weston_seat_release_pointer(peer->seat);
 	weston_seat_release(peer->seat);
+	free(peer->seat);
 	free(peer);
 	weston_log("VNC Client disconnected\n");
 
@@ -553,11 +561,14 @@ vnc_output_update_cursor(struct vnc_output *output)
 		return;
 
 	cursor_surface = output->cursor_surface;
+	if (!cursor_surface || !cursor_surface->buffer_ref.buffer)
+		return;
 	buffer = cursor_surface->buffer_ref.buffer;
 
 	fb = nvnc_fb_new(buffer->width, buffer->height, DRM_FORMAT_ARGB8888,
 			 buffer->width);
-	assert(fb);
+	if (!fb)
+		return;
 
 	src = wl_shm_buffer_get_data(buffer->shm_buffer);
 	dst = nvnc_fb_get_addr(fb);
@@ -685,7 +696,8 @@ vnc_update_buffer(struct nvnc_display *display, struct pixman_region32 *damage)
 	struct nvnc_fb *fb;
 
 	fb = nvnc_fb_pool_acquire(output->fb_pool);
-	assert(fb);
+	if (!fb)
+		return;
 
 	renderbuffer = nvnc_get_userdata(fb);
 	if (!renderbuffer) {
@@ -753,6 +765,16 @@ vnc_new_client(struct nvnc_client *client)
 	struct vnc_output *output = backend->output;
 	struct vnc_peer *peer;
 	const char *seat_name = "VNC Client";
+
+	/* A client can connect after the VNC port is open but before the
+	 * output has been enabled (or after it has been disabled), in which
+	 * case there is nothing to attach the client to. Refuse it rather
+	 * than dereferencing a NULL output. */
+	if (!output) {
+		weston_log("VNC: client connected with no active output\n");
+		nvnc_client_close(client);
+		return;
+	}
 
 	weston_log("New VNC client connected\n");
 

@@ -441,6 +441,10 @@ dump_property(FILE *fp, struct weston_wm *wm,
 			 reply->value_len);
 
 	if (reply->type == wm->atom.incr) {
+		if (xcb_get_property_value_length(reply) < (int) sizeof(*incr_value)) {
+			fprintf(fp, "(truncated)\n");
+			return;
+		}
 		incr_value = xcb_get_property_value(reply);
 		fprintf(fp, "%d\n", *incr_value);
 	} else if (reply->type == wm->atom.utf8_string ||
@@ -451,7 +455,7 @@ dump_property(FILE *fp, struct weston_wm *wm,
 		else
 			len = reply->value_len;
 		fprintf(fp, "\"%.*s\"\n", len, text_value);
-	} else if (reply->type == XCB_ATOM_ATOM) {
+	} else if (reply->type == XCB_ATOM_ATOM && reply->format == 32) {
 		atom_value = xcb_get_property_value(reply);
 		for (i = 0; i < reply->value_len; i++) {
 			name = get_atom_name(wm->conn, atom_value[i]);
@@ -468,7 +472,8 @@ dump_property(FILE *fp, struct weston_wm *wm,
 	} else if (reply->type == XCB_ATOM_CARDINAL) {
 		dump_cardinal_array(fp, reply);
 		fprintf(fp, "\n");
-	} else if (reply->type == XCB_ATOM_WINDOW && reply->format == 32) {
+	} else if (reply->type == XCB_ATOM_WINDOW && reply->format == 32 &&
+		   xcb_get_property_value_length(reply) >= (int) sizeof(*window_value)) {
 		window_value = xcb_get_property_value(reply);
 		fprintf(fp, "win %u\n", *window_value);
 	} else {
@@ -531,7 +536,7 @@ weston_wm_window_read_properties(struct weston_wm_window *window)
 	void *p;
 	uint32_t *xid;
 	xcb_atom_t *atom;
-	uint32_t i;
+	uint32_t i, j;
 	char name[1024];
 
 	if (!window->properties_dirty)
@@ -577,6 +582,9 @@ weston_wm_window_read_properties(struct weston_wm_window *window)
 					xcb_get_property_value_length(reply));
 			break;
 		case XCB_ATOM_WINDOW:
+			if (reply->format != 32 ||
+			    xcb_get_property_value_length(reply) < (int) sizeof(*xid))
+				break;
 			xid = xcb_get_property_value(reply);
 			if (!wm_lookup_window(wm, *xid, p))
 				weston_log("XCB_ATOM_WINDOW contains window"
@@ -584,15 +592,20 @@ weston_wm_window_read_properties(struct weston_wm_window *window)
 			break;
 		case XCB_ATOM_CARDINAL:
 		case XCB_ATOM_ATOM:
+			if (reply->format != 32 ||
+			    xcb_get_property_value_length(reply) < (int) sizeof(*atom))
+				break;
 			atom = xcb_get_property_value(reply);
 			*(xcb_atom_t *) p = *atom;
 			break;
 		case TYPE_WM_PROTOCOLS:
+			if (reply->format != 32)
+				break;
 			atom = xcb_get_property_value(reply);
-			for (i = 0; i < reply->value_len; i++)
-				if (atom[i] == wm->atom.wm_delete_window) {
+			for (j = 0; j < reply->value_len; j++)
+				if (atom[j] == wm->atom.wm_delete_window) {
 					window->delete_window = 1;
-				} else if (atom[i] == wm->atom.wm_take_focus) {
+				} else if (atom[j] == wm->atom.wm_take_focus) {
 					window->take_focus = 1;
 				}
 			break;
@@ -603,21 +616,26 @@ weston_wm_window_read_properties(struct weston_wm_window *window)
 			memcpy(&window->size_hints,
 			       xcb_get_property_value(reply),
 			       MIN(sizeof(window->size_hints),
-			           reply->value_len * 4));
+			           (size_t) xcb_get_property_value_length(reply)));
 			break;
 		case TYPE_NET_WM_STATE:
 			window->fullscreen = 0;
+			if (reply->format != 32)
+				break;
 			atom = xcb_get_property_value(reply);
-			for (i = 0; i < reply->value_len; i++) {
-				if (atom[i] == wm->atom.net_wm_state_fullscreen)
+			for (j = 0; j < reply->value_len; j++) {
+				if (atom[j] == wm->atom.net_wm_state_fullscreen)
 					window->fullscreen = 1;
-				if (atom[i] == wm->atom.net_wm_state_maximized_vert)
+				if (atom[j] == wm->atom.net_wm_state_maximized_vert)
 					window->maximized_vert = 1;
-				if (atom[i] == wm->atom.net_wm_state_maximized_horz)
+				if (atom[j] == wm->atom.net_wm_state_maximized_horz)
 					window->maximized_horz = 1;
 			}
 			break;
 		case TYPE_MOTIF_WM_HINTS:
+			if (xcb_get_property_value_length(reply) <
+			    (int) sizeof window->motif_hints)
+				break;
 			memcpy(&window->motif_hints,
 			       xcb_get_property_value(reply),
 			       sizeof window->motif_hints);
@@ -1267,15 +1285,27 @@ weston_wm_handle_map_request(struct weston_wm *wm, xcb_generic_event_t *event)
 	 * we reset shsurf to NULL, so even if X11 connection races far ahead
 	 * of the Wayland connection and the X11 client is repeatedly mapping
 	 * and unmapping, we will never have shsurf set on MapRequest.
+	 *
+	 * However, a client can forge a MapRequest with XSendEvent (the event
+	 * is dispatched regardless of the synthetic bit) for a window that is
+	 * already mapped, in which case shsurf is set. Ignore it rather than
+	 * aborting the whole compositor.
 	 */
-	assert(!window->shsurf);
+	if (window->shsurf)
+		return;
 
 	window->map_request_valid = true;
 	window->map_request = window->pos;
 
 	if (window->frame_id == XCB_WINDOW_NONE)
 		weston_wm_window_create_frame(window); /* sets frame_id */
-	assert(window->frame_id != XCB_WINDOW_NONE);
+	if (window->frame_id == XCB_WINDOW_NONE) {
+		/* frame_create() failed (e.g. out of memory); skip mapping
+		 * rather than aborting the whole compositor. */
+		weston_log("XWM: failed to create frame for window %d\n",
+			   window->id);
+		return;
+	}
 
 	wm_printf(wm, "XCB_MAP_REQUEST (window %d, %p, frame %d, %dx%d @ %d,%d)\n",
 		  window->id, window, window->frame_id,
@@ -1602,6 +1632,12 @@ weston_wm_window_create(struct weston_wm *wm,
 	xcb_get_geometry_cookie_t geometry_cookie;
 	xcb_get_geometry_reply_t *geometry_reply;
 
+	/* Don't create a second hash entry (leaking the first struct) if this
+	 * window is already tracked, e.g. on a ReparentNotify(parent==root) for
+	 * an already-known window. */
+	if (wm_lookup_window(wm, id, &window))
+		return;
+
 	window = zalloc(sizeof *window);
 	if (window == NULL) {
 		wm_printf(wm, "failed to allocate window\n");
@@ -1647,11 +1683,25 @@ weston_wm_window_create(struct weston_wm *wm,
 }
 
 static void
+weston_wm_window_clear_transient_for(void *element, void *data)
+{
+	struct weston_wm_window *window = element;
+
+	if (window->transient_for == data)
+		window->transient_for = NULL;
+}
+
+static void
 weston_wm_window_destroy(struct weston_wm_window *window)
 {
 	struct weston_wm *wm = window->wm;
 
 	weston_output_weak_ref_clear(&window->legacy_fullscreen_output);
+
+	/* transient_for is a raw pointer held by other windows; clear any that
+	 * reference this one so they don't dereference freed memory. */
+	hash_table_for_each(wm->window_hash,
+			    weston_wm_window_clear_transient_for, window);
 
 	if (window->configure_source)
 		wl_event_source_remove(window->configure_source);
@@ -2603,10 +2653,14 @@ weston_wm_get_resources(struct weston_wm *wm)
 	xfixes_reply = xcb_xfixes_query_version_reply(wm->conn,
 						      xfixes_cookie, NULL);
 
-	weston_log("xfixes version: %d.%d\n",
-	       xfixes_reply->major_version, xfixes_reply->minor_version);
-
-	free(xfixes_reply);
+	/* xcb_xfixes_query_version_reply() returns NULL when XFIXES is absent
+	 * or on a connection error; don't dereference it. */
+	if (xfixes_reply) {
+		weston_log("xfixes version: %d.%d\n",
+			   xfixes_reply->major_version,
+			   xfixes_reply->minor_version);
+		free(xfixes_reply);
+	}
 
 	formats_reply = xcb_render_query_pict_formats_reply(wm->conn,
 							    formats_cookie, 0);

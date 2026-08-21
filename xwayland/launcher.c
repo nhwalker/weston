@@ -281,23 +281,30 @@ retry:
 			wxs->display++;
 			goto retry;
 		} else {
-			free(wxs);
+			/* wxs is owned by the compositor destroy listener
+			 * registered in weston_module_init(); it must not be
+			 * freed here, or that listener would fire on freed
+			 * memory (use-after-free / double-free) at teardown. */
 			return -1;
 		}
 	}
 
 	wxs->abstract_fd = bind_to_abstract_socket(wxs->display);
-	if (wxs->abstract_fd < 0 && errno == EADDRINUSE) {
-		wxs->display++;
+	if (wxs->abstract_fd < 0) {
+		if (errno == EADDRINUSE) {
+			wxs->display++;
+			unlink(lockfile);
+			goto retry;
+		}
+		/* Any other failure is fatal; don't proceed with fd == -1. */
 		unlink(lockfile);
-		goto retry;
+		return -1;
 	}
 
 	wxs->unix_fd = bind_to_unix_socket(wxs->display);
 	if (wxs->unix_fd < 0) {
 		unlink(lockfile);
 		close(wxs->abstract_fd);
-		free(wxs);
 		return -1;
 	}
 

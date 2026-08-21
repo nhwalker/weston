@@ -125,6 +125,12 @@ screenshooter_destroy(struct wl_listener *listener, void *data)
 	wl_list_remove(&shooter->compositor_destroy_listener.link);
 	wl_list_remove(&shooter->authorization.link);
 
+	/* If a screenshooter client is still connected, its destroy listener
+	 * points at this soon-to-be-freed struct; drop it so it can't fire on
+	 * freed memory when the client is torn down. */
+	if (shooter->client)
+		wl_list_remove(&shooter->client_destroy_listener.link);
+
 	free(shooter);
 }
 

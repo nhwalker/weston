@@ -152,7 +152,12 @@ x11_get_atoms(xcb_connection_t *connection, struct atom_x11 *atom)
 	for (i = 0; i < ARRAY_LENGTH(atoms); i++) {
 		xcb_intern_atom_reply_t *reply_atom;
 		reply_atom = xcb_intern_atom_reply(connection, cookies[i], NULL);
-		assert(reply_atom);
+		/* A NULL reply means the X connection errored (e.g. Xwayland
+		 * died mid-init). This runs in the compositor process, so leave
+		 * the atom as 0 and keep going rather than abort()-ing the whole
+		 * compositor. */
+		if (!reply_atom)
+			continue;
 
 		xcb_atom_t rr_atom = reply_atom->atom;
 		*(xcb_atom_t *) ((char *) atom + atoms[i].offset) = rr_atom;

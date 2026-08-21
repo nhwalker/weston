@@ -710,8 +710,13 @@ input_method_context_key(struct wl_client *client,
 		wl_resource_get_user_data(resource);
 	struct weston_seat *seat = context->input_method->seat;
 	struct weston_keyboard *keyboard = weston_seat_get_keyboard(seat);
-	struct weston_keyboard_grab *default_grab = &keyboard->default_grab;
+	struct weston_keyboard_grab *default_grab;
 	struct timespec ts;
+
+	if (!keyboard)
+		return;
+
+	default_grab = &keyboard->default_grab;
 
 	timespec_from_msec(&ts, time);
 
@@ -732,7 +737,12 @@ input_method_context_modifiers(struct wl_client *client,
 
 	struct weston_seat *seat = context->input_method->seat;
 	struct weston_keyboard *keyboard = weston_seat_get_keyboard(seat);
-	struct weston_keyboard_grab *default_grab = &keyboard->default_grab;
+	struct weston_keyboard_grab *default_grab;
+
+	if (!keyboard)
+		return;
+
+	default_grab = &keyboard->default_grab;
 
 	default_grab->interface->modifiers(default_grab,
 					   serial, mods_depressed,

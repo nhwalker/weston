@@ -1449,12 +1449,19 @@ weston_tablet_create(void)
 WL_EXPORT void
 weston_tablet_destroy(struct weston_tablet *tablet)
 {
-	struct wl_resource *resource;
+	struct wl_resource *resource, *tmp;
 	struct weston_tablet_tool *tool, *tmptool;
 
-	wl_resource_for_each(resource, &tablet->resource_list) {
+	/* Make any bound resources inert and take them out of the list, so the
+	 * tablet can be freed now. A plain iteration that left them in the list
+	 * kept resource_list non-empty and leaked the tablet (and its name).
+	 * unbind_resource() only does a wl_list_remove(), which is safe on the
+	 * re-initialised link. */
+	wl_resource_for_each_safe(resource, tmp, &tablet->resource_list) {
 		zwp_tablet_v2_send_removed(resource);
 		wl_resource_set_user_data(resource, NULL);
+		wl_list_remove(wl_resource_get_link(resource));
+		wl_list_init(wl_resource_get_link(resource));
 	}
 
 	/* Remove the tablet from the list */
@@ -1464,10 +1471,8 @@ weston_tablet_destroy(struct weston_tablet *tablet)
 	wl_list_for_each_safe(tool, tmptool, &tablet->tool_list, link)
 		weston_seat_release_tablet_tool(tool);
 
-	if (wl_list_empty(&tablet->resource_list)) {
-		free(tablet->name);
-		free(tablet);
-	}
+	free(tablet->name);
+	free(tablet);
 }
 
 WL_EXPORT void
@@ -3447,7 +3452,10 @@ notify_tablet_tool_button(struct weston_tablet_tool *tool,
 			weston_compositor_idle_inhibit(compositor);
 	} else {
 		tool->button_count--;
-		if (tool->button_count == 1)
+		/* Release the idle inhibit when the LAST button is released
+		 * (count reaches 0), mirroring the inhibit on the first press.
+		 * Checking == 1 leaked the inhibit for a single press/release. */
+		if (tool->button_count == 0)
 			weston_compositor_idle_release(compositor);
 	}
 
@@ -3895,6 +3903,15 @@ relative_pointer_manager_get_relative_pointer(struct wl_client *client,
 				wl_resource_get_version(resource), id);
 	if (cr == NULL) {
 		wl_client_post_no_memory(client);
+		return;
+	}
+
+	/* The wl_pointer may be inert (the seat has no pointer capability), in
+	 * which case its user_data is NULL. Bind an inert relative pointer
+	 * rather than dereferencing a NULL weston_pointer. */
+	if (pointer == NULL) {
+		wl_resource_set_implementation(cr, &relative_pointer_interface,
+					       NULL, NULL);
 		return;
 	}
 
@@ -4981,12 +4998,16 @@ init_pointer_constraint(struct wl_resource *pointer_constraints_resource,
 			desktop_surface = weston_surface_get_desktop_surface(surface);
 			is_fullscreen =  weston_desktop_surface_get_fullscreen(desktop_surface);
 		}
-		if (is_fullscreen && !is_pointer_constraint_enabled(constraint)) {
+		if (is_fullscreen && pointer->focus &&
+		    !is_pointer_constraint_enabled(constraint)) {
 			weston_view_update_transform(pointer->focus);
 			weston_pointer_set_focus(pointer, pointer->focus);
 			enable_pointer_constraint(constraint, pointer->focus);
 			maybe_warp_confined_pointer(constraint);
 		} else {
+			/* No pointer focus (the pointer isn't over the surface):
+			 * fall back to enabling the constraint on entry rather
+			 * than dereferencing a NULL focus. */
 			maybe_enable_pointer_constraint(constraint);
 		}
 	}

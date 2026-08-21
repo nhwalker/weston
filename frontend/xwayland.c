@@ -208,13 +208,17 @@ spawn_xserver(void *user_data, const char *display, int abstract_fd, int unix_fd
 
 
 err_proc:
-	wl_list_remove(&wxw->process->link);
+	/* wet_client_launch() already forked the child and strdup'd its path;
+	 * use wet_process_destroy() to remove it from the process list and free
+	 * both the struct and its path (a plain free() leaked ->path and left
+	 * wxw->process dangling). */
+	wet_process_destroy(wxw->process, 0, false);
+	wxw->process = NULL;
 err:
 	free(xserver);
 	fdstr_close_all(&display_pipe);
 	fdstr_close_all(&x11_wm_socket);
 	fdstr_close_all(&wayland_socket);
-	free(wxw->process);
 	return NULL;
 }
 

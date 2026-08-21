@@ -177,6 +177,10 @@ data_source_send(struct weston_data_source *base,
 
 		fcntl(fd, F_SETFL, O_WRONLY | O_NONBLOCK);
 		wm->data_source_fd = fd;
+	} else {
+		/* We don't provide this mime type; the fd is ours to close,
+		 * otherwise it leaks (a client may request any mime type). */
+		close(fd);
 	}
 }
 
@@ -223,7 +227,7 @@ weston_wm_get_selection_targets(struct weston_wm *wm)
 		free(logstr);
 	}
 
-	if (reply->type != XCB_ATOM_ATOM) {
+	if (reply->type != XCB_ATOM_ATOM || reply->format != 32) {
 		free(reply);
 		return;
 	}
@@ -500,6 +504,14 @@ weston_wm_send_data(struct weston_wm *wm, xcb_atom_t target, const char *mime_ty
 	struct weston_seat *seat = weston_wm_pick_seat(wm);
 	int p[2];
 
+	/* There may be no seat, or the Wayland selection may have been cleared
+	 * since the X client asked; either way there is nothing to send. */
+	if (!seat || !seat->selection_data_source) {
+		weston_wm_send_selection_notify(wm, XCB_ATOM_NONE);
+		return;
+	}
+	source = seat->selection_data_source;
+
 	if (pipe2(p, O_CLOEXEC | O_NONBLOCK) == -1) {
 		weston_log("pipe2 failed: %s\n", strerror(errno));
 		weston_wm_send_selection_notify(wm, XCB_ATOM_NONE);
@@ -515,7 +527,6 @@ weston_wm_send_data(struct weston_wm *wm, xcb_atom_t target, const char *mime_ty
 						   weston_wm_read_data_source,
 						   wm);
 
-	source = seat->selection_data_source;
 	source->send(source, mime_type, p[1]);
 }
 
@@ -591,7 +602,11 @@ weston_wm_handle_selection_request(struct weston_wm *wm,
 	weston_log_continue("property %s\n",
 		get_atom_name(wm->conn, selection_request->property));
 
-	assert(selection_request->requestor != wm->selection_window);
+	/* requestor comes straight from the (possibly forged) event; a client
+	 * must not be able to abort the compositor by naming our own window. */
+	if (selection_request->requestor == wm->selection_window)
+		return;
+
 	wm->selection_request = *selection_request;
 	wm->incr = 0;
 	wm->flush_property_on_delete = 0;

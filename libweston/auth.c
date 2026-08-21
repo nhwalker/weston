@@ -83,10 +83,8 @@ weston_authenticate_user(const char *username, const char *password)
 		.conv = weston_pam_conv,
 		.appdata_ptr = strdup(password),
 	};
-	struct pam_handle *pam;
+	struct pam_handle *pam = NULL;
 	int ret;
-
-	conv.appdata_ptr = strdup(password);
 
 	ret = pam_start("weston-remote-access", username, &conv, &pam);
 	if (ret != PAM_SUCCESS) {
@@ -108,8 +106,8 @@ weston_authenticate_user(const char *username, const char *password)
 
 	authenticated = true;
 out:
-	ret = pam_end(pam, ret);
-	assert(ret == PAM_SUCCESS);
+	if (pam_end(pam, ret) != PAM_SUCCESS)
+		weston_log("PAM: end failed\n");
 	free(conv.appdata_ptr);
 #endif
 	return authenticated;
