@@ -4981,7 +4981,8 @@ init_pointer_constraint(struct wl_resource *pointer_constraints_resource,
 			desktop_surface = weston_surface_get_desktop_surface(surface);
 			is_fullscreen =  weston_desktop_surface_get_fullscreen(desktop_surface);
 		}
-		if (is_fullscreen && !is_pointer_constraint_enabled(constraint)) {
+		if (is_fullscreen && pointer->focus &&
+		    !is_pointer_constraint_enabled(constraint)) {
 			weston_view_update_transform(pointer->focus);
 			weston_pointer_set_focus(pointer, pointer->focus);
 			enable_pointer_constraint(constraint, pointer->focus);
