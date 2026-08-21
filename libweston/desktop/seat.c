@@ -453,6 +453,8 @@ weston_desktop_seat_popup_grab_start(struct weston_desktop_seat *seat,
 		if (tool->grab->interface != &weston_desktop_seat_tablet_tool_popup_grab_interface) {
 			struct weston_tablet_tool_grab *grab = zalloc(sizeof(*grab));
 
+			if (!grab)
+				continue;
 			grab->interface = &weston_desktop_seat_tablet_tool_popup_grab_interface;
 			weston_tablet_tool_start_grab(tool, grab);
 		}

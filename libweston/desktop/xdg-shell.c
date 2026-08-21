@@ -917,6 +917,18 @@ static const struct xdg_toplevel_interface weston_desktop_xdg_toplevel_implement
 	.set_minimized       = weston_desktop_xdg_toplevel_protocol_set_minimized,
 };
 
+/* popup->parent caches the parent xdg_surface, but that pointer dangles if the
+ * parent surface is destroyed while this popup lives on. The desktop-surface
+ * relative-to parent (weston_desktop_surface_get_parent) is cleared in that
+ * case, so use it to detect a dead parent and dismiss the popup rather than
+ * dereferencing the stale cache. */
+static bool
+weston_desktop_xdg_popup_parent_gone(struct weston_desktop_xdg_popup *popup)
+{
+	return weston_desktop_surface_get_parent(popup->base.desktop_surface) ==
+	       NULL;
+}
+
 static void
 weston_desktop_xdg_popup_protocol_grab(struct wl_client *wl_client,
 				       struct wl_resource *resource,
@@ -930,7 +942,15 @@ weston_desktop_xdg_popup_protocol_grab(struct wl_client *wl_client,
 	struct weston_seat *wseat = wl_resource_get_user_data(seat_resource);
 	struct weston_desktop_seat *seat = weston_desktop_seat_from_seat(wseat);
 	struct weston_desktop_surface *topmost;
-	bool parent_is_toplevel =
+	bool parent_is_toplevel;
+
+	if (weston_desktop_xdg_popup_parent_gone(popup)) {
+		if (popup->resource)
+			xdg_popup_send_popup_done(popup->resource);
+		return;
+	}
+
+	parent_is_toplevel =
 		popup->parent->role == WESTON_DESKTOP_XDG_SURFACE_ROLE_TOPLEVEL;
 
 	/* Check that if we have a valid wseat we also got a valid desktop seat */
@@ -1010,6 +1030,11 @@ weston_desktop_xdg_popup_protocol_reposition(struct wl_client *wl_client,
 		return;
 	}
 
+	if (weston_desktop_xdg_popup_parent_gone(popup)) {
+		xdg_popup_send_popup_done(popup->resource);
+		return;
+	}
+
 	parent_dsurface = popup->parent->desktop_surface;
 	popup->geometry =
 		weston_desktop_xdg_positioner_get_geometry(positioner,
@@ -1047,6 +1072,11 @@ weston_desktop_xdg_popup_committed(struct weston_desktop_xdg_popup *popup)
 		weston_desktop_surface_get_surface (popup->base.desktop_surface);
 	struct weston_view *view;
 
+	if (weston_desktop_xdg_popup_parent_gone(popup)) {
+		xdg_popup_send_popup_done(popup->resource);
+		return;
+	}
+
 	wl_list_for_each(view, &wsurface->views, surface_link)
 		weston_view_update_transform(view);
 
@@ -1073,6 +1103,9 @@ weston_desktop_xdg_popup_update_position(struct weston_desktop_surface *dsurface
 		weston_desktop_surface_get_implementation_data(dsurface);
 	struct weston_desktop_surface *parent_dsurface;
 	struct weston_coord_surface offset;
+
+	if (weston_desktop_xdg_popup_parent_gone(popup))
+		return;
 
 	parent_dsurface = popup->parent->desktop_surface;
 	offset = weston_coord_surface(popup->geometry.x,
@@ -1276,13 +1309,16 @@ weston_desktop_xdg_surface_protocol_get_toplevel(struct wl_client *wl_client,
 				    resource, XDG_WM_BASE_ERROR_ROLE) < 0)
 		return;
 
-	toplevel->resource =
+	/* On failure add_resource() destroys (frees) the surface, so capture
+	 * the result in a local rather than storing through the freed object. */
+	struct wl_resource *toplevel_resource =
 		weston_desktop_surface_add_resource(toplevel->base.desktop_surface,
 						    &xdg_toplevel_interface,
 						    &weston_desktop_xdg_toplevel_implementation,
 						    id, weston_desktop_xdg_toplevel_resource_destroy);
-	if (toplevel->resource == NULL)
+	if (toplevel_resource == NULL)
 		return;
+	toplevel->resource = toplevel_resource;
 
 	toplevel->base.role = WESTON_DESKTOP_XDG_SURFACE_ROLE_TOPLEVEL;
 
@@ -1355,6 +1391,15 @@ weston_desktop_xdg_surface_protocol_get_popup(struct wl_client *wl_client,
 	}
 
 	parent_surface = wl_resource_get_user_data(parent_resource);
+	/* The parent xdg_surface resource can still be alive after its
+	 * wl_surface was destroyed (a defunct role object), in which case its
+	 * user_data is NULL. Reject rather than dereferencing NULL. */
+	if (parent_surface == NULL) {
+		wl_resource_post_error(resource,
+				       XDG_WM_BASE_ERROR_INVALID_POPUP_PARENT,
+				       "popup parent is a defunct xdg_surface");
+		return;
+	}
 	parent = weston_desktop_surface_get_implementation_data(parent_surface);
 
 	if (!is_positioner_valid(positioner)) {
@@ -1368,13 +1413,16 @@ weston_desktop_xdg_surface_protocol_get_popup(struct wl_client *wl_client,
 				    resource, XDG_WM_BASE_ERROR_ROLE) < 0)
 		return;
 
-	popup->resource =
+	/* On failure add_resource() destroys (frees) the surface, so capture
+	 * the result in a local rather than storing through the freed object. */
+	struct wl_resource *popup_resource =
 		weston_desktop_surface_add_resource(popup->base.desktop_surface,
 						    &xdg_popup_interface,
 						    &weston_desktop_xdg_popup_implementation,
 						    id, weston_desktop_xdg_popup_resource_destroy);
-	if (popup->resource == NULL)
+	if (popup_resource == NULL)
 		return;
+	popup->resource = popup_resource;
 
 	popup->base.role = WESTON_DESKTOP_XDG_SURFACE_ROLE_POPUP;
 	popup->parent = parent;
@@ -1717,13 +1765,16 @@ weston_desktop_xdg_shell_protocol_get_xdg_surface(struct wl_client *wl_client,
 		return;
 	}
 
-	surface->resource =
+	/* On failure add_resource() destroys (frees) the surface, so capture
+	 * the result in a local rather than storing through the freed object. */
+	struct wl_resource *xdg_surface_resource =
 		weston_desktop_surface_add_resource(surface->desktop_surface,
 						    &xdg_surface_interface,
 						    &weston_desktop_xdg_surface_implementation,
 						    id, weston_desktop_xdg_surface_resource_destroy);
-	if (surface->resource == NULL)
+	if (xdg_surface_resource == NULL)
 		return;
+	surface->resource = xdg_surface_resource;
 }
 
 static void

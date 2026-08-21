@@ -1037,6 +1037,76 @@ guard it). Fix: `if (!out_buf) { errno = ENOMEM; return -1; }`.
 *(The unified diffs for XNB-1…6 and PIX-1 are in the commits that introduce
 them; each patch is the minimal change described above.)*
 
+### XDG-1 — `xdg_wm_base.get_popup` dereferences a defunct parent xdg_surface
+
+**Severity:** High (NULL dereference crash). **Likelihood:** 2 (any Wayland
+client). **Area:** `libweston/desktop/xdg-shell.c`.
+
+A client can destroy a parent's `wl_surface` while keeping its `xdg_surface`
+resource alive; `weston_desktop_surface_destroy()` then sets that resource's
+`user_data` to NULL (a "defunct role object"). `get_popup` did
+`parent = weston_desktop_surface_get_implementation_data(parent_surface)` with
+`parent_surface == NULL`, and `get_implementation_data()` dereferences it. The
+child-popup path already guards the identical state; the parent path did not.
+Fix: reject a NULL `parent_surface` with `XDG_WM_BASE_ERROR_INVALID_POPUP_PARENT`.
+
+### XDG-2 — zxdg_shell_v6 `get_popup` dereferences a defunct parent at entry
+
+**Severity:** High. **Likelihood:** 2. **Area:**
+`libweston/desktop/xdg-shell-v6.c`. Same defect as XDG-1, but the v6 handler
+computes `parent` in the variable initializers at function entry — before any
+check — so it is strictly worse. Fix: move the parent fetch below the
+`dsurface` NULL-check and reject a NULL parent with
+`ZXDG_SHELL_V6_ERROR_INVALID_POPUP_PARENT`.
+
+### XDG-3 — popup parent pointer dangles after the parent surface is destroyed (use-after-free)
+
+**Severity:** Critical (use-after-free / memory corruption). **Likelihood:** 2
+(any Wayland client). **Area:** `libweston/desktop/xdg-shell.c` (and v6).
+
+`weston_desktop_xdg_popup::parent` caches the parent's
+`weston_desktop_xdg_surface *` (stored at `get_popup`). When the parent's
+`wl_surface` is destroyed, `weston_desktop_surface_destroy()` frees the parent's
+xdg struct and calls `unset_relative_to()` on the child, but never clears
+`popup->parent`. The popup's own resources stay live, so any subsequent
+`xdg_popup.grab` (`popup->parent->role`), `xdg_popup.reposition`
+(`popup->parent->desktop_surface`), or commit (`update_position`) dereferences a
+freed allocation — use-after-free.
+
+The desktop-surface relative-to parent *is* cleared in that case
+(`weston_desktop_surface_get_parent()` returns NULL), so the minimal fix guards
+every popup operation that touches `popup->parent` with a liveness check and
+dismisses the popup (`xdg_popup_send_popup_done`) if the parent is gone. The
+guard only changes behaviour in the dangling case, so the happy path is
+unchanged. Applied to `grab`, `reposition`, `committed`, and `update_position`
+in the stable protocol, and to `grab` in v6 (v6 has no reposition and an empty
+`update_position`).
+
+```diff
++static bool
++weston_desktop_xdg_popup_parent_gone(struct weston_desktop_xdg_popup *popup)
++{
++	return weston_desktop_surface_get_parent(popup->base.desktop_surface) ==
++	       NULL;
++}
+```
+
+### XDG-4 — write-after-free when `add_resource` fails (OOM)
+
+**Severity:** Low. **Likelihood:** 1 (resource-allocation failure). **Area:**
+`libweston/desktop/xdg-shell.c`, `xdg-shell-v6.c` (get_toplevel / get_popup /
+get_xdg_surface). On failure `weston_desktop_surface_add_resource()` destroys
+(frees) the surface, but the callers did `X->resource = add_resource(...); if
+(X->resource == NULL)` — a store and load through the just-freed object. Fix:
+capture the result in a local and only store it back on success.
+
+### XDG-5 — unchecked tablet-tool grab allocation
+
+**Severity:** Medium. **Likelihood:** 1 (allocation failure). **Area:**
+`libweston/desktop/seat.c`. The tablet-tool popup-grab loop did
+`grab = zalloc(...); grab->interface = ...` with no NULL check. Fix: `if (!grab)
+continue;`.
+
 ## 6. Coverage ledger
 
 *(pending — will state per file: read fully / read reachable parts (with
