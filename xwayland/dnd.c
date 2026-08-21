@@ -123,6 +123,11 @@ handle_enter(struct weston_wm *wm, xcb_client_message_event_t *client_message)
 	xcb_get_property_cookie_t cookie;
 	xcb_get_property_reply_t *reply;
 
+	/* No pointer means no drag to start; weston_pointer_start_drag() would
+	 * dereference a NULL pointer. */
+	if (pointer == NULL)
+		return;
+
 	source = zalloc(sizeof *source);
 	if (source == NULL)
 		return;
@@ -142,8 +147,18 @@ handle_enter(struct weston_wm *wm, xcb_client_message_event_t *client_message)
 					  wm->atom.xdnd_type_list,
 					  XCB_ATOM_ANY, 0, 2048);
 		reply = xcb_get_property_reply(wm->conn, cookie, NULL);
-		types = xcb_get_property_value(reply);
-		length = reply->value_len;
+		/* The window id and property are controlled by the X client;
+		 * the fetch can fail (bad window) and the property can have an
+		 * unexpected type/format. Only treat it as a 32-bit atom list
+		 * when it really is one. */
+		if (reply && reply->type == XCB_ATOM_ATOM &&
+		    reply->format == 32) {
+			types = xcb_get_property_value(reply);
+			length = reply->value_len;
+		} else {
+			types = NULL;
+			length = 0;
+		}
 	} else {
 		reply = NULL;
 		types = &client_message->data.data32[2];

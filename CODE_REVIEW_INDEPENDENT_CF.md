@@ -95,6 +95,11 @@ Verified in this tree:
 | [XWM-6](#xwm-6--assert-aborts-when-frame-creation-fails) | XWayland | High | 1 | `assert(window->frame_id != XCB_WINDOW_NONE)` aborts when `frame_create()` fails under memory pressure |
 | [XWM-7](#xwm-7--xfixes-version-reply-dereferenced-without-a-null-check) | XWayland | Medium | 1 | `xcb_xfixes_query_version_reply()` NULL (extension absent / connection loss) is dereferenced at startup |
 | [XWM-8](#xwm-8--dump_property-out-of-bounds-reads-debug-scope-only) | XWayland | Low | 0 | `dump_property()` reads property values without validating length/format (only with the debug log scope enabled) |
+| [DND-1](#dnd-1--xdndenter-property-reply-dereferenced-without-a-null-check) | XWayland / DnD | High | 2 | `handle_enter()` dereferences a NULL `xcb_get_property` reply for an attacker-controlled window id |
+| [DND-2](#dnd-2--xdnd-type-list-read-as-32-bit-atoms-without-validation) | XWayland / DnD | High | 2 | The XdndTypeList is consumed as 32-bit atoms with no type/format check → out-of-bounds read |
+| [DND-3](#dnd-3--drag-started-with-a-null-pointer) | XWayland / DnD | High | 2 | `handle_enter()` calls `weston_pointer_start_drag()` with a NULL pointer when the seat has none |
+| [SEL-1](#sel-1--assert-on-an-attacker-controlled-selection-requestor) | XWayland / clipboard | Medium | 1 | `assert(requestor != selection_window)` aborts on a forged SelectionRequest |
+| [SEL-2](#sel-2--weston_wm_send_data-dereferences-a-null-seatsource-and-leaks-a-pipe) | XWayland / clipboard | High | 1 | `weston_wm_send_data()` dereferences a NULL seat / selection source and leaks the pipe |
 
 ## 4. Prioritisation
 
@@ -1281,6 +1286,69 @@ guard the deref/free with `if (xfixes_reply)`.
 which is off by default). **Area:** `xwayland/window-manager.c` `dump_property()`.
 The `INCR`, `ATOM` and `WINDOW` branches read fixed-size values without validating
 `value_len`/`format`. Same class as XWM-2; guarded for completeness.
+
+### DND-1 — XdndEnter property reply dereferenced without a NULL check
+
+**Severity:** High (NULL dereference crash). **Likelihood:** 2 (any X client sends
+XdndEnter). **Area:** `xwayland/dnd.c` `handle_enter()`. When XdndEnter sets the
+type-list bit, the code fetches `xdnd_type_list` from `source->window` (=
+`data32[0]`, fully client-controlled) and does `types = xcb_get_property_value(reply);
+length = reply->value_len;` with no NULL check; a bad window id makes the fetch
+fail → NULL deref.
+
+### DND-2 — XdndTypeList read as 32-bit atoms without validation
+
+**Severity:** High (out-of-bounds read). **Likelihood:** 2. **Area:**
+`xwayland/dnd.c` `handle_enter()`. The type list is consumed as `types[i]`
+(`uint32_t`) for `reply->value_len` iterations with no `type == ATOM` /
+`format == 32` check; a `format == 8` property makes the loop read
+`4 × value_len` bytes from a `value_len`-byte buffer. Fixed together with DND-1 by
+only treating the reply as an atom list when it really is one.
+
+```diff
+ 		reply = xcb_get_property_reply(wm->conn, cookie, NULL);
+-		types = xcb_get_property_value(reply);
+-		length = reply->value_len;
++		if (reply && reply->type == XCB_ATOM_ATOM &&
++		    reply->format == 32) {
++			types = xcb_get_property_value(reply);
++			length = reply->value_len;
++		} else {
++			types = NULL;
++			length = 0;
++		}
+```
+
+### DND-3 — drag started with a NULL pointer
+
+**Severity:** High (NULL dereference crash). **Likelihood:** 2 (XdndEnter while the
+seat has no pointer — e.g. a keyboard/VNC-only seat). **Area:** `xwayland/dnd.c`
+`handle_enter()`. `weston_seat_get_pointer()` can return NULL, and
+`weston_pointer_start_drag()` immediately dereferences `pointer->seat`. Fix: bail
+early if there is no pointer.
+
+```diff
++	if (pointer == NULL)
++		return;
+ 	source = zalloc(sizeof *source);
+```
+
+### SEL-1 — assert on an attacker-controlled selection requestor
+
+**Severity:** Medium (compositor abort). **Likelihood:** 1 (a forged
+SelectionRequest). **Area:** `xwayland/selection.c`
+`weston_wm_handle_selection_request()`. `requestor` comes from the event; a client
+can `XSendEvent` a SelectionRequest naming `wm->selection_window`, tripping
+`assert(requestor != wm->selection_window)`. Fix: return instead of asserting.
+
+### SEL-2 — `weston_wm_send_data()` dereferences a NULL seat/source and leaks a pipe
+
+**Severity:** High (NULL dereference crash + fd leak). **Likelihood:** 1 (a
+SelectionRequest with no seat, or after the Wayland selection was cleared).
+**Area:** `xwayland/selection.c`. `seat->selection_data_source` and `source->send`
+were used with no NULL check (`weston_wm_pick_seat()` can return NULL, and the
+source can be NULL), and the freshly created pipe leaked on that path. Fix: check
+both before creating the pipe.
 
 ## 6. Coverage ledger
 
