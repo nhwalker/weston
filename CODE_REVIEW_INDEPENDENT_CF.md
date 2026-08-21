@@ -83,6 +83,12 @@ Verified in this tree:
 | [XNB-5](#xnb-5--xcb_intern_atom_reply-dereferenced-without-a-null-check) | x11 | Medium | 1 | `xcb_intern_atom_reply()` NULL (connection loss) is dereferenced during resource setup |
 | [XNB-6](#xnb-6--x11-output-size-has-no-maximum-integer-overflow-in-shm-allocation) | x11 | Low | 1 | `x11_output_set_size()` enforces no maximum, allowing an integer overflow in the SHM allocation |
 | [PIX-1](#pix-1--pixman-read_pixels-does-not-null-check-the-destination-image) | renderer | Low | 1 | `pixman_renderer_read_pixels()` composites into an unchecked `pixman_image_create_bits()` result |
+| [DD-1](#dd-1--start_drag-with-a-null-source-writes-through-a-null-pointer) | data-device | High | 2 | `start_drag` with a NULL (protocol-legal) source writes `source->seat` through NULL |
+| [DD-2](#dd-2--drag-keyboard-grab-cancel-confuses-pointer-and-touch-drags-type-confusion) | data-device | High | 1 | `drag_grab_keyboard_cancel` calls the touch cancel for a pointer drag and vice-versa — type confusion |
+| [DD-3](#dd-3--drop-path-dereferences-a-null-data_source-offer) | data-device | High | 2 | Drop path dereferences `data_source->offer` after the destination destroyed its offer |
+| [DD-4](#dd-4--weston_seat_send_selection-dereferences-a-null-offer-on-oom) | data-device | Low | 1 | `weston_seat_send_selection()` dereferences a NULL offer when the offer allocation fails |
+| [CB-1](#cb-1--clipboard-manager-buffers-a-selection-without-bound) | clipboard | Medium | 2 | The internal clipboard manager buffers a selection with no size limit → memory exhaustion |
+| [CB-2](#cb-2--clipboard-array-growth-underflows-on-oom-wild-write) | clipboard | High | 1 | On `wl_array_add` OOM the size underflows and the following `read()` becomes an out-of-bounds write |
 
 ## 4. Prioritisation
 
@@ -1106,6 +1112,82 @@ capture the result in a local and only store it back on success.
 `libweston/desktop/seat.c`. The tablet-tool popup-grab loop did
 `grab = zalloc(...); grab->interface = ...` with no NULL check. Fix: `if (!grab)
 continue;`.
+
+### DD-1 — `start_drag` with a NULL source writes through a NULL pointer
+
+**Severity:** High (NULL-pointer write crash). **Likelihood:** 2 (any Wayland
+client). **Area:** `libweston/data-device.c` `data_device_start_drag()`.
+
+`wl_data_device.start_drag`'s `source` is `allow-null` in the protocol, so
+`source` can be NULL. On the success path the handler unconditionally did
+`source->seat = seat;`. With a null source and a valid pointer/touch grab
+(`weston_pointer_start_drag()` accepts a NULL source and returns 0), this writes
+through NULL. Fix: `else if (source) source->seat = seat;`.
+
+### DD-2 — drag keyboard-grab cancel confuses pointer and touch drags (type confusion)
+
+**Severity:** High (type confusion / memory corruption). **Likelihood:** 1 (the
+seat loses its keyboard while a drag is active — e.g. device removal mid-drag).
+**Area:** `libweston/data-device.c` `drag_grab_keyboard_cancel()`.
+
+The two branches are crossed: the *pointer*-drag condition casts `drag` to
+`weston_touch_drag` and calls `drag_grab_touch_cancel()`, while the *touch*-drag
+condition casts to `weston_pointer_drag` and calls the pointer cancel. Since
+`weston_pointer_grab` and `weston_touch_grab` have the same layout, this passes a
+pointer-drag object into the touch teardown (`data_device_end_touch_drag_grab`)
+and vice-versa — a type confusion that tears down the wrong device state.
+Confirmed by reading both cancel functions. (Present identically upstream.) Fix:
+swap the two branch bodies so each condition uses its matching cast and cancel.
+
+### DD-3 — drop path dereferences a NULL `data_source->offer`
+
+**Severity:** High (NULL-pointer dereference crash). **Likelihood:** 2 (a
+destination client that accepts then destroys its `wl_data_offer` before the
+drop). **Area:** `libweston/data-device.c` `drag_grab_button()`.
+
+`destroy_data_offer()` sets `source->offer = NULL` but does not reset
+`source->accepted`/`current_dnd_action`, so the drop path reaches
+`data_source->offer->in_ask = ...` with `offer == NULL`. Fix: guard with
+`if (data_source->offer)`.
+
+### DD-4 — `weston_seat_send_selection()` dereferences a NULL offer on OOM
+
+**Severity:** Low. **Likelihood:** 1 (offer allocation failure). **Area:**
+`libweston/data-device.c`. `weston_data_source_send_offer()` returns NULL on
+`malloc`/`wl_resource_create` failure, but `offer->resource` was read
+unconditionally. Fix: send `offer ? offer->resource : NULL`.
+
+### CB-1 — clipboard manager buffers a selection without bound
+
+**Severity:** Medium (memory exhaustion). **Likelihood:** 2 (any client sets a
+very large or unbounded selection). **Area:** `libweston/clipboard.c`
+`clipboard_source_data()`.
+
+The internal clipboard manager (created per seat in `input.c`) reads the entire
+selection from the source client into an in-memory `wl_array` with no size
+limit. A client offering a multi-gigabyte or never-ending selection drives the
+compositor out of memory. Fix: cap the buffered size
+(`CLIPBOARD_MAX_CONTENTS_SIZE`, 100 MiB — a tunable policy limit far above any
+interactive clipboard) and drop the capture beyond it. Oversized selections
+simply aren't preserved after their owner exits; the compositor stays up.
+
+### CB-2 — clipboard array growth underflows on OOM (wild write)
+
+**Severity:** High (out-of-bounds write). **Likelihood:** 1 (allocation
+failure). **Area:** `libweston/clipboard.c` `clipboard_source_data()`.
+
+```c
+if (source->contents.alloc - source->contents.size < 1024) {
+        wl_array_add(&source->contents, 1024);   /* returns NULL on OOM, size unchanged */
+        source->contents.size -= 1024;           /* underflows size_t */
+}
+p = source->contents.data + source->contents.size;   /* wild pointer */
+len = read(fd, p, size);                              /* out-of-bounds write */
+```
+
+`wl_array_add()` returns NULL without changing `size` on allocation failure, so
+the unconditional `size -= 1024` underflows and the subsequent `read()` writes
+out of bounds. Fix: check the return and abort the capture on NULL.
 
 ## 6. Coverage ledger
 

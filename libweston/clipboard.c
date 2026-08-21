@@ -37,6 +37,13 @@
 #include "libweston-internal.h"
 #include "shared/helpers.h"
 
+/* Upper bound on how much of a selection the internal clipboard manager will
+ * buffer in memory. Without it a client can offer an unbounded (or infinite)
+ * selection and drive the compositor out of memory. 100 MiB is far above any
+ * interactive clipboard (text, images) while bounding the exposure; a larger
+ * selection simply won't be preserved after its owner exits. */
+#define CLIPBOARD_MAX_CONTENTS_SIZE (100 * 1024 * 1024)
+
 struct clipboard_source {
 	struct weston_data_source base;
 	struct wl_array contents;
@@ -86,8 +93,23 @@ clipboard_source_data(int fd, uint32_t mask, void *data)
 	char *p;
 	int len, size;
 
+	if (source->contents.size >= CLIPBOARD_MAX_CONTENTS_SIZE) {
+		weston_log("clipboard: selection exceeds %d bytes, dropping\n",
+			   CLIPBOARD_MAX_CONTENTS_SIZE);
+		clipboard_source_unref(source);
+		clipboard->source = NULL;
+		return 1;
+	}
+
 	if (source->contents.alloc - source->contents.size < 1024) {
-		wl_array_add(&source->contents, 1024);
+		/* wl_array_add returns NULL without changing size on OOM;
+		 * subtracting then would underflow size and turn the read()
+		 * below into an out-of-bounds write. Abort the capture. */
+		if (!wl_array_add(&source->contents, 1024)) {
+			clipboard_source_unref(source);
+			clipboard->source = NULL;
+			return 1;
+		}
 		source->contents.size -= 1024;
 	}
 

@@ -688,9 +688,13 @@ drag_grab_button(struct weston_pointer_grab *grab,
 			    WL_DATA_SOURCE_DND_DROP_PERFORMED_SINCE_VERSION)
 				wl_data_source_send_dnd_drop_performed(data_source->resource);
 
-			data_source->offer->in_ask =
-				data_source->current_dnd_action ==
-				WL_DATA_DEVICE_MANAGER_DND_ACTION_ASK;
+			/* The destination may have destroyed its wl_data_offer
+			 * after accepting, which clears data_source->offer
+			 * (but not ->accepted). Guard against the NULL. */
+			if (data_source->offer)
+				data_source->offer->in_ask =
+					data_source->current_dnd_action ==
+					WL_DATA_DEVICE_MANAGER_DND_ACTION_ASK;
 
 			data_source->seat = NULL;
 		} else if (wl_resource_get_version(data_source->resource) >=
@@ -889,13 +893,13 @@ drag_grab_keyboard_cancel(struct weston_keyboard_grab *grab)
 	struct weston_touch *touch = grab->keyboard->seat->touch_state;
 
 	if (pointer && pointer->grab->interface == &pointer_drag_grab_interface) {
-		struct weston_touch_drag *touch_drag =
-			(struct weston_touch_drag *) drag;
-		drag_grab_touch_cancel(&touch_drag->grab);
-	} else if (touch && touch->grab->interface == &touch_drag_grab_interface) {
 		struct weston_pointer_drag *pointer_drag =
 			(struct weston_pointer_drag *) drag;
 		drag_grab_cancel(&pointer_drag->grab);
+	} else if (touch && touch->grab->interface == &touch_drag_grab_interface) {
+		struct weston_touch_drag *touch_drag =
+			(struct weston_touch_drag *) drag;
+		drag_grab_touch_cancel(&touch_drag->grab);
 	}
 }
 
@@ -1099,7 +1103,7 @@ data_device_start_drag(struct wl_client *client, struct wl_resource *resource,
 
 	if (ret < 0)
 		wl_resource_post_no_memory(resource);
-	else
+	else if (source)
 		source->seat = seat;
 }
 
@@ -1153,7 +1157,9 @@ weston_seat_send_selection(struct weston_seat *seat, struct wl_client *client)
 		if (seat->selection_data_source) {
 			offer = weston_data_source_send_offer(seat->selection_data_source,
 							      data_device);
-			wl_data_device_send_selection(data_device, offer->resource);
+			/* offer is NULL if the offer allocation failed. */
+			wl_data_device_send_selection(data_device,
+						      offer ? offer->resource : NULL);
 		} else {
 			wl_data_device_send_selection(data_device, NULL);
 		}
