@@ -17,9 +17,10 @@ critical software, with a minimal suggested patch for each.
 
 ## Summary
 
-42 findings across the reviewed areas. Ordered by ID; severity is the practical
-impact on a system where the compositor must not crash, hang, corrupt memory, or
-silently produce a wrong image.
+49 findings. Ordered by ID; severity is the practical impact on a system where
+the compositor must not crash, hang, corrupt memory, or silently produce a wrong
+image. IDs `IMG-*`, `SEL-*`, `XWL-6` and `XWL-7` come from the second pass, which
+extended coverage from the named components into the code they call into.
 
 | ID | Area | Severity | Finding |
 | --- | --- | --- | --- |
@@ -65,6 +66,13 @@ silently produce a wrong image.
 | [CORE-1](#core-1--weston_output_mode_set_native-stores-a-pointer-to-the-callers-stack-frame-in-output-native_mode) | libweston | medium | `native_mode` left pointing at the caller's stack frame |
 | [CORE-2](#core-2--weston_renderer_resize_output-cannot-fail-it-can-only-log) | libweston | medium | `weston_renderer_resize_output()` cannot report failure |
 | [CORE-3](#core-3--wl_shm-buffer-stride-is-never-validated-against-width--bytes-per-pixel) | libweston | medium | `wl_shm` stride never validated against width × bpp |
+| [IMG-1](#img-1--integer-overflow-sizing-the-decoded-image-allocation-in-all-three-loaders) | shared | medium | Integer overflow sizing the decoded-image buffer in all three image loaders |
+| [SEL-1](#sel-1--data_source_send-leaks-the-requesting-clients-fd-for-every-non-matching-mime-type) | XWayland | high | Clipboard `data_source_send()` leaks the client's fd for any non-matching MIME type |
+| [SEL-2](#sel-2--writable_callback-closes-data_source_fd-without-invalidating-it--double-close) | XWayland | med-high | `writable_callback()` closes `data_source_fd` without invalidating it → double close |
+| [SEL-3](#sel-3--weston_wm_send_data-dereferences-an-unchecked-seat-and-selection-source) | XWayland | med-high | `weston_wm_send_data()` derefs an unchecked seat / selection source |
+| [SEL-4](#sel-4--a-forged-selectionrequest-trips-assertrequestor--selection_window) | XWayland | high | Forged `SelectionRequest` trips a live `assert()` |
+| [XWL-6](#xwl-6--a-forged-maprequest-trips-assertwindow-shsurf) | XWayland | high | Forged `MapRequest` trips `assert(!window->shsurf)` |
+| [XWL-7](#xwl-7--weston_wm_handle_button-reaches-set_maximized--set_minimized--set_toplevel-with-a-null-shsurf) | XWayland | med-high | Titlebar click reaches `set_maximized`/`set_minimized` with a NULL `shsurf` |
 
 ### Themes
 
@@ -73,21 +81,28 @@ a targeted sweep beyond the individual fixes below:
 
 1. **`assert()` on attacker- or peer-controlled input.** `b_ndebug` is unset, so
    asserts are live in release builds. X11-1, SC-1 (`abort_oom_if_null`), SC-4
-   and VNC-5 are all remote- or client-triggerable `abort()`s.
+   and VNC-5 are all remote- or client-triggerable `abort()`s. Three of them —
+   X11-1, XWL-6 and SEL-4 — are the *same* mistake: an invariant that holds only
+   for server-generated X events, asserted against events that `XSendEvent` lets
+   any client forge. The `SEND_EVENT_MASK` bit cannot distinguish them, because
+   legitimate senders use `XSendEvent` too.
 2. **A list head inside an object that is freed before the list is drained.**
    VNC-2 (`output->peers`), PW-2 (`output->fence_list`) and PW-1
    (`pending_output_list`) are the same mistake in three backends.
 3. **`wl_list_insert()` without a matching `wl_list_remove()`**, which turns a
    node into a self-loop and hangs the next iteration: XWL-4 and DS-5.
 4. **Stride and geometry taken on trust.** CORE-3, SC-1, SC-2, SC-5, VNC-3,
-   VNC-4 and PW-5 all stem from a size or stride crossing a trust boundary
-   without validation.
+   VNC-4, PW-5 and IMG-1 all stem from a size or stride crossing a trust
+   boundary without validation.
+5. **File descriptors that escape on the non-happy path.** SEL-1, SEL-2 and PW-3
+   each leak or double-close an fd on an error or unmatched-input branch. In a
+   long-running compositor these converge on the same outcome: `RLIMIT_NOFILE`,
+   after which every new client connection and buffer import fails.
 
 ## Status
 
-Review complete for the areas in scope. Findings were appended in individual
-commits as they were confirmed; every `file:line` reference was re-checked
-against the base commit after the sweep.
+Two passes. The first covered the named components; the second extended into the
+code those components call into, after the coverage gap was raised.
 
 | Area | State |
 | --- | --- |
@@ -95,9 +110,37 @@ against the base commit after the sweep.
 | VNC backend | done (VNC-1 … VNC-7) |
 | PipeWire backend | done (PW-1 … PW-7) |
 | screenshot / output-capture | done (SC-1 … SC-7) |
-| XWayland | done (XWL-1 … XWL-5) |
+| XWayland window manager | done (XWL-1 … XWL-7) |
+| XWayland clipboard (`selection.c`) | done (SEL-1 … SEL-4) |
 | desktop-shell | done (DS-1 … DS-5) |
 | libweston core (shared paths) | done (CORE-1 … CORE-3) |
+| `shared/image-loader.c` | done (IMG-1) |
+| `shared/frame.c` (XWayland decorations) | read; one clients-only defect noted below |
+
+### Still not covered
+
+This is the honest remaining surface for these configurations, roughly ranked by
+how much untrusted input reaches it:
+
+| Area | Lines | Why it matters here |
+| --- | --- | --- |
+| `libweston/desktop/*` (xdg-shell) | ~5,900 | Every desktop-shell client surface goes through it |
+| `libweston/renderer-gl/*` | ~6,900 | The GL path for all three backends |
+| `libweston/compositor.c` | ~10,500 | Surface/view/paint-node lifetime, damage, transforms — spot-read only |
+| `libweston/input.c` | ~6,000 | Seats, grabs, focus — spot-read only |
+| `libweston/data-device.c` | ~1,400 | Wayland side of the clipboard SEL-1…4 bridge to |
+| `frontend/main.c` | ~4,800 | Config and output configuration — spot-read only |
+| `frontend/xwayland.c`, `xwayland/launcher.c` | ~690 | Xwayland process and socket setup |
+| `xwayland/dnd.c` | ~250 | Same "X11 property parsed on trust" shape as XWL-2 |
+| `libweston/linux-dmabuf.c`, `animation.c`, `bindings.c`, `shared/config-parser.c`, `shared/hash.c` | ~3,100 | Reached from the paths above |
+| `desktop-shell/shell.c` grabs, switcher, fullscreen/maximize paths | ~2,500 | Roughly half of `shell.c` remains unread |
+
+Also noted, but **not** counted as a finding because it is only reachable from
+`clients/window.c` and not from the compositor: `frame_tablet_tool_motion()`
+(`shared/frame.c:1019`) dereferences `tool_pointer` twice before its own
+`if (!tool_pointer)` check. Its sibling `frame_pointer_motion()`
+(`shared/frame.c:724`) — which *is* on the XWayland path — orders the check
+correctly.
 
 Not covered, by request: DRM / headless / RDP / wayland backends, kiosk-shell,
 ivi-shell, fullscreen-shell. XWayland's `selection.c` (clipboard) and `dnd.c`
