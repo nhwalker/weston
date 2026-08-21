@@ -177,6 +177,10 @@ data_source_send(struct weston_data_source *base,
 
 		fcntl(fd, F_SETFL, O_WRONLY | O_NONBLOCK);
 		wm->data_source_fd = fd;
+	} else {
+		/* We don't provide this mime type; the fd is ours to close,
+		 * otherwise it leaks (a client may request any mime type). */
+		close(fd);
 	}
 }
 
@@ -223,7 +227,7 @@ weston_wm_get_selection_targets(struct weston_wm *wm)
 		free(logstr);
 	}
 
-	if (reply->type != XCB_ATOM_ATOM) {
+	if (reply->type != XCB_ATOM_ATOM || reply->format != 32) {
 		free(reply);
 		return;
 	}

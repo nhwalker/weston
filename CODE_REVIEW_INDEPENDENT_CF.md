@@ -58,6 +58,8 @@ Verified in this tree:
 | [AUTH-2](#auth-2--pam-teardown-failure-aborts-the-whole-compositor) | VNC / auth | High | 1 | `assert(pam_end()==PAM_SUCCESS)` aborts the compositor when PAM init/teardown fails (e.g. OOM under tight limits) |
 | [XWM-1](#xwm-1--property-parser-reuses-the-outer-loop-counter-skipping-properties-and-leaking-xcb-replies) | XWayland | Medium | 3 | `weston_wm_window_read_properties()` inner loops reuse the outer loop index `i`, so a long `WM_PROTOCOLS`/`_NET_WM_STATE` skips later properties and leaks their xcb replies |
 | [XWM-2](#xwm-2--x11-property-values-are-parsed-without-validating-length-or-format) | XWayland | Medium | 2 | Property handlers dereference/copy values without checking length or format, giving out-of-bounds reads from short/mistyped X properties (`_MOTIF_WM_HINTS` copy is unconditional) |
+| [XSEL-1](#xsel-1--clipboard-bridge-leaks-a-file-descriptor-for-every-unhandled-mime-type) | XWayland / clipboard | High | 2 | `data_source_send()` never closes the passed fd for a mime type it doesn't handle; a Wayland client can leak fds until exhaustion while an X client owns the selection |
+| [XSEL-2](#xsel-2--targets-reply-parsed-without-a-format-check) | XWayland / clipboard | Low | 2 | `TARGETS` reply atoms iterated without a `format == 32` check → out-of-bounds read from a mistyped selection reply |
 
 ## 4. Prioritisation
 
@@ -488,6 +490,109 @@ unmapped page crashes the compositor. `WM_NORMAL_HINTS` additionally used
 
 (The `format != 32` guards for `WM_PROTOCOLS`/`_NET_WM_STATE` are shown with
 XWM-1 since they share those handlers.)
+
+### XSEL-1 — clipboard bridge leaks a file descriptor for every unhandled mime type
+
+**Severity:** High (fd exhaustion → the compositor can no longer accept
+connections or open files = denial of service). **Likelihood:** 2 (needs a
+Wayland client that requests a mime type the X source doesn't provide, while an
+X client owns the clipboard; trivial to do, not something well-behaved clients
+do).
+
+**Area:** `xwayland/selection.c` `data_source_send()`.
+
+When an X11 client owns the CLIPBOARD selection, XWayland publishes a Wayland
+`weston_data_source` (`x11_data_source`) so Wayland clients can paste. A Wayland
+client pastes by calling `wl_data_offer.receive(mime_type, fd)`. The core
+data-device passes that fd straight to the source's `send` callback and does
+**not** close it (`libweston/data-device.c`):
+
+```c
+static void
+data_offer_receive(struct wl_client *client, struct wl_resource *resource,
+                   const char *mime_type, int32_t fd)
+{
+        struct weston_data_offer *offer = wl_resource_get_user_data(resource);
+
+        if (offer->source && offer == offer->source->offer)
+                offer->source->send(offer->source, mime_type, fd);
+        else
+                close(fd);
+}
+```
+
+The `mime_type` string is taken verbatim from the client and is **not** checked
+against the offered types, so the callback can be invoked with any string. The
+X11 source's callback only handles one mime type and silently drops the fd for
+anything else:
+
+```c
+static void
+data_source_send(struct weston_data_source *base,
+                 const char *mime_type, int32_t fd)
+{
+        ...
+        if (strcmp(mime_type, "text/plain;charset=utf-8") == 0) {
+                ...
+                wm->data_source_fd = fd;
+        }
+        /* any other mime_type: fd is neither stored nor closed → leaked */
+}
+```
+
+Each `receive()` with an unhandled mime type leaks one file descriptor. A client
+can repeat this arbitrarily, exhausting the compositor's fd table. Because the
+compositor "must not exhaust file descriptors" and "runs for months", this is an
+availability hazard, and it is reachable whenever any X application owns the
+clipboard.
+
+**Patch** — close the fd on the unhandled path (`xwayland/selection.c`):
+
+```diff
+ 		fcntl(fd, F_SETFL, O_WRONLY | O_NONBLOCK);
+ 		wm->data_source_fd = fd;
++	} else {
++		/* We don't provide this mime type; the fd is ours to close,
++		 * otherwise it leaks (a client may request any mime type). */
++		close(fd);
+ 	}
+ }
+```
+
+### XSEL-2 — `TARGETS` reply parsed without a format check
+
+**Severity:** Low. **Likelihood:** 2 (needs a malicious X selection owner).
+
+**Area:** `xwayland/selection.c` `weston_wm_get_selection_targets()`.
+
+The reply to a `TARGETS` conversion is validated for `reply->type == XCB_ATOM_ATOM`
+but not for `reply->format == 32`, then iterated as an array of 32-bit atoms:
+
+```c
+if (reply->type != XCB_ATOM_ATOM) {
+        free(reply);
+        return;
+}
+...
+value = xcb_get_property_value(reply);
+for (i = 0; i < reply->value_len; i++) {
+        if (value[i] == wm->atom.utf8_string) ...
+```
+
+The X client that owns the selection controls the property's format. With
+`format == 8` (still `type == ATOM`), `value_len` counts bytes while `value[i]`
+strides 4 bytes, reading past the reply. Same class as XWM-2; the fix is the same
+one-line guard.
+
+**Patch** (`xwayland/selection.c`):
+
+```diff
+-	if (reply->type != XCB_ATOM_ATOM) {
++	if (reply->type != XCB_ATOM_ATOM || reply->format != 32) {
+ 		free(reply);
+ 		return;
+ 	}
+```
 
 ## 6. Coverage ledger
 
