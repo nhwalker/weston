@@ -1537,14 +1537,18 @@ buffer_is_compatible(struct weston_buffer *buffer,
 Stride is not part of the contract, yet the capture implementations disagree
 about what it is:
 
-* **Synchronous GL** (`gl_renderer_do_capture()`) passes `into->stride` down to
-  `gl_renderer_do_read_pixels()`. But `gl_renderer_do_read_pixels()` then calls
-  `glReadPixels()` straight into the destination without setting
-  `GL_PACK_ROW_LENGTH`, so GL writes rows packed to `GL_PACK_ALIGNMENT` (4) and
-  the `stride` argument is honoured only in the pixman y-flip fallback — where
-  `glReadPixels()` is nevertheless made to write into a `tmp` image *declared*
-  with that stride. All three branches are only correct when
-  `stride == width * bpp / 8`.
+* **Synchronous GL** (`gl_renderer_do_capture()`, `gl-renderer.c:801`) passes
+  `into->stride` down to `gl_renderer_do_read_pixels()`. That function honours
+  the `stride` argument directly only in its pixman y-flip fallback; its two
+  `glReadPixels()` branches rely on the **caller** having set
+  `GL_PACK_ROW_LENGTH` to match. The repaint read-back path does exactly that
+  (`gl-renderer.c:2460`, guarded on GLES >= 3.0) — but
+  `gl_renderer_do_capture()` sets no pack state at all. So GL writes rows packed
+  to `GL_PACK_ALIGNMENT` (4) regardless of `into->stride`, and even the fallback
+  branch then misreads `tmp`, because `glReadPixels()` filled it at the packed
+  stride while the `pixman_image` was declared with `stride`. Note
+  `GL_PACK_ROW_LENGTH` does not exist before GLES 3.0, so on a GLES2 driver the
+  capture path *cannot* honour a padded stride at all.
 * **Asynchronous GL** (the PBO path, `gr->has_pbo`) ignores `buffer->stride`
   entirely:
 
