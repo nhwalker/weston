@@ -443,6 +443,30 @@ weston_output_has_renderer_capture_tasks(struct weston_output *output)
 	return false;
 }
 
+/** Retire all pending renderer-based capture tasks as failed
+ *
+ * Backends whose repaint hook cannot always invoke the renderer (e.g.
+ * because no target buffer is available) must use this to drain the
+ * tasks the renderer would have serviced before the repaint cycle ends,
+ * as finishing a repaint with tasks still pending is a fatal error
+ * (see weston_output_capture_info_repaint_done()).
+ *
+ * Tasks already serviced by the renderer are not affected: they have
+ * been retired and removed from the pending list by then, so calling
+ * this after a successful renderer pass is a no-op.
+ */
+WL_EXPORT void
+weston_output_capture_fail_renderer_tasks(struct weston_output *output,
+					  const char *err_msg)
+{
+	struct weston_output_capture_info *ci = output->capture_info;
+	struct weston_capture_task *ct, *tmp;
+
+	wl_list_for_each_safe(ct, tmp, &ci->pending_capture_list, link)
+		if (ct->owner->pixel_source != WESTON_OUTPUT_CAPTURE_SOURCE_WRITEBACK)
+			weston_capture_task_retire_failed(ct, err_msg);
+}
+
 /** Get the destination buffer */
 WL_EXPORT struct weston_buffer *
 weston_capture_task_get_buffer(struct weston_capture_task *ct)

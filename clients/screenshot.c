@@ -72,6 +72,10 @@ struct screenshooter_output {
 	struct wl_output *wl_output;
 	int offset_x, offset_y;
 
+	int x, y;
+	bool have_geometry;
+	bool skip;
+
 	struct weston_capture_source_v1 *source;
 
 	int buffer_width;
@@ -224,6 +228,56 @@ static const struct weston_capture_source_v1_listener capture_source_handlers = 
 };
 
 static void
+output_handle_geometry(void *data, struct wl_output *wl_output,
+		       int32_t x, int32_t y,
+		       int32_t physical_width, int32_t physical_height,
+		       int32_t subpixel, const char *make, const char *model,
+		       int32_t transform)
+{
+	struct screenshooter_output *output = data;
+
+	output->x = x;
+	output->y = y;
+	output->have_geometry = true;
+}
+
+static void
+output_handle_mode(void *data, struct wl_output *wl_output, uint32_t flags,
+		   int32_t width, int32_t height, int32_t refresh)
+{
+}
+
+static void
+output_handle_done(void *data, struct wl_output *wl_output)
+{
+}
+
+static void
+output_handle_scale(void *data, struct wl_output *wl_output, int32_t factor)
+{
+}
+
+static void
+output_handle_name(void *data, struct wl_output *wl_output, const char *name)
+{
+}
+
+static void
+output_handle_description(void *data, struct wl_output *wl_output,
+			  const char *description)
+{
+}
+
+static const struct wl_output_listener output_handlers = {
+	.geometry = output_handle_geometry,
+	.mode = output_handle_mode,
+	.done = output_handle_done,
+	.scale = output_handle_scale,
+	.name = output_handle_name,
+	.description = output_handle_description,
+};
+
+static void
 create_output(struct screenshooter_app *app, uint32_t output_name, uint32_t version)
 {
 	struct screenshooter_output *output;
@@ -234,6 +288,7 @@ create_output(struct screenshooter_app *app, uint32_t output_name, uint32_t vers
 	output->wl_output = wl_registry_bind(app->registry, output_name,
 					     &wl_output_interface, version);
 	abort_oom_if_null(output->wl_output);
+	wl_output_add_listener(output->wl_output, &output_handlers, output);
 
 	output->source = weston_capture_v1_create(app->capture_factory,
 						  output->wl_output,
@@ -292,6 +347,45 @@ static const struct wl_registry_listener registry_listener = {
 	handle_global_remove
 };
 
+/*
+ * Mark outputs that fully overlap an already-kept output to be skipped.
+ *
+ * Mirror-of (and cloned) outputs are placed at exactly the same position
+ * as the output they duplicate. Capturing them would only repeat content
+ * in the composited image, and remote mirrors (e.g. a PipeWire output
+ * with no stream consumer attached) may not be able to produce a frame
+ * at all, failing the whole screenshot. Keep the first output advertised
+ * at each position: globals are announced in creation order and a mirror
+ * is always created after its source, so the source survives.
+ */
+static void
+screenshot_skip_overlapping_outputs(struct screenshooter_app *app)
+{
+	struct screenshooter_output *output, *other;
+
+	/* the output list is in reverse registry order */
+	wl_list_for_each_reverse(output, &app->output_list, link) {
+		if (!output->have_geometry)
+			continue;
+
+		wl_list_for_each_reverse(other, &app->output_list, link) {
+			if (other == output)
+				break;
+
+			if (other->skip || !other->have_geometry)
+				continue;
+
+			if (other->x == output->x && other->y == output->y) {
+				fprintf(stderr,
+					"Skipping output at %d,%d: mirror/clone of another output\n",
+					output->x, output->y);
+				output->skip = true;
+				break;
+			}
+		}
+	}
+}
+
 static void
 screenshooter_output_capture(struct screenshooter_output *output)
 {
@@ -323,6 +417,9 @@ screenshot_write_png(const struct buffer_size *buff_size,
 	abort_oom_if_null(shot);
 
 	wl_list_for_each(output, output_list, link) {
+		if (output->skip)
+			continue;
+
 		pixman_image_composite32(PIXMAN_OP_SRC,
 					 output->buffer->image, /* src */
 					 NULL, /* mask */
@@ -359,11 +456,17 @@ screenshot_set_buffer_size(struct buffer_size *buff_size,
 	int position = 0;
 
 	wl_list_for_each_reverse(output, output_list, link) {
+		if (output->skip)
+			continue;
+
 		output->offset_x = position;
 		position += output->buffer_width;
 	}
 
 	wl_list_for_each(output, output_list, link) {
+		if (output->skip)
+			continue;
+
 		buff_size->min_x = MIN(buff_size->min_x, output->offset_x);
 		buff_size->min_y = MIN(buff_size->min_y, output->offset_y);
 		buff_size->max_x =
@@ -418,11 +521,17 @@ main(int argc, char *argv[])
 	/* Process initial events for wl_output and weston_capture_source_v1 */
 	wl_display_roundtrip(display);
 
+	screenshot_skip_overlapping_outputs(&app);
+
 	do {
 		app.retry = false;
 
-		wl_list_for_each(output, &app.output_list, link)
+		wl_list_for_each(output, &app.output_list, link) {
+			if (output->skip)
+				continue;
+
 			screenshooter_output_capture(output);
+		}
 
 		while (app.waitcount > 0 && !app.failed) {
 			if (wl_display_dispatch(display) < 0)
