@@ -1,12 +1,22 @@
 # Weston 14.0.2 — independent security & correctness review
 
-**Status: complete.** 34 findings (23 with full write-ups, 11 in the hardening
-table), each verified against the base commit; every `file:line` citation was
-re-checked at the end. Third-party behaviour was verified against upstream source
-(libxcb reply sizing, libwayland `wl_shm` stride validation, Linux-PAM
+**Status: complete, plus a reconciliation addendum (§8).** The independent first
+pass produced 34 findings (23 with full write-ups, 11 in the hardening table),
+each verified against the base commit; every `file:line` citation was re-checked
+at the end. Third-party behaviour was verified against upstream source (libxcb
+reply sizing, libwayland `wl_shm` stride validation, Linux-PAM
 `pam_start`/`pam_end`) rather than recalled. The compositor core swept clean of
 confirmed findings in the ranges read (see the coverage ledger for what that does
 and does not cover).
+
+**§8 was added after this review was compared, at the maintainer's request,
+against a second independent review of the same scope (PR #15,
+`CODE_REVIEW_CRITICAL_BACKENDS.md`).** It records: (a) corrections to this review —
+including defects my own reviewers surfaced that the first pass dropped or failed
+to carry in — and (b) additional defects that PR #15 found and this pass missed,
+which were **re-verified against source here** before being listed and are
+**attributed to PR #15**. Sections 1–7 remain the independent first-pass result.
+PR #15 itself was not modified.
 
 ## 1. Scope, base, and build-configuration facts
 
@@ -1616,10 +1626,12 @@ violate is a remote/triggered `abort()`. These should be real error handling, no
 assertions.
 
 **T5 — Error-path and per-connection resource lifetime.**
-VNC-3, PW-2, SEL-1, CLIP-1, XLA-2, XLA-3, X11-5(SHM). Leaks (memory/fd/SysV-shm),
-dangling listeners, or dangling pointers on cleanup and error paths — the class that
-matters most for the "runs for months" model, and where VNC-3 (the top finding)
-lives.
+VNC-3, PW-2, PW-3 (§8), SEL-1, CLIP-1, XLA-2, XLA-3, X11-5 (SHM leak; §8). Leaks
+(memory/fd/SysV-shm), dangling listeners, or dangling pointers on cleanup and error
+paths — the class that matters most for the "runs for months" model, and where
+VNC-3 (the top finding) lives. The reconciliation in §8 shows this is the single
+largest defect class in the tree: the backend shutdown/teardown paths (VNC-2, PW-1,
+PW-3, PW-7, X11-8) are where the parallel review most out-covered this one.
 
 **T6 — Loop/variable reuse.**
 XWM-3 (inner loops clobber the outer counter), DS-2 (`bool**` vs `bool*`). Single
@@ -1633,3 +1645,154 @@ IMG-1/2 (32-bit overflow), CLIP-2 (`size_t` underflow). Size math not done in
 The two patterns to act on structurally are **T1** (fix the property parser as a
 unit) and **T2** (audit deferred-work cancellation in destroy paths); the rest are
 localized fixes.
+
+## 8. Reconciliation with the parallel review (PR #15)
+
+This section was added after sections 1–7 were compared against a second
+independent review of the same scope (PR #15, `CODE_REVIEW_CRITICAL_BACKENDS.md`,
+57 findings). Every item below was **re-verified against source at base commit
+`1a9149c`** during reconciliation. Provenance is stated explicitly and PR #15 was
+not modified.
+
+**ID note.** The two reviews use overlapping ID prefixes for *different* bugs, so
+in this section IDs written `PR#15 <ID>` belong to that review's scheme; bare IDs
+(including the new `X11-5`, `X11-6`, `PW-3` minted in §8a) are this review's.
+**Beware three deliberate cross-overs:** the tokens `X11-5`, `X11-6` and `PW-3`
+name *different* bugs in each scheme — see the mapping. Roughly 24 of PR #15's 57
+overlap findings already in §§4:
+
+- `PR#15 AUTH-1` = this review's VNC-1 + VNC-2; `PR#15 VNC-1` = VNC-3.
+- `PR#15 XWL-1` = XWM-3; `PR#15 XWL-2` = XWM-1/2/4.
+- `PR#15 PW-3` = PW-1 + PW-2 (**not** this review's new PW-3, which is the fence UAF).
+- `PR#15 SC-2` / `PR#15 CORE-3` = CAP-1; `PR#15 DS-5` = DS-1; `PR#15 IMG-1` = IMG-1/2.
+- `PR#15 X11-2` = X11-2; `PR#15 X11-5` = X11-3; `PR#15 X11-6` = X11-4
+  (so PR #15's `X11-3` = this review's new `X11-5`, and PR #15's `X11-4` = this
+  review's new `X11-6` — the reverse of the digits, hence the caution).
+
+### 8a. Corrections to this review
+
+These are defects **this review's own reviewers surfaced** but the first pass
+dropped or failed to carry into §4. They are legitimately part of this independent
+result; the comparison is what prompted formalizing them.
+
+**X11-5 — SysV shared-memory segment/mapping leaked on `x11_output_init_shm()`
+error paths.** `x11.c:811`–`824`: both the `shmat` failure return and the
+`xcb_shm_attach` failure return exit *before* the `shmctl(output->shm_id,
+IPC_RMID, …)` at `x11.c:826`, leaking a kernel SysV segment (and, on the second
+path, the attached mapping). SysV segments are a bounded global resource
+(`shmmni`). This was referenced in the T5 taxonomy but omitted from the findings
+tables — now corrected. Sev Low–Medium, **L1** (per failed attach; in a container
+where MIT-SHM attach fails it recurs on every mode switch). (= `PR#15 X11-3`.)
+
+**X11-6 — a failed `x11_output_switch_mode()` leaves the output permanently broken
+(NULL renderbuffer → crash).** `x11.c:842`+: `x11_output_deinit_shm()` sets
+`output->renderbuffer = NULL`, then the SHM re-init failure paths `return -1`
+without restoring it or clearing `resize_pending`/`window_resized`. The output
+stays in `output_list` and keeps being repainted, so the next
+`x11_output_repaint_shm()` calls `renderbuffer_get_image(NULL)` →
+`container_of(NULL, …)` → wild pointer dereference; `resize_pending` also stays
+`true` forever, disabling resize tracking. **My first pass investigated this and
+*dropped* it as "not substantiated."** That was too conservative: X11-5 shows
+MIT-SHM attach failing is a real container condition, which makes this reachable.
+Corrected to included. Sev High, **L3**. (= `PR#15 X11-4`.)
+
+**PW-3 — pending GL/DMABUF fence event sources are never cancelled on PipeWire
+output teardown → use-after-free.** `pipewire.c:411`–`451`:
+`pipewire_output_disable`/`pipewire_output_destroy` never iterate
+`output->fence_list`, and destroy `free(output)`s while fence sources remain armed;
+a later fence-fd callback does `wl_list_remove` through the freed list head (and
+queues onto a destroyed stream). **This review's PipeWire reviewer flagged it as a
+candidate and I failed to carry it into §4** — a process miss on my side. Sev High,
+**L2–3**. (= `PR#15 PW-2`.) Fix direction: drain/cancel `fence_list` in
+`pipewire_output_disable` before the stream/output go away (same shape as the CAP-2
+/ T2 pattern already flagged in this review).
+
+**SEL-2 (this review holds its position, with one concession).** PR #15 reports a
+*double-close* of `wm->data_source_fd` in `xwayland/selection.c`. On re-verification
+I **stand by this review's rejection of the double-close**: `writable_callback`'s
+error path (`:64`) does not delete the X property, so the INCR handshake stalls and
+`weston_wm_get_incr_chunk()`'s `close` (`:144`) is never re-reached — a successful
+callback deletes the property but does not close, so the two closes are mutually
+exclusive. **However**, PR #15's *secondary* point is real and this review missed
+it: the first `write()` runs synchronously from `weston_wm_write_property()`
+(`:99`), so a full pipe returns `EAGAIN`, which `:58` treats as fatal → the
+clipboard transfer is silently aborted. That correctness fix (retry on
+`EAGAIN`/`EINTR`; and defensively set `data_source_fd = -1` after the close) is
+adopted here.
+
+**XWM-3 likelihood (disagreement retained).** PR #15 scores the same bug (`XWL-1`)
+**5/5, "every GTK/Qt app."** This review keeps **L3**: the property skip is
+data-dependent on whether `_NET_WM_STATE` is present (traced in §4 XWM-3), so
+"every app" overstates universality — but both agree it is in the
+reachable-with-normal-clients band.
+
+### 8b. Additional defects found by PR #15 that this pass missed
+
+**Attributed to PR #15.** Each was re-verified against source here; see PR #15 for
+full write-ups and patches (not reproduced). Severity/likelihood below is this
+review's assessment (occasionally lower than PR #15's, noted in the last column).
+This is where the parallel review is genuinely stronger — concentrated in **backend
+shutdown/teardown** and the **XWayland-WM forged-event surface**, both of which this
+review under-covered.
+
+| PR#15 ID | Area | Defect (verified) | Sev | L |
+|----------|------|-------------------|-----|---|
+| VNC-2 | VNC | **Shutdown write-after-free**: outputs are freed (`weston_compositor_shutdown`) before `vnc_destroy`→`nvnc_close`→`vnc_client_cleanup` does `wl_list_remove(&peer->link)` into the freed `output->peers` head; VNC sets no `base.shutdown` hook to drain peers first. Fires on any exit with a client connected. | High | 4 |
+| VNC-6 | VNC | VNC seats copy only rules/model/layout, never `keymap_variant`/`keymap_options` (`vnc.c:1196`), so a configured variant/options is silently ignored on VNC seats. Deterministic when configured. | Medium | 5 |
+| VNC-5 | VNC | `vnc_output_update_cursor` `nvnc_fb_new(...)` then `assert(fb)` with **client-controlled** cursor width/height (`vnc.c:558`) → remote-influenced `abort()`; unbounded cursor alloc. | Med–High | 2 |
+| VNC-7 | VNC | `vnc_output_enable` sets `backend->output` before the renderer `output_create`; on failure it returns with a half-built output published + a leaked `cursor_plane`. | Medium | 1 |
+| VNC-4 | VNC | Damage rects copied from `int32` to `pixman_box16` (`vnc.c:622`) with no clamp → truncation for outputs > 32767 px. | Medium | 1 |
+| PW-1 | PipeWire | `pipewire_create_output` `free(output)`s on `pw_stream_new` failure while it is still spliced into `compositor->pending_output_list`; shutdown then walks a freed node → wild indirect call. | High | 1 |
+| PW-4 | PipeWire | `[output] gbm-format=` accepts any DRM name with no cross-check against what the backend can encode; planar names give `bpp==0` → `stride/size 0` (→ mmap failure via PW-1/mmap), and `argb8888` (advertised!) negotiates a garbage stream. | Med–High | 3 |
+| PW-7 | PipeWire | `pipewire_destroy` destroys `pw_loop` before `pw_core`/`pw_context` and never disconnects/destroys them or calls `pw_deinit`; `formats` also leaked. Exit-only leaks (not a live UAF, contra the write-up). | Low–Med | 5 |
+| PW-5 / PW-6 | PipeWire | Negotiated stream geometry trusted without validation; a buffer whose backing alloc failed is still queued (mitigated by `pw_stream_set_error`). Minor. | Medium | 1 |
+| X11-8 | x11 | Teardown/error-path leaks: `keys` wl_array backing buffer and a retained `prev_event` leak on every clean shutdown; keymap leaks on a seat-init failure path. | Low | 4 |
+| XWL-3 | XWayland | `weston_wm_kill_client` `kill(window->pid, SIGKILL)` where `window->pid` is the client-supplied `_NET_WM_PID` (`window-manager.c:926`); the only "check" compares two client-controlled values. A malicious X window + `Super+K` kills an arbitrary process of the user. | High | 1 |
+| XWL-4 | XWayland | Forged `WL_SURFACE_ID`: `id==0` defeats the `surface_id != 0` guard → double `wl_list_insert` → self-loop in `unpaired_window_list` → 100% CPU hang; plus no `wl_resource_instance_of` type check → type confusion. Any X client can `xcb_send_event` it. | High | 2 |
+| XWL-5 / XWL-6 / XWL-7 | XWayland | NULL-`shsurf` family: `xserver_map_shell_surface` publishes `window->surface` before `shsurf` with early returns in between (`:3297`) → NULL deref on repaint; forged `MapRequest` trips `assert(!window->shsurf)` (`:1271`) → abort; a titlebar click reaches `set_maximized`/`set_minimized` with NULL `shsurf`. | Med–High | 2 |
+| SEL-3 | XWayland | `weston_wm_send_data` derefs `weston_wm_pick_seat()` (can be NULL) and `seat->selection_data_source` unchecked (`selection.c:500`,`:518`) — an X client pasting just after the owning Wayland client exits. | Med–High | 2 |
+| SEL-4 | XWayland | Forged `SelectionRequest` trips `assert(requestor != selection_window)` (`selection.c:594`) → abort. `requestor` is attacker-controlled via `xcb_send_event`. | High | 1 |
+| DND-2 | XWayland | DnD and clipboard proxies store the Wayland write-end into the **same** `wm->data_source_fd` and neither closes the previous one → fd leak on overlap / repeated `receive`. (Also noted in this review's candidate list but not reported.) | Med–High | 2 |
+| ATOM-1 | XWayland | `get_atom_name` leaks the `xcb_generic_error_t` on every failed lookup (`xcb-xwayland.c:50`) — unbounded under the forged-atom requests of SEL-4. | Medium | 1 |
+| DD-1 | data-device | `data_device_set_selection` passes the client serial to `weston_seat_set_selection` **unvalidated** (in-tree `FIXME`, `data-device.c:1222`), unlike `start_drag`; any client can pin the selection with a far-future serial. | High | 1 |
+| CORE-1 | libweston | `weston_output_copy_native_mode` stores a pointer to the **caller's stack frame** in `output->native_mode` (`compositor.c:560`); callers (x11 resize, VNC `SetDesktopSize`) pass stack locals. `native_mode_copy` is the workaround but `native_mode` is still read. | Medium | 1 |
+| CORE-2 | libweston | `weston_renderer_resize_output` returns `void` and can only log; teardown is irreversible before the failure point, so an OOM shadow-image alloc leaves a broken output treated as success. | Medium | 2 |
+| DS-2 | desktop-shell | `shell->grab_surface` is the one shell surface tracked with no destroy listener (`shell.c:3079`); it dangles when the shell client crashes/respawns → UAF on the next pointer grab. | High | 2 |
+| DS-3 | desktop-shell | `set_lock_surface` skips the `if (surface->committed)` role check its siblings do (`shell.c:3021`) and its destroy handler leaks the listener. | Medium | 3 |
+| DS-4 | desktop-shell | `animate_focus_change`/`create_focus_surface` deref `fsurf_front/back` before the `ANIMATION_NONE` guard, and use a NULL default output with `focus-animation=dim-layer` + zero outputs at load. | Medium | 1 |
+| DS-6 | desktop-shell | Closing the last window *during* Alt+Tab: `weston_view_destroy` unmaps the view before its destroy signal, so `switcher_next`'s re-scan finds nothing and hits `if (next == NULL) return;` (`shell.c:4278`) **before** re-pointing `switcher->current`/`listener` — the switcher then holds a freed view → UAF at teardown. | High | 2 |
+| SC-1 | capture | A capture buffer whose `stride` is not a multiple of 4 makes `pixman_image_create_bits` return NULL → `abort_oom_if_null` → `abort()` (pixman renderer). (Authorization-gated like this review's CAP-1.) | High | 1 |
+| SC-5 | capture | `weston_screenshooter_shoot` (exported API) mallocs at `width*bpp` but reads the scratch buffer at the client `stride` → heap over-read when `stride > width*bpp`. | Medium | 0 |
+| SC-6 | capture | `recorder_binding` fabricates an output from an empty `output_list` (`weston-screenshooter.c:99`) → bogus deref; teardown leaves a `client_destroy_listener` on a freed client → UAF. | Medium | 2 |
+| SC-7 | capture | The `.wcap` recorder ignores every `write`/`writev` return (`screenshooter.c:339`+) → silently corrupt recordings on `ENOSPC`/`EIO`/short write. (Local `Super+R`.) | Low–Med | 3 |
+| X11-7 | x11 | Integer overflow in `x11_output_set_icon` (`x11.c:627`). Real code, but the image is the **fixed bundled `wayland.png`**, so latent — this review folds it into the general IMG-1/2 overflow rather than a separate live finding. | Low | 1 |
+| DXW-1 | libweston | `weston_desktop_surface_update_view_position` assumes a `geometry.parent` its own view constructor doesn't set (`desktop/surface.c:117`). Latent in the shipped shells (one view per surface). | Low | 0 |
+
+Net delta from this reconciliation: this review under-covered **backend
+shutdown/teardown ordering** (VNC-2, PW-1, PW-3, PW-7, X11-8 — a whole class), the
+**XWayland-WM forged-event/`shsurf` surface** (XWL-3/4/5/6/7, SEL-4), and several
+**desktop-shell lifetime UAFs** (DS-2, DS-6). PR #15 is the stronger review on
+those axes.
+
+### 8c. What remains unique to this review
+
+The comparison did **not** erode these — PR #15 does not contain them (its coverage
+ledger explicitly marks `libweston/clipboard.c` "never opened," and it has no
+`desktop/xdg-shell.c` popup coverage):
+
+- **xdg-shell popup cluster** — XDG-1 (`get_popup` NULL-parent deref), XDG-2
+  (configure sent to a NULL toplevel resource), XDG-3 (popup outliving its parent →
+  UAF).
+- **`clipboard.c`** — CLIP-1 (read-error path → repeated-unref UAF), CLIP-2
+  (`wl_array_add` underflow → OOB `read`).
+- **DD-1 (this review)** — `wl_data_device.start_drag` with a protocol-legal NULL
+  source → `source->seat = seat` NULL deref (L3; PR #15 examined that function for
+  the serial but missed this).
+- **CAP-2** — GL async capture holds a raw `weston_capture_task` pointer the client
+  can free mid-flight → UAF.
+- **XLA-1** — Xwayland spawn failure leaves the listen sockets armed → 100% CPU spin.
+- **DS-2 (this review)** — `bool**`-vs-`bool*` recursion dropping nested-child focus;
+  **XWM-5** (xfixes NULL deref), **XWM-6** (unchecked `cursors` malloc).
+
+A merged set (this review's §§4 + 8a + 8c, plus PR #15's §8b items) is materially
+stronger than either review alone; neither is a superset of the other.
