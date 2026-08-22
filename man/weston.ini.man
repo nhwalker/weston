@@ -665,6 +665,20 @@ only for remote outputs.
 NOTE: The native outputs created by the DRM backend using the 'clone-of'
 are for cloning the outputs, and not sharing or mirroring. See also
 .BR weston-drm(7).
+.TP 7
+.BI "hide-from-clients=" true
+Hides a mirroring output from clients. Only honoured on outputs that also
+have a
+.B mirror-of
+key; it is ignored otherwise. When enabled, no wl_output global is
+advertised for this output, so Wayland clients do not receive
+wl_surface.enter events for it and cannot address it, and Xwayland does
+not expose it as a RandR output \(em xrandr and X11 applications see only
+the mirrored (source) output instead of an extra, fully overlapping
+duplicate monitor. The output still repaints and is still streamed out by
+its remote backend. Note that clients then never learn the hidden output's
+scale, so for best streaming quality the mirroring output should use the
+same scale as its source. Defaults to false.
 .\"---------------------------------------------------------------------
 .SH "INPUT-METHOD SECTION"
 .TP 7
