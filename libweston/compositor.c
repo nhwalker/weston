@@ -6706,7 +6706,8 @@ weston_output_attach_head(struct weston_output *output,
 	weston_output_compute_protection(output);
 
 	if (output->enabled) {
-		weston_head_add_global(head);
+		if (!output->unadvertised)
+			weston_head_add_global(head);
 
 		head_names = weston_output_create_heads_string(output);
 		weston_log("Output '%s' updated to have head(s) %s\n",
@@ -7490,8 +7491,10 @@ weston_compositor_add_output(struct weston_compositor *compositor,
 	wl_list_insert(compositor->output_list.prev, &output->link);
 	output->enabled = true;
 
-	wl_list_for_each(head, &output->head_list, output_link)
-		weston_head_add_global(head);
+	if (!output->unadvertised) {
+		wl_list_for_each(head, &output->head_list, output_link)
+			weston_head_add_global(head);
+	}
 
 	wl_signal_emit(&compositor->output_created_signal, output);
 
@@ -7721,6 +7724,34 @@ weston_compositor_remove_output(struct weston_output *output)
 	compositor->output_id_pool &= ~(1u << output->id);
 	output->id = 0xffffffff; /* invalid */
 }
+/** Hide an output from clients, or advertise it again.
+ *
+ * \param output       The weston_output to change.
+ * \param unadvertised When true, do not create wl_output globals for the
+ *                     output's heads.
+ *
+ * An unadvertised output is invisible to clients: no wl_output global is
+ * published for its heads, so clients never receive wl_surface.enter for
+ * it, cannot create xdg_output or color-management output objects for it,
+ * and Xwayland does not expose it as a RandR output. The output still
+ * repaints normally and backends can still capture and stream its
+ * content. This is useful for outputs which mirror another output (see
+ * the mirror-of key in weston.ini(5)), whose duplicate, fully overlapping
+ * monitor would otherwise confuse clients.
+ *
+ * This must be called before the output is enabled.
+ *
+ * \ingroup output
+ */
+WL_EXPORT void
+weston_output_set_unadvertised(struct weston_output *output,
+			       bool unadvertised)
+{
+	assert(!output->enabled);
+
+	output->unadvertised = unadvertised;
+}
+
 /** Sets the output scale for a given output.
  *
  * \param output The weston_output object that the scale is set for.
