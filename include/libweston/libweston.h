@@ -711,6 +711,13 @@ struct weston_output {
 	 * mirror-of key in [output] section.
 	 */
 	struct weston_output *mirror_of;
+
+	/**
+	 * When set, no wl_output global is created for this output's
+	 * heads, hiding the output from Wayland clients and from
+	 * Xwayland's RandR. See weston_output_set_unadvertised().
+	 */
+	bool unadvertised;
 };
 
 enum weston_pointer_motion_mask {
@@ -2694,6 +2701,10 @@ weston_output_iterate_heads(struct weston_output *output,
 void
 weston_output_set_scale(struct weston_output *output,
 			int32_t scale);
+
+void
+weston_output_set_unadvertised(struct weston_output *output,
+			       bool unadvertised);
 
 void
 weston_output_set_transform(struct weston_output *output,

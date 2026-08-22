@@ -2530,6 +2530,17 @@ static void
 wet_output_overlap_pre_enable(struct weston_head *head,
 			      struct weston_head *head_to_mirror)
 {
+	struct weston_config *wc = wet_get_config(head->output->compositor);
+	struct weston_config_section *section;
+	bool hide = false;
+
+	section = weston_config_get_section(wc, "output", "name", head->name);
+	if (section)
+		weston_config_section_get_bool(section, "hide-from-clients",
+					       &hide, false);
+	if (hide)
+		weston_output_set_unadvertised(head->output, true);
+
 	head->output->mirror_of = head_to_mirror->output;
 	weston_output_set_position(head->output, head_to_mirror->output->pos);
 }
