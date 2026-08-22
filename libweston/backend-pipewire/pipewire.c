@@ -76,6 +76,9 @@ struct pipewire_backend {
 	struct pw_core *core;
 	struct spa_hook core_listener;
 
+	struct pw_registry *registry;
+	struct spa_hook registry_listener;
+
 	const struct pixel_format_info **formats;
 	unsigned int formats_count;
 };
@@ -883,6 +886,8 @@ pipewire_destroy(struct weston_backend *base)
 
 	wl_list_remove(&b->base.link);
 
+	pw_proxy_destroy((struct pw_proxy *)b->registry);
+
 	pw_loop_leave(b->loop);
 	pw_loop_destroy(b->loop);
 	wl_event_source_remove(b->loop_source);
@@ -1247,6 +1252,54 @@ static const struct pw_core_events core_events = {
 	.error = weston_pipewire_error,
 };
 
+static void
+weston_pipewire_registry_global(void *data, uint32_t id, uint32_t permissions,
+				const char *type, uint32_t version,
+				const struct spa_dict *props)
+{
+	struct pipewire_backend *backend = data;
+	struct weston_output *base;
+	const char *output_node;
+	uint32_t node_id;
+	char *endptr;
+
+	if (!props || strcmp(type, PW_TYPE_INTERFACE_Link) != 0)
+		return;
+
+	output_node = spa_dict_lookup(props, PW_KEY_LINK_OUTPUT_NODE);
+	if (!output_node)
+		return;
+
+	node_id = strtoul(output_node, &endptr, 10);
+	if (endptr == output_node || *endptr != '\0')
+		return;
+
+	/*
+	 * A new link from one of our stream nodes means a new consumer has
+	 * attached. The stream state only changes for the first consumer, so
+	 * force a full repaint to guarantee that late joiners also receive a
+	 * frame even if the output is static.
+	 */
+	wl_list_for_each(base, &backend->compositor->output_list, link) {
+		struct pipewire_output *output = to_pipewire_output(base);
+
+		if (!output || output->backend != backend)
+			continue;
+		if (pw_stream_get_node_id(output->stream) != node_id)
+			continue;
+
+		pipewire_output_debug(output,
+				      "new link %u from node %u: forcing full repaint",
+				      id, node_id);
+		weston_output_damage(base);
+	}
+}
+
+static const struct pw_registry_events registry_events = {
+	PW_VERSION_REGISTRY_EVENTS,
+	.global = weston_pipewire_registry_global,
+};
+
 static int
 weston_pipewire_init(struct pipewire_backend *backend)
 {
@@ -1275,6 +1328,17 @@ weston_pipewire_init(struct pipewire_backend *backend)
 	pw_core_add_listener(backend->core,
 			     &backend->core_listener, &core_events, backend);
 
+	backend->registry = pw_core_get_registry(backend->core,
+						 PW_VERSION_REGISTRY, 0);
+	if (!backend->registry) {
+		weston_log("Failed to get PipeWire registry\n");
+		goto err_core;
+	}
+
+	pw_registry_add_listener(backend->registry,
+				 &backend->registry_listener,
+				 &registry_events, backend);
+
 	loop = wl_display_get_event_loop(backend->compositor->wl_display);
 	backend->loop_source =
 		wl_event_loop_add_fd(loop, pw_loop_get_fd(backend->loop),
@@ -1284,6 +1348,9 @@ weston_pipewire_init(struct pipewire_backend *backend)
 
 	return 0;
 
+err_core:
+	pw_core_disconnect(backend->core);
+	backend->core = NULL;
 err_context:
 	pw_context_destroy(backend->context);
 	backend->context = NULL;
