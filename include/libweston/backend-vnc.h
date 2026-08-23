@@ -43,6 +43,21 @@ struct weston_vnc_output_api {
 	 */
 	int (*output_set_size)(struct weston_output *output,
 			       int width, int height, bool resizeable);
+
+	/** Mark a VNC output as view-only.
+	 *
+	 * A view-only output serves its contents to connecting clients, but
+	 * ignores everything a client can send that would affect the
+	 * compositor: pointer events, key events (both keysym and keycode
+	 * form), desktop resize requests and clipboard transfers in either
+	 * direction. Clients of such an output are never given input devices.
+	 *
+	 * Must be called before the output is enabled.
+	 *
+	 * Returns 0 on success, -1 on failure.
+	 */
+	int (*output_set_view_only)(struct weston_output *output,
+				    bool view_only);
 };
 
 static inline const struct weston_vnc_output_api *

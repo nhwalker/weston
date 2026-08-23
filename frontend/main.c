@@ -3831,6 +3831,7 @@ vnc_backend_output_configure(struct weston_output *output)
 	int width;
 	int height;
 	bool resizeable;
+	bool view_only;
 
 	assert(parsed_options);
 
@@ -3845,11 +3846,18 @@ vnc_backend_output_configure(struct weston_output *output)
 			  compositor->parsed_options);
 
 	weston_config_section_get_bool(section, "resizeable", &resizeable, true);
+	weston_config_section_get_bool(section, "view-only", &view_only, false);
 
 	if (output->mirror_of && resizeable) {
 		resizeable = false;
 		weston_log("Use of mirror_of disables resizing for output %s\n", output->name);
 
+	}
+
+	if (view_only && resizeable) {
+		resizeable = false;
+		weston_log("Use of view-only disables resizing for output %s\n",
+			   output->name);
 	}
 
 	wet_output_set_scale(output, section, 1, 0);
@@ -3860,6 +3868,16 @@ vnc_backend_output_configure(struct weston_output *output)
 			   output->name);
 		return -1;
 	}
+
+	if (api->output_set_view_only(output, view_only) < 0) {
+		weston_log("Cannot configure output \"%s\" as view-only.\n",
+			   output->name);
+		return -1;
+	}
+
+	if (view_only)
+		weston_log("Output %s is view-only; VNC clients cannot send input\n",
+			   output->name);
 
 	if (!output->mirror_of)
 		wet_output_set_position_from_section(output, section);

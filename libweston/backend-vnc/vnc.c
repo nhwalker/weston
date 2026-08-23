@@ -99,6 +99,7 @@ struct vnc_output {
 	struct wl_list peers;
 
 	bool resizeable;
+	bool view_only;
 	int port;
 };
 
@@ -106,6 +107,7 @@ struct vnc_peer {
 	struct vnc_backend *backend;
 	struct vnc_output *output;
 	struct weston_seat *seat;
+	bool has_input;
 	struct nvnc_client *client;
 
 	enum nvnc_button_mask last_button_mask;
@@ -410,7 +412,7 @@ vnc_handle_desktop_layout_event(struct nvnc_client *client,
 
 	vnc_log_desktop_layout(peer->backend, layout);
 
-	if (!output->resizeable)
+	if (output->view_only || !output->resizeable)
 		return false;
 
 	new_mode.width = width;
@@ -500,8 +502,10 @@ vnc_client_cleanup(struct nvnc_client *client)
 	struct vnc_peer *peer = nvnc_get_userdata(client);
 
 	wl_list_remove(&peer->link);
-	weston_seat_release_keyboard(peer->seat);
-	weston_seat_release_pointer(peer->seat);
+	if (peer->has_input) {
+		weston_seat_release_keyboard(peer->seat);
+		weston_seat_release_pointer(peer->seat);
+	}
 	weston_seat_release(peer->seat);
 	free(peer);
 	weston_log("VNC Client disconnected\n");
@@ -766,10 +770,13 @@ vnc_new_client(struct nvnc_client *client)
 	peer->backend = backend;
 	peer->output = output;
 	peer->seat = xzalloc(sizeof(*peer->seat));
+	peer->has_input = !output->view_only;
 
 	weston_seat_init(peer->seat, backend->compositor, seat_name);
-	weston_seat_init_pointer(peer->seat);
-	weston_seat_init_keyboard(peer->seat, backend->xkb_keymap);
+	if (peer->has_input) {
+		weston_seat_init_pointer(peer->seat);
+		weston_seat_init_keyboard(peer->seat, backend->xkb_keymap);
+	}
 
 	wl_list_insert(&output->peers, &peer->link);
 
@@ -804,11 +811,30 @@ vnc_output_setup_server(struct vnc_output *output)
 	}
 
 	nvnc_set_new_client_fn(output->server, vnc_new_client);
-	nvnc_set_pointer_fn(output->server, vnc_pointer_event);
-	nvnc_set_key_fn(output->server, vnc_handle_key_event);
-	nvnc_set_key_code_fn(output->server, vnc_handle_key_code_event);
-	nvnc_set_desktop_layout_fn(output->server,
-				   vnc_handle_desktop_layout_event);
+
+	/*
+	 * A view-only output installs none of the handlers for messages a
+	 * client can send that would reach the compositor: PointerEvent,
+	 * KeyEvent, the QEMU extended key event, SetDesktopSize and
+	 * ClientCutText. Anything neatvnc has no handler for is parsed and
+	 * dropped, so leaving them unset is what makes the output read-only.
+	 *
+	 * Clipboard is suppressed in both directions: no cut text handler is
+	 * installed here, and nvnc_send_cut_text() must not be called for a
+	 * view-only output. The remaining client messages are transport and
+	 * encoding negotiation (SetPixelFormat, SetEncodings,
+	 * FramebufferUpdateRequest, EnableContinuousUpdates, NTP, Fence) and
+	 * stay handled by neatvnc so that the client can still see the
+	 * output.
+	 */
+	if (!output->view_only) {
+		nvnc_set_pointer_fn(output->server, vnc_pointer_event);
+		nvnc_set_key_fn(output->server, vnc_handle_key_event);
+		nvnc_set_key_code_fn(output->server,
+				     vnc_handle_key_code_event);
+		nvnc_set_desktop_layout_fn(output->server,
+					   vnc_handle_desktop_layout_event);
+	}
 	nvnc_set_userdata(output->server, output, NULL);
 	nvnc_set_name(output->server, "Weston VNC backend");
 
@@ -849,7 +875,8 @@ vnc_output_setup_server(struct vnc_output *output)
 		}
 	}
 
-	weston_log("VNC server listening on port %d\n", output->port);
+	weston_log("VNC server listening on port %d%s\n", output->port,
+		   output->view_only ? " (view-only)" : "");
 	return 0;
 
 err_server:
@@ -1213,8 +1240,25 @@ vnc_output_set_size(struct weston_output *base, int width, int height,
 	return 0;
 }
 
+static int
+vnc_output_set_view_only(struct weston_output *base, bool view_only)
+{
+	struct vnc_output *output = to_vnc_output(base);
+
+	if (!output)
+		return -1;
+
+	/* The flag is read when the output's VNC server is set up. */
+	assert(!output->server);
+
+	output->view_only = view_only;
+
+	return 0;
+}
+
 static const struct weston_vnc_output_api api = {
 	vnc_output_set_size,
+	vnc_output_set_view_only,
 };
 
 static int
