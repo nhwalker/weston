@@ -67,7 +67,16 @@ the right of previously\-enabled outputs. Ignored when the output is
 output is used.
 .TP
 \fBresizeable\fR=\fIboolean\fR
-Specifies whether the VNC client is allowed to resize the output.
+Specifies whether the VNC client is allowed to resize the output. Forced to
+\fIfalse\fR when the output is \fBview\-only\fR.
+.TP
+\fBview\-only\fR=\fIboolean\fR
+If \fItrue\fR, clients connecting to this output may view its contents but
+cannot affect the compositor: pointer events, key events (both the standard
+and the QEMU extended key event), desktop resize requests and clipboard
+transfers in either direction are all ignored, and connecting clients are
+given no input devices. Other clients and outputs are unaffected. Defaults to
+\fIfalse\fR.
 
 .\" ***************************************************************
 .SH OPTIONS
