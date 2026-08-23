@@ -119,6 +119,26 @@ finding.
   authenticates via `libweston/auth.c` against the PAM `weston-remote-access` stack in both
   the TLS and non-TLS paths.
 
+### On the severity of shutdown/teardown findings
+
+A recurring question: if a bug only fires while the compositor is being torn down, does it
+matter? The answer splits by *kind of bug*, and the severities below already reflect the
+split — findings tagged **[Shutdown note]** carry the reasoning inline:
+
+- **A pure memory/fd leak at process exit is near-harmless** — the OS reclaims it — so those
+  are scored **low** (e.g. AGG-X11-1) or held to **medium** and kept in a tier only by their
+  high *likelihood* (AGG-PW-1). Downgrading these for "we're exiting anyway" is correct, and
+  already done.
+- **A use-after-free / write-after-free at teardown is not a leak** and keeps its **high /
+  medium-high** severity. Under this deployment profile (safety/availability-critical,
+  supervised restart) it can crash or hang *before* teardown completes, leaving listening
+  ports, SHM segments, PAM sessions, or the Xwayland X sockets held — turning a shutdown bug
+  into a *startup* bug on the next launch — and it turns a clean "operator stopped it" exit
+  into a SIGSEGV/hang that is indistinguishable from a fault to a supervisor or audit log.
+  (AGG-VNC-4, AGG-XSEL-11, AGG-XSEL-12.) On a plain desktop that reboots the whole machine
+  on stop, these could reasonably be dialled to medium; the higher score is a deliberate
+  judgement for the assumed profile, not a code fact.
+
 ## How to read a finding
 
 Each entry gives a **Verdict** (with re-scored severity + likelihood), **Where**
@@ -315,6 +335,7 @@ Legend: ⚠︎ = VERIFIED-PARTIAL · ? = UNCERTAIN. Sorted by likelihood then se
 - **Verification:** Teardown order in `weston_compositor_destroy` (`compositor.c:10118–10122`): `shutdown_backends()` (VNC has no `shutdown` hook — confirmed, grep finds none in vnc.c; x11 sets `x11.c:1960 b->base.shutdown`) → `weston_compositor_shutdown()` which does `output->destroy(output)` (`compositor.c:9691`) → `vnc_output_destroy` → `vnc_output_disable` (sets `backend->output = NULL` at `:887`) → `weston_output_release` → `free(output)` (`vnc.c:905`) → then `destroy_backends()` → `vnc_destroy` → `nvnc_close(backend->server)` (`:939`) which drives `vnc_client_cleanup`. There, `:494 wl_list_remove(&peer->link)` touches `output->peers` inside the freed `vnc_output`. `peer->link.prev/next` of the last peer point at `&output->peers`, so two writes land in freed heap. (The `output && ...` guard at `:501` protects only the power-off, not the earlier `wl_list_remove`.)
 - **Impact:** Write-after-free on the ordinary exit-with-client-connected path — the normal way a VNC session ends.
 - **Fix:** Add a `base.shutdown` hook that drains peers (`nvnc_client_close` each, or move `nvnc_close` there) before outputs are destroyed — the split x11 already uses. PR15's alternative of draining inside `vnc_output_disable` also works and additionally NULLs `display`/`fb_pool`.
+- **[Shutdown note]** Severity is **not** discounted for "we're shutting down anyway": this is memory corruption, not a leak. It can crash mid-teardown so `nvnc_close` never completes, leaving the VNC listening socket (5900) and PAM session held — a failed clean stop that can block the next start and reads as a fault, not an operator stop, to a supervisor. High stands under the availability-critical profile; dial to medium only if your deployment tears down the whole host on stop.
 
 ### AGG-VNC-5 — `SetDesktopSize` applies remote resolution with no validation; `weston_mode` uninitialized + stack-pointer native_mode
 
@@ -424,6 +445,11 @@ PR16/PR17; entries below are keyed to the actual bug, not the reused label.
   `pw_loop_destroy`; `free(b->formats)`. PR17's reordered diff is the cleanest.
 - **Notes:** PR16 explicitly corrects PR15 that this is *not* a live UAF — agreed;
   PR15's own write-up only claims leaks + ordering, so there is no real conflict.
+- **[Shutdown note]** The leak half **is** correctly discounted for exit — the OS reclaims
+  `core`/`context`/`formats` at process death, which is why this is **medium**, not high, and
+  sits in the fix-first tier only because its likelihood is 5. The `wl_event_source_remove`
+  after `pw_loop_destroy` is a genuine use-of-freed-loop, but on the exit path its worst case
+  is a crash during an already-terminating process, so it does not lift the severity.
 
 ### AGG-PW-2 — `gbm-format=` accepts DRM formats the backend cannot encode (garbage stream or `bpp==0`)
 
@@ -597,6 +623,7 @@ corroborated across the four reviews but not fetched from upstream here.
 - **Impact:** A few bytes leaked once at process exit; the keymap leak only on a seat-init failure. Housekeeping, no operational risk.
 - **Fix:** Add `wl_array_release(&backend->keys)` and `free(backend->prev_event)` to `x11_destroy()`; unref the keymap before the early `return -1` (capture the return, unref, then check). Both patches in PR15 are correct.
 - **Notes:** L4 (every shutdown) but one-shot; effectively free to fix. Lowest priority despite the high likelihood.
+- **[Shutdown note]** This is the archetypal "discount it because we're exiting" case, and it *is* discounted — **low** severity, pure exit-time leak reclaimed by the OS. No availability or correctness impact; fix it only for hygiene.
 
 ### AGG-X11-2 — Out-of-bounds `strlen()` parsing `_XKB_RULES_NAMES`
 
@@ -1117,6 +1144,7 @@ All line numbers verified against the working tree (base `1a9149c`, weston 14.0.
 - **Impact:** UAF on shutdown-during-Xwayland-startup.
 - **Fix:** In `wet_xwayland_destroy`, `if (wxw->display_fd_source) { wl_event_source_remove(...); wxw->display_fd_source = NULL; }` before `free`; also NULL the field in `handle_display_fd` after removal (adopt PR15).
 - **Notes:** Likelihood lowered to 1 vs PR15's 2 — beyond the narrow spawned-but-not-ready window, the UAF also needs an actual loop dispatch of the readable fd between `free(wxw)` and loop teardown; structurally real regardless.
+- **[Shutdown note]** Not discounted for "we're exiting": this is a UAF, not a leak, and it fires *during* shutdown-with-Xwayland-starting, so it can crash the compositor mid-teardown and leave the Xwayland child and its X display socket orphaned for the next start. Medium-high stands; the low *likelihood* (narrow window) is what keeps it out of the fix-first tier, not the severity.
 
 ### AGG-XSEL-11 — `spawn_xserver` `err_proc` leaks `process->path` and dangles `wxw->process` → later UAF
 
@@ -1127,6 +1155,7 @@ All line numbers verified against the working tree (base `1a9149c`, weston 14.0.
 - **Verification:** `err_proc` (`:210-218`) does `wl_list_remove(&wxw->process->link); ... free(wxw->process);` and returns NULL, without `wet_process_destroy` and without NULLing `wxw->process`. The `strdup`'d `process->path` is leaked, the child is orphaned, and `wet_xwayland_destroy`'s `if (wxw->process) wet_process_destroy(...)` (`:228-229`) then runs on freed memory.
 - **Impact:** Orphaned Xwayland holding the X sockets + dangling-pointer UAF at teardown.
 - **Fix:** Use `wet_process_destroy(wxw->process, 0, true)` and set `wxw->process = NULL` on the error path (adopt PR17).
+- **[Shutdown note]** Same reasoning as AGG-XSEL-12: the dangling `wxw->process` is dereferenced at teardown, so "we're shutting down anyway" is exactly when it bites — a crash mid-teardown plus an orphaned Xwayland holding the X sockets. Severity is not discounted; likelihood 1 keeps it low-priority.
 
 ### AGG-XSEL-9 — `get_atom_name()` leaks the XCB error on every failed lookup
 
